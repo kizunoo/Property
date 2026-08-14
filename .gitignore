@@ -7,4 +7,14 @@ __v0_jsx-dev-runtime.ts
 node_modules/
 .next/
 .env*.local
+.env
+backend/.env
 .DS_Store
+*.tsbuildinfo
+
+# Python ignores
+backend/venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class

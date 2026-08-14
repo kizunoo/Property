@@ -1,23 +1,27 @@
 "use client"
 
-import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
-import { BarChart3 } from "lucide-react"
-import { CLIENTS, currency, type Tier } from "@/lib/pipeline-data"
+import { Treemap, ResponsiveContainer, Tooltip } from "recharts"
+import { LayoutDashboard } from "lucide-react"
+import { currency, getDashboardSummary, type Client, type Tier } from "@/lib/pipeline-data"
+
+import { ScrollConnect } from "@/components/animation/scroll-connect"
+
 
 const TIER_ORDER: Tier[] = ["TIER_1", "TIER_2", "TIER_3"]
 
-const TIER_META: Record<Tier, { label: string; fill: string }> = {
-  TIER_1: { label: "TIER 1 · VIP", fill: "var(--primary)" },
-  TIER_2: { label: "TIER 2 · WARM", fill: "#000000" },
-  TIER_3: { label: "TIER 3 · COLD", fill: "#d4d4d4" },
+const TIER_META: Record<Tier, { label: string; shortLabel: string; fill: string; textColor: string }> = {
+  TIER_1: { label: "TIER 1 · VIP",  shortLabel: "VIP",  fill: "var(--primary)", textColor: "#000000" },
+  TIER_2: { label: "TIER 2 · WARM", shortLabel: "WARM", fill: "#000000",        textColor: "#ffffff" },
+  TIER_3: { label: "TIER 3 · COLD", shortLabel: "COLD", fill: "#c4c4c4",        textColor: "#000000" },
 }
 
+// ─── Tooltip ─────────────────────────────────────────────────────────────────
 interface TooltipPayload {
   active?: boolean
   payload?: { payload: { label: string; value: number; count: number } }[]
 }
 
-function ChartTooltip({ active, payload }: TooltipPayload) {
+function TreeTooltip({ active, payload }: TooltipPayload) {
   if (!active || !payload?.length) return null
   const item = payload[0].payload
   return (
@@ -31,61 +35,117 @@ function ChartTooltip({ active, payload }: TooltipPayload) {
   )
 }
 
-interface TierValueChartProps {
-  tall?: boolean
+// ─── Custom treemap cell renderer ─────────────────────────────────────────────
+interface TreeCellProps {
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+  tier?: Tier
+  value?: number
+  count?: number
+  onTierClick?: (tier: Tier) => void
 }
 
-export function TierValueChart({ tall = false }: TierValueChartProps) {
-  const data = TIER_ORDER.map((tier) => {
-    const items = CLIENTS.filter((c) => c.tier === tier)
-    return {
-      tier,
-      label: TIER_META[tier].label,
-      value: items.reduce((sum, c) => sum + c.expectedValue, 0),
-      count: items.length,
-    }
-  })
+function TreeCell({ x = 0, y = 0, width = 0, height = 0, tier, value, count, onTierClick }: TreeCellProps) {
+  if (!tier || width < 2 || height < 2) return null
+  const meta = TIER_META[tier]
+  const isSmall = width < 90 || height < 60
+  const isTiny  = width < 55 || height < 40
 
   return (
-    <div className="border-4 border-black bg-card shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+    <g style={{ cursor: onTierClick ? "pointer" : "default" }} onClick={() => onTierClick?.(tier)}>
+      <rect x={x + 2} y={y + 2} width={width - 4} height={height - 4} fill={meta.fill} stroke="#000000" strokeWidth={3} />
+      {tier === "TIER_1" && !isTiny && (
+        <rect x={x + 6} y={y + 6} width={width - 12} height={4} fill="rgba(0,0,0,0.15)" />
+      )}
+      {!isTiny && (
+        <text
+          x={x + width / 2} y={y + (isSmall ? height / 2 - 4 : height / 2 - 14)}
+          textAnchor="middle" dominantBaseline="middle"
+          fill={meta.textColor} fontSize={isSmall ? 10 : 13} fontWeight={900}
+          fontFamily="var(--font-space-mono, monospace)"
+          style={{ userSelect: "none", textTransform: "uppercase", letterSpacing: "0.08em" }}
+        >
+          {meta.shortLabel}
+        </text>
+      )}
+      {!isSmall && value !== undefined && (
+        <text
+          x={x + width / 2} y={y + height / 2 + 4}
+          textAnchor="middle" dominantBaseline="middle"
+          fill={meta.textColor} fontSize={11} fontWeight={700}
+          fontFamily="var(--font-space-mono, monospace)" opacity={0.85}
+          style={{ userSelect: "none" }}
+        >
+          {currency(value)}
+        </text>
+      )}
+      {!isSmall && count !== undefined && (
+        <text
+          x={x + width / 2} y={y + height / 2 + 22}
+          textAnchor="middle" dominantBaseline="middle"
+          fill={meta.textColor} fontSize={10} fontWeight={700}
+          fontFamily="var(--font-space-mono, monospace)" opacity={0.7}
+          style={{ userSelect: "none", textTransform: "uppercase", letterSpacing: "0.06em" }}
+        >
+          {count} {count === 1 ? "client" : "clients"}
+        </text>
+      )}
+    </g>
+  )
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+interface TierValueChartProps {
+  clients: Client[]
+  onTierClick?: (tier: Tier) => void
+}
+
+export function TierValueChart({ clients, onTierClick }: TierValueChartProps) {
+  // Single shared aggregation — same deduplication logic as Dashboard stat cards
+  const { byTier, byTierEx } = getDashboardSummary(clients)
+
+  const rawData = TIER_ORDER.map((tier) => ({
+    tier,
+    label: TIER_META[tier].label,
+    value: byTierEx[tier],
+    count: byTier[tier],
+  })).filter((d) => d.value > 0)
+
+  const treeChildren = rawData.map((d) => ({ ...d, name: d.label, size: d.value }))
+
+  return (
+    <ScrollConnect>
+      <div className="border-4 border-black bg-card shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
       <div className="flex items-center justify-between gap-3 border-b-4 border-black bg-black px-5 py-3.5 sm:px-6">
         <div className="flex items-center gap-2 text-white">
-          <BarChart3 className="h-4 w-4" strokeWidth={2.5} />
+          <LayoutDashboard className="h-4 w-4" strokeWidth={2.5} />
           <span className="text-xs font-black uppercase tracking-wider sm:text-sm">
-            Total Expected Value by Tier
+            Expected Value by Tier
           </span>
         </div>
         <span className="border-2 border-black bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
-          Live
+          {onTierClick ? "Click to filter" : "Live"}
         </span>
       </div>
 
-      <div className={tall ? "h-[60vh] min-h-[420px] p-4 sm:p-8" : "h-[280px] p-4 sm:h-[320px] sm:p-6"}>
+      <div className="h-[300px] p-4 sm:h-[340px] sm:p-5">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 8 }} barCategoryGap="28%">
-            <CartesianGrid stroke="rgba(0,0,0,0.15)" vertical={false} />
-            <XAxis
-              dataKey="label"
-              tick={{ fill: "#000000", fontWeight: 900, fontSize: 11 }}
-              axisLine={{ stroke: "#000000", strokeWidth: 3 }}
-              tickLine={{ stroke: "#000000", strokeWidth: 2 }}
-            />
-            <YAxis
-              tickFormatter={(value: number) => currency(value).replace("$", "").replace(/,\d{3}$/, "K")}
-              tick={{ fill: "#000000", fontWeight: 700, fontSize: 11 }}
-              axisLine={{ stroke: "#000000", strokeWidth: 3 }}
-              tickLine={{ stroke: "#000000", strokeWidth: 2 }}
-              width={56}
-            />
-            <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(0,0,0,0.06)" }} />
-            <Bar dataKey="value" stroke="#000000" strokeWidth={3} maxBarSize={110} isAnimationActive={false}>
-              {data.map((entry) => (
-                <Cell key={entry.tier} fill={TIER_META[entry.tier].fill} />
-              ))}
-            </Bar>
-          </BarChart>
+          <Treemap
+            data={treeChildren}
+            dataKey="size"
+            aspectRatio={4 / 3}
+            isAnimationActive={true}
+            animationDuration={600}
+            animationEasing="ease-out"
+            content={<TreeCell onTierClick={onTierClick} />}
+          >
+            <Tooltip content={<TreeTooltip />} />
+          </Treemap>
         </ResponsiveContainer>
       </div>
     </div>
+    </ScrollConnect>
   )
 }

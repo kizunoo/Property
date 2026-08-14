@@ -1,0 +1,83 @@
+.rect-tab-nav {
+  display: inline-flex;
+  border: 3px solid var(--border, #000);
+  background: var(--background, #fff);
+  box-shadow: 6px 6px 0px 0px rgba(0, 0, 0, 1); /* hard offset, no blur */
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.rect-tab-list {
+  list-style: none;
+  display: flex;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+.rect-tab-list > li {
+  display: flex;
+  flex: 1;
+  border-right: 2px solid var(--border, #000);
+}
+.rect-tab-list > li:last-child {
+  border-right: none;
+}
+
+.rect-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  padding: 0 20px;
+  width: 100%;
+  background: var(--background, #fff);
+  color: var(--foreground, #000);
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border: none;
+  border-radius: 0; /* no pill shape */
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.rect-tab.is-active {
+  background: var(--primary, #ffd400); /* acid yellow fill for the active tab, hard-cut not animated as a color transition */
+}
+
+.rect-tab .hover-block {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--foreground, #000);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.rect-tab .label-stack {
+  position: relative;
+  z-index: 2;
+  display: inline-block;
+}
+
+.rect-tab .tab-label {
+  position: relative;
+  z-index: 2;
+  display: inline-block;
+}
+
+.rect-tab .tab-label-hover {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: #fff;
+  z-index: 3;
+  display: inline-block;
+}

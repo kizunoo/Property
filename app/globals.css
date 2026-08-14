@@ -111,43 +111,181 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
+
+  html {
     @apply bg-background text-foreground;
+  }
+
+  body {
+    @apply bg-transparent text-foreground;
   }
 }
 
 /* ── Neo-brutalist stripe pattern ──────────────────────────────── */
 .stripes-diagonal {
-  background-image: repeating-linear-gradient(
-    45deg,
-    transparent,
-    transparent 10px,
-    rgba(0, 0, 0, 0.06) 10px,
-    rgba(0, 0, 0, 0.06) 20px
-  );
+  background-image: repeating-linear-gradient(45deg,
+      transparent,
+      transparent 10px,
+      rgba(0, 0, 0, 0.06) 10px,
+      rgba(0, 0, 0, 0.06) 20px);
 }
 
 .stripes-grid {
-  background-image: repeating-linear-gradient(
-      0deg,
+  background-image: repeating-linear-gradient(0deg,
       transparent,
       transparent 20px,
       rgba(0, 0, 0, 0.08) 20px,
-      rgba(0, 0, 0, 0.08) 21px
-    ),
-    repeating-linear-gradient(
-      90deg,
+      rgba(0, 0, 0, 0.08) 21px),
+    repeating-linear-gradient(90deg,
       transparent,
       transparent 20px,
       rgba(0, 0, 0, 0.08) 20px,
-      rgba(0, 0, 0, 0.08) 21px
-    );
+      rgba(0, 0, 0, 0.08) 21px);
 }
 
 .scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
 .scrollbar-none::-webkit-scrollbar {
   display: none;
+}
+
+@media (pointer: fine) {
+  * {
+    cursor: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    cursor: auto !important;
+  }
+}
+
+@keyframes card-snap-in {
+  0% {
+    opacity: 0;
+    transform: translateY(14px);
+    box-shadow: none;
+  }
+
+  70% {
+    opacity: 1;
+    transform: translateY(0);
+    box-shadow: none;
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    box-shadow: 6px 6px 0px 0px rgba(0, 0, 0, 1);
+  }
+}
+
+.decrypt-encrypted {
+  color: var(--muted-foreground, #999);
+  font-family: var(--font-mono);
+}
+
+.decrypt-revealed {
+  color: var(--foreground, #000);
+  font-family: var(--font-mono);
+}
+
+@keyframes cell-snap-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.heatmap-cell-enter {
+  animation: cell-snap-in 180ms steps(3, end) forwards;
+}
+
+@keyframes prob-bar-fill {
+  from {
+    width: 0%;
+  }
+}
+
+.prob-bar-anim {
+  animation: prob-bar-fill 300ms steps(6, end) forwards;
+}
+
+.crt-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  /* above content, below modals if modals use 9999+ */
+  pointer-events: none;
+  mix-blend-mode: multiply;
+}
+
+.crt-scanlines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(to bottom,
+      rgba(0, 0, 0, 0.08) 0px,
+      rgba(0, 0, 0, 0.08) 1px,
+      transparent 1px,
+      transparent 3px);
+  animation: crt-scan-drift 8s linear infinite;
+}
+
+@keyframes crt-scan-drift {
+  0% {
+    background-position: 0 0;
+  }
+
+  100% {
+    background-position: 0 100px;
+  }
+}
+
+.crt-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center,
+      transparent 55%,
+      rgba(0, 0, 0, 0.175) 100%);
+}
+
+.crt-flicker {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.02);
+  animation: crt-flicker-pulse 6s infinite steps(1, end);
+}
+
+@keyframes crt-flicker-pulse {
+
+  0%,
+  92%,
+  100% {
+    opacity: 0;
+  }
+
+  93% {
+    opacity: 1;
+  }
+
+  94% {
+    opacity: 0;
+  }
+
+  97% {
+    opacity: 0.6;
+  }
+
+  98% {
+    opacity: 0;
+  }
 }

@@ -11,5 +11,5 @@ export default function Home() {
     return <LoginScreen onSignIn={() => setAuthenticated(true)} />
   }
 
-  return <PipelineDashboard />
+  return <PipelineDashboard onLogout={() => setAuthenticated(false)} />
 }

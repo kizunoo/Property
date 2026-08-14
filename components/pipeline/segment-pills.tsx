@@ -1,55 +1,111 @@
-"use client"
+"use client";
 
-import type { ComponentType } from "react"
-import { Crown, Flame, Snowflake, Users } from "lucide-react"
-import type { Tier } from "@/lib/pipeline-data"
+import { useEffect, useRef } from "react";
+import { gsap } from "gsap";
+import type { Tier } from "@/lib/pipeline-data";
+import "./tab-nav.css";
 
-export type SegmentFilter = "ALL" | Tier
+export type SegmentFilter = "ALL" | Tier;
 
 interface SegmentPillsProps {
-  active: SegmentFilter
-  onChange: (value: SegmentFilter) => void
-  counts: Record<SegmentFilter, number>
+  active: SegmentFilter;
+  onChange: (value: SegmentFilter) => void;
+  counts: Record<SegmentFilter, number>;
 }
 
-const OPTIONS: { value: SegmentFilter; label: string; icon: ComponentType<{ className?: string; strokeWidth?: number }> }[] = [
-  { value: "ALL", label: "All Clients", icon: Users },
-  { value: "TIER_1", label: "Tier 1 · VIP", icon: Crown },
-  { value: "TIER_2", label: "Tier 2 · Warm", icon: Flame },
-  { value: "TIER_3", label: "Tier 3 · Cold", icon: Snowflake },
-]
+const OPTIONS: { value: SegmentFilter; label: string }[] = [
+  { value: "ALL", label: "All Clients" },
+  { value: "TIER_1", label: "Tier 1 · VIP" },
+  { value: "TIER_2", label: "Tier 2 · Warm" },
+  { value: "TIER_3", label: "Tier 3 · Cold" },
+];
 
 export function SegmentPills({ active, onChange, counts }: SegmentPillsProps) {
+  const circleRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const tlRefs = useRef<any[]>([]);
+  const activeTweenRefs = useRef<any[]>([]);
+
+  useEffect(() => {
+    const layout = () => {
+      circleRefs.current.forEach((rect, i) => {
+        if (!rect?.parentElement) return;
+        const pill = rect.parentElement;
+        const h = pill.getBoundingClientRect().height;
+
+        gsap.set(rect, { scaleY: 0, transformOrigin: "bottom center" });
+
+        const label = pill.querySelector(".tab-label") as HTMLElement;
+        const hoverLabel = pill.querySelector(".tab-label-hover") as HTMLElement;
+        if (label) gsap.set(label, { y: 0 });
+        if (hoverLabel) gsap.set(hoverLabel, { y: h, opacity: 0 });
+
+        tlRefs.current[i]?.kill();
+        const tl = gsap.timeline({ paused: true });
+        tl.to(rect, { scaleY: 1, duration: 0.18, ease: "power2.out", overwrite: "auto" }, 0);
+        if (label) tl.to(label, { y: -h, duration: 0.18, ease: "power2.out", overwrite: "auto" }, 0);
+        if (hoverLabel) tl.to(hoverLabel, { y: 0, opacity: 1, duration: 0.18, ease: "power2.out", overwrite: "auto" }, 0);
+        tlRefs.current[i] = tl;
+      });
+    };
+    layout();
+    window.addEventListener("resize", layout);
+    return () => window.removeEventListener("resize", layout);
+  }, [counts]);
+
+  const handleEnter = (i: number) => {
+    const tl = tlRefs.current[i];
+    if (!tl) return;
+    activeTweenRefs.current[i]?.kill();
+    activeTweenRefs.current[i] = tl.tweenTo(tl.duration(), { duration: 0.15, ease: "power2.out", overwrite: "auto" });
+  };
+
+  const handleLeave = (i: number) => {
+    const tl = tlRefs.current[i];
+    if (!tl) return;
+    activeTweenRefs.current[i]?.kill();
+    activeTweenRefs.current[i] = tl.tweenTo(0, { duration: 0.12, ease: "power2.out", overwrite: "auto" });
+  };
+
   return (
-    <div className="flex flex-wrap gap-3" role="tablist" aria-label="Filter by segment">
-      {OPTIONS.map((option) => {
-        const isActive = active === option.value
-        const Icon = option.icon
-        return (
-          <button
-            key={option.value}
-            type="button"
-            role="tab"
-            aria-selected={isActive}
-            onClick={() => onChange(option.value)}
-            className={`flex items-center gap-2 border-2 border-black px-4 py-2.5 text-xs sm:text-sm font-black uppercase tracking-wider transition-transform ${
-              isActive
-                ? "bg-black text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] -translate-x-0.5 -translate-y-0.5"
-                : "bg-white text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
-            }`}
-          >
-            <Icon className={`h-4 w-4 ${isActive ? "text-primary" : "text-black"}`} strokeWidth={2.5} />
-            {option.label}
-            <span
-              className={`border-2 border-black px-1.5 text-[10px] sm:text-xs ${
-                isActive ? "bg-primary text-black" : "bg-black text-white"
-              }`}
-            >
-              {counts[option.value]}
-            </span>
-          </button>
-        )
-      })}
-    </div>
-  )
+    <nav className="rect-tab-nav" aria-label="Filter by segment">
+      <ul className="rect-tab-list" role="tablist">
+        {OPTIONS.map((option, i) => {
+          const isActive = active === option.value;
+          const count = counts[option.value] ?? 0;
+          const displayLabel = `${option.label} (${count})`;
+
+          return (
+            <li key={option.value} role="none">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                className={`rect-tab${isActive ? " is-active" : ""}`}
+                style={{ height: "36px", padding: "0 14px", fontSize: "12px" }}
+                onMouseEnter={() => handleEnter(i)}
+                onMouseLeave={() => handleLeave(i)}
+                onClick={() => onChange(option.value)}
+              >
+                <span
+                  className="hover-block"
+                  aria-hidden="true"
+                  ref={(el) => {
+                    circleRefs.current[i] = el;
+                  }}
+                />
+                <span className="label-stack">
+                  <span className="tab-label">{displayLabel}</span>
+                  <span className="tab-label-hover" aria-hidden="true">
+                    {displayLabel}
+                  </span>
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
 }
+
+export default SegmentPills;

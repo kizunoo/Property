@@ -1,50 +1,121 @@
-"use client"
+"use client";
 
-import type { ComponentType } from "react"
-import { BarChart3, LayoutGrid, Home, Users } from "lucide-react"
+import { useEffect, useRef } from "react";
+import { gsap } from "gsap";
+import "./tab-nav.css";
 
-export type DashboardTab = "DASHBOARD" | "ANALYTICS" | "PROPERTIES" | "CLIENTS"
+export type DashboardTab = "DASHBOARD" | "ANALYTICS" | "PROPERTIES" | "CLIENTS" | "VIEWINGS";
 
-interface TabNavProps {
-  active: DashboardTab
-  onChange: (value: DashboardTab) => void
+export interface TabItem {
+  key: string;
+  label: string;
 }
 
-const TABS: { value: DashboardTab; label: string; icon: ComponentType<{ className?: string; strokeWidth?: number }> }[] = [
-  { value: "DASHBOARD", label: "Dashboard", icon: LayoutGrid },
-  { value: "ANALYTICS", label: "Analytics", icon: BarChart3 },
-  { value: "PROPERTIES", label: "Properties", icon: Home },
-  { value: "CLIENTS", label: "Clients", icon: Users },
-]
+export interface TabNavProps {
+  items?: TabItem[];
+  activeKey?: string;
+  onSelect?: (key: string) => void;
+  active?: DashboardTab;
+  onChange?: (value: DashboardTab) => void;
+}
 
-export function TabNav({ active, onChange }: TabNavProps) {
+const DEFAULT_ITEMS: TabItem[] = [
+  { key: "DASHBOARD", label: "Dashboard" },
+  { key: "ANALYTICS", label: "Analytics" },
+  { key: "PROPERTIES", label: "Properties" },
+  { key: "CLIENTS", label: "Clients" },
+  { key: "VIEWINGS", label: "Viewings" },
+];
+
+export function TabNav({
+  items = DEFAULT_ITEMS,
+  activeKey,
+  onSelect,
+  active,
+  onChange,
+}: TabNavProps) {
+  const currentActiveKey = activeKey ?? active ?? "DASHBOARD";
+  const handleSelect = (key: string) => {
+    if (onSelect) onSelect(key);
+    if (onChange) onChange(key as DashboardTab);
+  };
+
+  const circleRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const tlRefs = useRef<any[]>([]);
+  const activeTweenRefs = useRef<any[]>([]);
+
+  useEffect(() => {
+    const layout = () => {
+      circleRefs.current.forEach((rect, i) => {
+        if (!rect?.parentElement) return;
+        const pill = rect.parentElement;
+        const h = pill.getBoundingClientRect().height;
+
+        // Rectangular wipe — no circle-radius geometry needed, just a hard block scaling up from the bottom
+        gsap.set(rect, { scaleY: 0, transformOrigin: "bottom center" });
+
+        const label = pill.querySelector(".tab-label") as HTMLElement;
+        const hoverLabel = pill.querySelector(".tab-label-hover") as HTMLElement;
+        if (label) gsap.set(label, { y: 0 });
+        if (hoverLabel) gsap.set(hoverLabel, { y: h, opacity: 0 });
+
+        tlRefs.current[i]?.kill();
+        const tl = gsap.timeline({ paused: true });
+        // fast, linear-leaning ease — snap, not glide
+        tl.to(rect, { scaleY: 1, duration: 0.18, ease: "power2.out", overwrite: "auto" }, 0);
+        if (label) tl.to(label, { y: -h, duration: 0.18, ease: "power2.out", overwrite: "auto" }, 0);
+        if (hoverLabel) tl.to(hoverLabel, { y: 0, opacity: 1, duration: 0.18, ease: "power2.out", overwrite: "auto" }, 0);
+        tlRefs.current[i] = tl;
+      });
+    };
+    layout();
+    window.addEventListener("resize", layout);
+    return () => window.removeEventListener("resize", layout);
+  }, [items]);
+
+  const handleEnter = (i: number) => {
+    const tl = tlRefs.current[i];
+    if (!tl) return;
+    activeTweenRefs.current[i]?.kill();
+    activeTweenRefs.current[i] = tl.tweenTo(tl.duration(), { duration: 0.15, ease: "power2.out", overwrite: "auto" });
+  };
+
+  const handleLeave = (i: number) => {
+    const tl = tlRefs.current[i];
+    if (!tl) return;
+    activeTweenRefs.current[i]?.kill();
+    activeTweenRefs.current[i] = tl.tweenTo(0, { duration: 0.12, ease: "power2.out", overwrite: "auto" });
+  };
+
   return (
-    <nav
-      role="tablist"
-      aria-label="Dashboard sections"
-      className="flex flex-wrap gap-3 border-4 border-black bg-card p-2 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] sm:gap-4"
-    >
-      {TABS.map((tab) => {
-        const isActive = active === tab.value
-        const Icon = tab.icon
-        return (
-          <button
-            key={tab.value}
-            type="button"
-            role="tab"
-            aria-selected={isActive}
-            onClick={() => onChange(tab.value)}
-            className={`flex items-center gap-2 border-2 border-black px-4 py-2.5 text-xs font-black uppercase tracking-wider transition-transform sm:text-sm ${
-              isActive
-                ? "-translate-x-0.5 -translate-y-0.5 bg-black text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
-                : "bg-white text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
-            }`}
-          >
-            <Icon className={`h-4 w-4 ${isActive ? "text-primary" : "text-black"}`} strokeWidth={2.5} />
-            {tab.label}
-          </button>
-        )
-      })}
+    <nav className="rect-tab-nav" aria-label="Primary">
+      <ul className="rect-tab-list" role="tablist">
+        {items.map((item, i) => (
+          <li key={item.key} role="none">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={currentActiveKey === item.key}
+              className={`rect-tab${currentActiveKey === item.key ? " is-active" : ""}`}
+              onMouseEnter={() => handleEnter(i)}
+              onMouseLeave={() => handleLeave(i)}
+              onClick={() => handleSelect(item.key)}
+            >
+              <span
+                className="hover-block"
+                aria-hidden="true"
+                ref={(el) => { circleRefs.current[i] = el; }}
+              />
+              <span className="label-stack">
+                <span className="tab-label">{item.label}</span>
+                <span className="tab-label-hover" aria-hidden="true">{item.label}</span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
     </nav>
-  )
+  );
 }
+
+export default TabNav;
