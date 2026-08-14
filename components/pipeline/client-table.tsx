@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type ComponentType } from "react"
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react"
 import {
   CheckCircle2,
   DollarSign,
@@ -14,12 +14,23 @@ import {
   UserRound,
   Percent as PercentIcon,
 } from "lucide-react"
+import { gsap } from "gsap"
+import { ScrollTrigger } from "gsap/ScrollTrigger"
 import { TIER_SHORT, currency, percent, type DeduplicatedClient } from "@/lib/pipeline-data"
 import { CountUp } from "@/components/animation/count-up"
 import { RowConnect } from "@/components/animation/row-connect"
 
-// 7-column grid matching header + row cells
-const GRID_COLS = "grid-cols-[1.8fr_1.8fr_1fr_1fr_1.2fr_0.8fr_1fr]"
+gsap.registerPlugin(ScrollTrigger)
+
+// 7-column grid matching header + row cells.
+// Every track uses minmax(0, Nfr) — without the minmax(0, …) floor, a track's
+// implicit minimum is "auto" (its content's natural width), so columns in one
+// row can end up a different width than the same column in another row once
+// content lengths differ. Since each row is its own independent grid (they
+// need to be, to animate individually), that mismatch is what caused the
+// columns to drift out of alignment between rows.
+const GRID_COLS =
+  "grid-cols-[minmax(0,1.8fr)_minmax(0,1.8fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,0.8fr)_minmax(0,1fr)]"
 
 interface ClientTableProps {
   clients: DeduplicatedClient[]
@@ -66,11 +77,17 @@ function ClientTableRow({
   index,
   onSelect,
   handleInvite,
+  onHeightChange,
+  onProgress,
+  onUnregister,
 }: {
   client: DeduplicatedClient
   index: number
   onSelect: (client: DeduplicatedClient) => void
   handleInvite: (client: DeduplicatedClient) => void
+  onHeightChange: (id: string, height: number) => void
+  onProgress: (id: string, progress: number) => void
+  onUnregister: (id: string) => void
 }) {
   const probPercent = Math.round(client.bestMatch.probability * 100)
   const rowBg = index % 2 === 1 ? "bg-secondary" : "bg-card"
@@ -78,7 +95,11 @@ function ClientTableRow({
 
   return (
     <RowConnect
+      id={client.clientId}
       onClick={() => onSelect(client)}
+      onHeightChange={onHeightChange}
+      onProgress={onProgress}
+      onUnregister={onUnregister}
       className={`grid ${GRID_COLS} min-w-[920px] min-h-[76px] items-stretch cursor-pointer transition-colors hover:bg-primary/20 ${rowBg}`}
     >
       {/* Client name + neighbourhood */}
@@ -177,7 +198,55 @@ function ClientTableRow({
 
 export function ClientTable({ clients, onGenerateInvite, onSelect }: ClientTableProps) {
   const [invited, setInvited] = useState<Record<string, boolean>>({})
-  const [query, setQuery]   = useState("")
+  const [query, setQuery] = useState("")
+
+  const tableRef = useRef<HTMLDivElement>(null)
+  const headerRef = useRef<HTMLDivElement>(null)
+  const rowHeights = useRef<Map<string, number>>(new Map())
+  const rowProgress = useRef<Map<string, number>>(new Map())
+
+  // The table's own border/shadow box is only ever as tall as the header plus
+  // whatever rows have actually "connected" so far — never the full 28-row
+  // height up front. Rows that haven't connected yet simply overflow below
+  // this box (overflow is visible, not hidden) and read as floating cards
+  // outside the table, not as content trapped inside a slot the table has
+  // already claimed.
+  const recomputeHeight = useCallback(() => {
+    const table = tableRef.current
+    const header = headerRef.current
+    if (!table || !header) return
+    let total = header.offsetHeight
+    rowHeights.current.forEach((height, id) => {
+      const progress = rowProgress.current.get(id) ?? 0
+      total += height * progress
+    })
+    table.style.height = `${Math.max(total, header.offsetHeight)}px`
+  }, [])
+
+  const handleRowHeight = useCallback(
+    (id: string, height: number) => {
+      rowHeights.current.set(id, height)
+      recomputeHeight()
+    },
+    [recomputeHeight],
+  )
+
+  const handleRowProgress = useCallback(
+    (id: string, progress: number) => {
+      rowProgress.current.set(id, progress)
+      recomputeHeight()
+    },
+    [recomputeHeight],
+  )
+
+  const handleRowUnregister = useCallback(
+    (id: string) => {
+      rowHeights.current.delete(id)
+      rowProgress.current.delete(id)
+      recomputeHeight()
+    },
+    [recomputeHeight],
+  )
 
   const visible = query.trim()
     ? clients.filter((c) => {
@@ -190,6 +259,15 @@ export function ClientTable({ clients, onGenerateInvite, onSelect }: ClientTable
         )
       })
     : clients
+
+  // Whenever the visible row set changes (initial mount, search filtering),
+  // force GSAP to re-sync every row's connect progress with the current
+  // scroll position, so rows already past the "connect" line render as
+  // connected immediately instead of waiting for the next scroll tick.
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => ScrollTrigger.refresh())
+    return () => cancelAnimationFrame(raf)
+  }, [visible.length, query])
 
   function handleInvite(client: DeduplicatedClient) {
     setInvited((prev) => ({ ...prev, [client.clientId]: true }))
@@ -215,15 +293,20 @@ export function ClientTable({ clients, onGenerateInvite, onSelect }: ClientTable
 
       {/* ── Grid table ── */}
       <div
+        ref={tableRef}
         role="table"
         aria-label="Client pipeline"
-        className="border-4 border-black bg-card shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] overflow-hidden"
+        className="border-4 border-black bg-card shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] overflow-visible"
       >
-        {/* Scrollable container — scroll-x for narrow viewports */}
-        <div className="overflow-x-auto scrollbar-none">
+        {/* Scrollable container — scroll-x for narrow viewports.
+            Vertical overflow stays visible so unconnected rows can spill
+            below the table's currently-grown boundary instead of being
+            clipped. */}
+        <div className="overflow-x-auto overflow-y-visible scrollbar-none">
 
           {/* Header */}
           <div
+            ref={headerRef}
             role="rowgroup"
             className={`grid ${GRID_COLS} min-w-[920px] bg-black text-white border-b-4 border-black`}
           >
@@ -267,6 +350,9 @@ export function ClientTable({ clients, onGenerateInvite, onSelect }: ClientTable
                 index={index}
                 onSelect={onSelect}
                 handleInvite={handleInvite}
+                onHeightChange={handleRowHeight}
+                onProgress={handleRowProgress}
+                onUnregister={handleRowUnregister}
               />
             ))}
           </div>
