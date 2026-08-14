@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import { TIER_SHORT, currency, percent, type DeduplicatedClient } from "@/lib/pipeline-data"
 import { CountUp } from "@/components/animation/count-up"
+import { RowConnect } from "@/components/animation/row-connect"
 
 // 7-column grid matching header + row cells
 const GRID_COLS = "grid-cols-[1.8fr_1.8fr_1fr_1fr_1.2fr_0.8fr_1fr]"
@@ -51,8 +52,10 @@ function ColumnHeading({
   align?: "left" | "right"
 }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : ""}`}>
-      <Icon className="h-3.5 w-3.5" strokeWidth={2.5} />
+    <span
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap ${align === "right" ? "justify-end w-full" : ""}`}
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
       {children}
     </span>
   )
@@ -71,25 +74,25 @@ function ClientTableRow({
 }) {
   const probPercent = Math.round(client.bestMatch.probability * 100)
   const rowBg = index % 2 === 1 ? "bg-secondary" : "bg-card"
+  const hasOtherMatches = client.otherMatchCount > 0
 
   return (
-    <div
-      role="row"
+    <RowConnect
       onClick={() => onSelect(client)}
-      className={`grid ${GRID_COLS} min-w-[920px] items-stretch cursor-pointer transition-colors hover:bg-primary/20 ${rowBg}`}
+      className={`grid ${GRID_COLS} min-w-[920px] min-h-[76px] items-stretch cursor-pointer transition-colors hover:bg-primary/20 ${rowBg}`}
     >
       {/* Client name + neighbourhood */}
-      <div role="cell" className="flex items-center px-4 py-4 sm:px-5">
-        <div className="flex items-center gap-3">
+      <div role="cell" className="flex min-w-0 items-center px-4 py-4 sm:px-5">
+        <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center border-2 border-black bg-black text-xs font-black text-white">
             {client.initials}
           </div>
-          <div>
-            <div className="flex items-center gap-1.5 text-sm font-black leading-tight sm:text-base">
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-1.5 text-sm font-black leading-tight sm:text-base">
               <UserRound className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={2.5} />
-              {client.name}
+              <span className="truncate">{client.name}</span>
             </div>
-            <div className="font-mono text-[11px] text-muted-foreground">
+            <div className="truncate font-mono text-[11px] text-muted-foreground">
               {client.bestMatch.neighborhood}
             </div>
           </div>
@@ -97,44 +100,46 @@ function ClientTableRow({
       </div>
 
       {/* Highest Value Match property + "+N other" indicator */}
-      <div role="cell" className="flex items-center px-4 py-4 sm:px-5">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-1.5 text-sm font-bold">
+      <div role="cell" className="flex min-w-0 items-center px-4 py-4 sm:px-5">
+        <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex min-w-0 items-center gap-1.5 text-sm font-bold">
             <MapPin className="h-3 w-3 shrink-0 text-muted-foreground" strokeWidth={2.5} />
-            {client.bestMatch.property}
+            <span className="truncate">{client.bestMatch.property}</span>
           </div>
-          {client.otherMatchCount > 0 && (
-            <span className="inline-flex w-fit items-center gap-1 border-2 border-black bg-black px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-primary">
-              <Layers className="h-2.5 w-2.5" strokeWidth={2.5} />
-              +{client.otherMatchCount} other listing{client.otherMatchCount > 1 ? "s" : ""}
-            </span>
-          )}
+          <span
+            className={`inline-flex w-fit items-center gap-1 border-2 border-black bg-black px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-primary ${
+              hasOtherMatches ? "" : "invisible"
+            }`}
+          >
+            <Layers className="h-2.5 w-2.5 shrink-0" strokeWidth={2.5} />
+            +{client.otherMatchCount || 1} other listing{client.otherMatchCount > 1 ? "s" : ""}
+          </span>
         </div>
       </div>
 
       {/* Property value */}
-      <div role="cell" className="px-4 py-4 text-right font-mono text-sm font-bold sm:px-5 flex items-center justify-end">
+      <div role="cell" className="flex items-center justify-end px-4 py-4 text-right font-mono text-sm font-bold sm:px-5">
         {currency(client.bestMatch.propertyValue)}
       </div>
 
       {/* Probability bar */}
-      <div role="cell" className="px-4 py-4 sm:px-5 flex items-center justify-end">
+      <div role="cell" className="flex items-center justify-end px-4 py-4 sm:px-5">
         <div className="flex items-center justify-end gap-2">
-          <div className="h-2.5 w-16 border-2 border-black bg-white overflow-hidden sm:w-20">
+          <div className="h-2.5 w-16 shrink-0 border-2 border-black bg-white overflow-hidden sm:w-20">
             <div
               className="h-full bg-black prob-bar-anim"
               style={{ width: `${probPercent}%` }}
             />
           </div>
-          <span className="w-10 text-right font-mono text-sm font-black">
+          <span className="w-10 shrink-0 text-right font-mono text-sm font-black">
             {percent(client.bestMatch.probability)}
           </span>
         </div>
       </div>
 
       {/* Expected value */}
-      <div role="cell" className="px-4 py-4 sm:px-5 flex items-center justify-end">
-        <span className="inline-flex w-[140px] items-center justify-center border-2 border-black bg-primary px-2 py-1 font-mono text-sm font-black text-black">
+      <div role="cell" className="flex items-center justify-end px-4 py-4 sm:px-5">
+        <span className="inline-flex w-[140px] shrink-0 items-center justify-center border-2 border-black bg-primary px-2 py-1 font-mono text-sm font-black text-black">
           <CountUp
             value={client.bestMatch.expectedValue}
             formatNumber={currency}
@@ -143,14 +148,14 @@ function ClientTableRow({
       </div>
 
       {/* Tier */}
-      <div role="cell" className="px-4 py-4 sm:px-5 flex items-center">
+      <div role="cell" className="flex items-center px-4 py-4 sm:px-5">
         <TierBadge tier={client.tier} />
       </div>
 
       {/* Action */}
       <div
         role="cell"
-        className="px-4 py-4 sm:px-5 flex items-center"
+        className="flex items-center px-4 py-4 sm:px-5"
         onClick={(e) => e.stopPropagation()}
       >
         {client.tier === "TIER_1" || client.tier === "TIER_2" ? (
@@ -166,7 +171,7 @@ function ClientTableRow({
           <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">—</span>
         )}
       </div>
-    </div>
+    </RowConnect>
   )
 }
 
@@ -222,25 +227,25 @@ export function ClientTable({ clients, onGenerateInvite, onSelect }: ClientTable
             role="rowgroup"
             className={`grid ${GRID_COLS} min-w-[920px] bg-black text-white border-b-4 border-black`}
           >
-            <div role="columnheader" className="px-4 py-3.5 text-left text-xs font-black uppercase tracking-wider sm:px-5">
+            <div role="columnheader" className="min-w-0 px-4 py-3.5 text-left text-xs font-black uppercase tracking-wider sm:px-5">
               <ColumnHeading icon={UserRound}>Client</ColumnHeading>
             </div>
-            <div role="columnheader" className="px-4 py-3.5 text-left text-xs font-black uppercase tracking-wider sm:px-5">
+            <div role="columnheader" className="min-w-0 px-4 py-3.5 text-left text-xs font-black uppercase tracking-wider sm:px-5">
               <ColumnHeading icon={Home}>Highest Value Match</ColumnHeading>
             </div>
-            <div role="columnheader" className="px-4 py-3.5 text-right text-xs font-black uppercase tracking-wider sm:px-5">
+            <div role="columnheader" className="min-w-0 px-4 py-3.5 text-right text-xs font-black uppercase tracking-wider sm:px-5">
               <ColumnHeading icon={DollarSign} align="right">Property Value</ColumnHeading>
             </div>
-            <div role="columnheader" className="px-4 py-3.5 text-right text-xs font-black uppercase tracking-wider sm:px-5">
+            <div role="columnheader" className="min-w-0 px-4 py-3.5 text-right text-xs font-black uppercase tracking-wider sm:px-5">
               <ColumnHeading icon={PercentIcon} align="right">Probability</ColumnHeading>
             </div>
-            <div role="columnheader" className="px-4 py-3.5 text-right text-xs font-black uppercase tracking-wider sm:px-5">
+            <div role="columnheader" className="min-w-0 px-4 py-3.5 text-right text-xs font-black uppercase tracking-wider sm:px-5">
               <ColumnHeading icon={TrendingUp} align="right">Expected Value</ColumnHeading>
             </div>
-            <div role="columnheader" className="px-4 py-3.5 text-left text-xs font-black uppercase tracking-wider sm:px-5">
+            <div role="columnheader" className="min-w-0 px-4 py-3.5 text-left text-xs font-black uppercase tracking-wider sm:px-5">
               <ColumnHeading icon={Tags}>Segment</ColumnHeading>
             </div>
-            <div role="columnheader" className="px-4 py-3.5 text-left text-xs font-black uppercase tracking-wider sm:px-5">
+            <div role="columnheader" className="min-w-0 px-4 py-3.5 text-left text-xs font-black uppercase tracking-wider sm:px-5">
               <ColumnHeading icon={Send}>Action</ColumnHeading>
             </div>
           </div>
