@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useEffect, useRef, useState } from "react"
 import { Sparkles, RefreshCw, AlertCircle } from "lucide-react"
@@ -101,10 +101,10 @@ export function AnalyticsInsightPanel({ clients, activeFilters }: AnalyticsInsig
 
   return (
     <ScrollConnect>
-      <div className="border-4 border-black bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+      <div className="border border-neutral-200 bg-white shadow-[0px_4px_16px_rgba(0,0,0,0.10)]">
 
       {/* Header */}
-      <div className="flex items-center justify-between gap-3 border-b-4 border-black bg-black px-5 py-3.5 sm:px-6">
+      <div className="flex items-center justify-between gap-3 border-b border-neutral-200 bg-black px-5 py-3.5 sm:px-6">
         <div className="flex items-center gap-2 text-white">
           <Sparkles className="h-4 w-4" strokeWidth={2.5} />
           <span className="text-xs font-black uppercase tracking-wider sm:text-sm">
@@ -112,7 +112,7 @@ export function AnalyticsInsightPanel({ clients, activeFilters }: AnalyticsInsig
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="border-2 border-black bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
+          <span className="border border-neutral-200 bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
             Groq · GPT-OSS 120B
           </span>
           <button
@@ -121,7 +121,7 @@ export function AnalyticsInsightPanel({ clients, activeFilters }: AnalyticsInsig
             disabled={status === "loading"}
             onClick={handleRefresh}
             title="Re-generate (bypasses cache)"
-            className="flex items-center justify-center border-2 border-black bg-white p-1.5 text-black transition-transform hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center justify-center border border-neutral-200 bg-white p-1.5 text-black transition-transform hover:shadow-[0px_1px_4px_rgba(0,0,0,0.07)] disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <RefreshCw
               className={`h-3.5 w-3.5 ${status === "loading" ? "animate-spin" : ""}`}
@@ -144,7 +144,7 @@ export function AnalyticsInsightPanel({ clients, activeFilters }: AnalyticsInsig
 
         {/* Error state */}
         {status === "error" && (
-          <div className="flex items-start gap-3 border-2 border-black bg-[#fff0f0] px-4 py-3">
+          <div className="flex items-start gap-3 border border-neutral-200 bg-[#fff0f0] px-4 py-3">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-black" strokeWidth={2.5} />
             <div>
               <div className="text-xs font-black uppercase tracking-wider">Insight unavailable</div>

@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState } from "react"
 import { Building2, MapPin, Search, Users } from "lucide-react"
@@ -33,7 +33,7 @@ function PropertyCard({
           onSelect()
         }
       }}
-      className="group flex w-full flex-col rounded-none border-4 border-black bg-card shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] cursor-pointer text-left transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+      className="group flex w-full flex-col rounded-lg border border-neutral-200 bg-card shadow-[0px_4px_16px_rgba(0,0,0,0.10)] cursor-pointer text-left transition-all hover:shadow-[0px_6px_24px_rgba(0,0,0,0.12)] active:shadow-[0px_2px_8px_rgba(0,0,0,0.08)]"
     >
       <PixelatedImageCanvas
         src={property.imageUrl}
@@ -46,7 +46,7 @@ function PropertyCard({
         <div className="flex items-start justify-between gap-3">
           <h3 className="text-lg font-bold leading-tight tracking-tight sm:text-xl">{property.name}</h3>
           <span
-            className={`shrink-0 border-2 border-black px-2 py-1 text-[10px] font-black uppercase tracking-wider ${STATUS_STYLES[property.status]}`}
+            className={`shrink-0 border border-neutral-200 px-2 py-1 text-[10px] font-black uppercase tracking-wider ${STATUS_STYLES[property.status]}`}
           >
             {property.status}
           </span>
@@ -66,7 +66,7 @@ function PropertyCard({
               e.stopPropagation()
               onFindBuyers()
             }}
-            className="flex w-full items-center justify-center gap-1.5 border-2 border-black bg-primary py-2 text-[10px] font-black uppercase tracking-wider text-black transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-0 active:translate-y-0"
+            className="flex w-full items-center justify-center gap-1.5 border border-neutral-200 bg-primary py-2 text-[10px] font-black uppercase tracking-wider text-black transition-all hover:shadow-[0px_1px_4px_rgba(0,0,0,0.07)]"
           >
             <Users className="h-3 w-3" strokeWidth={2.5} />
             Find Likely Buyers
@@ -110,7 +110,7 @@ export function PropertyCards({ properties, onSelect, onFindBuyers }: PropertyCa
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search by address or neighborhood (e.g., Mont Kiara)..."
-            className="w-full border-4 border-black bg-white py-3 pl-10 pr-4 font-mono text-sm font-bold placeholder:font-sans placeholder:font-bold placeholder:text-muted-foreground shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] outline-none transition-all focus:shadow-none focus:translate-x-0.5 focus:translate-y-0.5"
+            className="w-full border border-neutral-200 bg-white py-3 pl-10 pr-4 font-sans text-sm font-bold placeholder:font-sans placeholder:font-bold placeholder:text-muted-foreground shadow-[0px_2px_8px_rgba(0,0,0,0.08)] outline-none transition-all focus:shadow-none focus:translate-x-0.5 focus:translate-y-0.5"
           />
         </div>
         <span className="shrink-0 text-[11px] font-black uppercase tracking-wider text-muted-foreground">
@@ -128,7 +128,7 @@ export function PropertyCards({ properties, onSelect, onFindBuyers }: PropertyCa
 
       {/* Property grid */}
       {visibleProperties.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-3 border-4 border-black bg-white py-16 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+        <div className="flex flex-col items-center justify-center gap-3 border border-neutral-200 bg-white py-16 shadow-[0px_4px_16px_rgba(0,0,0,0.10)]">
           <Search className="h-8 w-8 text-muted-foreground" strokeWidth={2} />
           <p className="text-xs font-black uppercase tracking-wider text-muted-foreground">
             No properties match &ldquo;{query}&rdquo;

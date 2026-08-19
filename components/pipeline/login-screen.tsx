@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, type FormEvent } from "react"
 import { ArrowRight, Building2, KeyRound, ShieldAlert, UserRound } from "lucide-react"
@@ -22,7 +22,7 @@ export function LoginScreen({ onSignIn }: LoginScreenProps) {
 
       <div className="relative z-10 w-full max-w-md">
         <div className="mb-6 flex items-center justify-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center border-4 border-black bg-black">
+          <div className="flex h-12 w-12 items-center justify-center border border-neutral-200 bg-black">
             <Building2 className="h-6 w-6 text-primary" strokeWidth={2.5} />
           </div>
           <div>
@@ -37,10 +37,10 @@ export function LoginScreen({ onSignIn }: LoginScreenProps) {
 
         <form
           onSubmit={handleSubmit}
-          className="flex flex-col gap-5 border-4 border-black bg-card p-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] sm:p-8"
+          className="flex flex-col gap-5 border border-neutral-200 bg-card p-6 shadow-[0px_4px_16px_rgba(0,0,0,0.10)] sm:p-8"
         >
-          <div className="border-b-4 border-black pb-4">
-            <span className="inline-flex items-center gap-1.5 border-2 border-black bg-primary px-3 py-1 text-xs font-black uppercase tracking-wider">
+          <div className="border-b border-neutral-200 pb-4">
+            <span className="inline-flex items-center gap-1.5 border border-neutral-200 bg-primary px-3 py-1 text-xs font-black uppercase tracking-wider">
               <ShieldAlert className="h-3.5 w-3.5" strokeWidth={3} />
               Restricted Access
             </span>
@@ -57,7 +57,7 @@ export function LoginScreen({ onSignIn }: LoginScreenProps) {
               onChange={(event) => setAgentId(event.target.value)}
               placeholder="e.g. RD-4471"
               autoComplete="username"
-              className="border-2 border-black bg-white px-3 py-3 font-mono text-sm font-bold text-black placeholder:text-muted-foreground focus:outline-none focus-visible:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+              className="border border-neutral-200 bg-white px-3 py-3 font-sans text-sm font-bold text-black placeholder:text-muted-foreground focus:outline-none focus-visible:shadow-[0px_1px_4px_rgba(0,0,0,0.07)]"
             />
           </label>
 
@@ -72,13 +72,13 @@ export function LoginScreen({ onSignIn }: LoginScreenProps) {
               onChange={(event) => setPassword(event.target.value)}
               placeholder="••••••••"
               autoComplete="current-password"
-              className="border-2 border-black bg-white px-3 py-3 font-mono text-sm font-bold text-black placeholder:text-muted-foreground focus:outline-none focus-visible:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+              className="border border-neutral-200 bg-white px-3 py-3 font-sans text-sm font-bold text-black placeholder:text-muted-foreground focus:outline-none focus-visible:shadow-[0px_1px_4px_rgba(0,0,0,0.07)]"
             />
           </label>
 
           <button
             type="submit"
-            className="group mt-2 flex items-center justify-center gap-3 border-4 border-black bg-black py-5 text-base font-black uppercase tracking-wider text-white shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] transition-transform hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] active:translate-x-0 active:translate-y-0 active:shadow-none sm:text-lg"
+            className="group mt-2 flex items-center justify-center gap-3 border border-neutral-200 bg-black py-5 text-base font-black uppercase tracking-wider text-white shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-transform hover:shadow-[0px_4px_16px_rgba(0,0,0,0.10)] active:shadow-none sm:text-lg"
           >
             Sign In
             <ArrowRight className="h-5 w-5 text-primary transition-transform group-hover:translate-x-1" strokeWidth={3} />

@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
@@ -64,14 +64,14 @@ function ColumnHeader({
   icon: React.ReactNode
 }) {
   return (
-    <div className={`flex items-center justify-between border-b-4 border-black px-4 py-3 ${accent}`}>
+    <div className={`flex items-center justify-between border-b border-neutral-200 px-4 py-3 ${accent}`}>
       <div className="flex items-center gap-2">
         {icon}
         <span className="text-xs font-black uppercase tracking-widest">
           {label} — {count}
         </span>
       </div>
-      <span className="flex h-6 w-6 items-center justify-center border-2 border-black bg-white font-mono text-xs font-black text-black">
+      <span className="flex h-6 w-6 items-center justify-center border border-neutral-200 bg-white font-mono text-xs font-black text-black">
         {count}
       </span>
     </div>
@@ -104,9 +104,9 @@ function ViewingCard({
     (viewing.scheduled_at && new Date(viewing.scheduled_at).getTime() < Date.now() - 24 * 3600 * 1000)
 
   return (
-    <div className="border-4 border-black bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+    <div className="border border-neutral-200 bg-white shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
       {/* Card header */}
-      <div className="flex items-start justify-between gap-2 border-b-2 border-black/20 px-4 py-3">
+      <div className="flex items-start justify-between gap-2 border-b border-neutral-200/20 px-4 py-3">
         <div>
           <div className="text-sm font-black leading-tight">{client?.name ?? viewing.client_id}</div>
           <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
@@ -134,7 +134,7 @@ function ViewingCard({
               type="button"
               disabled={completing || cancelling}
               onClick={() => onComplete(viewing.id)}
-              className="flex flex-1 items-center justify-center gap-1.5 border-2 border-black bg-black py-1.5 text-[10px] font-black uppercase tracking-wider text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex flex-1 items-center justify-center gap-1.5 border border-neutral-200 bg-black py-1.5 text-[10px] font-black uppercase tracking-wider text-white shadow-[0px_1px_4px_rgba(0,0,0,0.07)] transition-all hover:shadow-[0px_2px_8px_rgba(0,0,0,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {completing ? (
                 <Loader2 className="h-3 w-3 animate-spin text-primary" strokeWidth={2.5} />
@@ -149,7 +149,7 @@ function ViewingCard({
               type="button"
               disabled={completing || cancelling}
               onClick={() => onCancel(viewing.id)}
-              className="flex items-center justify-center gap-1.5 border-2 border-black bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-red-600 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-red-50 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex items-center justify-center gap-1.5 border border-neutral-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-red-600 shadow-[0px_1px_4px_rgba(0,0,0,0.07)] transition-all hover:bg-red-50 hover:shadow-[0px_2px_8px_rgba(0,0,0,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {cancelling ? (
                 <Loader2 className="h-3 w-3 animate-spin text-red-600" strokeWidth={2.5} />
@@ -170,7 +170,7 @@ function ViewingCard({
               Missed / Auto-cancelled
             </span>
           ) : (
-            <span className="inline-block border-2 border-black bg-muted px-2 py-0.5 font-mono text-[10px] font-black uppercase tracking-wider text-black">
+            <span className="inline-block border border-neutral-200 bg-muted px-2 py-0.5 font-mono text-[10px] font-black uppercase tracking-wider text-black">
               Cancelled by agent
             </span>
           )}
@@ -296,7 +296,7 @@ export function ViewingsBoard({ dedupClients, onNavigateToClients }: ViewingsBoa
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 border-4 border-black bg-white py-24 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+      <div className="flex flex-col items-center justify-center gap-4 border border-neutral-200 bg-white py-24 shadow-[0px_4px_16px_rgba(0,0,0,0.10)]">
         <Loader2 className="h-8 w-8 animate-spin text-black" strokeWidth={2.5} />
         <p className="text-xs font-black uppercase tracking-wider text-muted-foreground">Loading viewings…</p>
       </div>
@@ -307,7 +307,7 @@ export function ViewingsBoard({ dedupClients, onNavigateToClients }: ViewingsBoa
     <div className="flex flex-col gap-6">
       {/* Completion toast */}
       {toast && (
-        <div className="flex items-center gap-3 border-4 border-black bg-primary px-5 py-4 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
+        <div className="flex items-center gap-3 border border-neutral-200 bg-primary px-5 py-4 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
           <CheckCircle2 className="h-5 w-5 shrink-0 text-black" strokeWidth={2.5} />
           <p className="flex-1 text-sm font-black text-black">
             Viewing completed.{" "}
@@ -318,7 +318,7 @@ export function ViewingsBoard({ dedupClients, onNavigateToClients }: ViewingsBoa
           <button
             type="button"
             onClick={() => setToast(null)}
-            className="shrink-0 border-2 border-black p-1 text-black hover:bg-black hover:text-primary"
+            className="shrink-0 border border-neutral-200 p-1 text-black hover:bg-black hover:text-primary"
             aria-label="Dismiss"
           >
             <X className="h-4 w-4" strokeWidth={2.5} />
@@ -327,7 +327,7 @@ export function ViewingsBoard({ dedupClients, onNavigateToClients }: ViewingsBoa
       )}
 
       {error && (
-        <div className="border-4 border-black bg-white p-4">
+        <div className="border border-neutral-200 bg-white p-4">
           <span className="text-xs font-black uppercase tracking-wider text-red-600">{error}</span>
         </div>
       )}
@@ -340,7 +340,7 @@ export function ViewingsBoard({ dedupClients, onNavigateToClients }: ViewingsBoa
         <button
           type="button"
           onClick={loadViewings}
-          className="flex items-center gap-2 border-2 border-black bg-white px-3 py-1.5 text-xs font-black uppercase tracking-wider shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-transform hover:-translate-x-0.5 hover:-translate-y-0.5"
+          className="flex items-center gap-2 border border-neutral-200 bg-white px-3 py-1.5 text-xs font-black uppercase tracking-wider shadow-[0px_1px_4px_rgba(0,0,0,0.07)] transition-transform"
         >
           <RefreshCw className="h-3.5 w-3.5" strokeWidth={2.5} />
           Refresh
@@ -348,9 +348,9 @@ export function ViewingsBoard({ dedupClients, onNavigateToClients }: ViewingsBoa
       </div>
 
       {/* Compact summary bar for Matched clients */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-4 border-black bg-white p-4 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-neutral-200 bg-white p-4 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center border-2 border-black bg-primary">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-neutral-200 bg-primary">
             <Users className="h-5 w-5 text-black" strokeWidth={2.5} />
           </div>
           <div>
@@ -366,7 +366,7 @@ export function ViewingsBoard({ dedupClients, onNavigateToClients }: ViewingsBoa
           <button
             type="button"
             onClick={onNavigateToClients}
-            className="flex items-center gap-2 border-2 border-black bg-black px-4 py-2 text-xs font-black uppercase tracking-wider text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[5px_5px_0px_0px_rgba(0,0,0,1)]"
+            className="flex items-center gap-2 border border-neutral-200 bg-black px-4 py-2 text-xs font-black uppercase tracking-wider text-white shadow-[0px_1px_4px_rgba(0,0,0,0.07)] transition-all hover:shadow-[0px_2px_8px_rgba(0,0,0,0.08)]"
           >
             Go to Clients <ArrowRight className="h-4 w-4 text-primary" strokeWidth={2.5} />
           </button>
@@ -377,7 +377,7 @@ export function ViewingsBoard({ dedupClients, onNavigateToClients }: ViewingsBoa
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
 
         {/* Column 1 — Scheduled */}
-        <div className="border-4 border-black shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
+        <div className="border border-neutral-200 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
           <ColumnHeader
             label="Scheduled"
             count={scheduledViewings.length}
@@ -406,7 +406,7 @@ export function ViewingsBoard({ dedupClients, onNavigateToClients }: ViewingsBoa
         </div>
 
         {/* Column 2 — Completed */}
-        <div className="border-4 border-black shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
+        <div className="border border-neutral-200 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
           <ColumnHeader
             label="Completed"
             count={completedViewings.length}
@@ -431,7 +431,7 @@ export function ViewingsBoard({ dedupClients, onNavigateToClients }: ViewingsBoa
         </div>
 
         {/* Column 3 — Cancelled */}
-        <div className="border-4 border-black shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
+        <div className="border border-neutral-200 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
           <ColumnHeader
             label="Cancelled"
             count={cancelledViewings.length}

@@ -22,12 +22,12 @@ function ProfileDrawer({ open, onClose }: { open: boolean; onClose: () => void }
     <Sheet open={open} onOpenChange={(o) => { if (!o) onClose() }}>
       <SheetContent
         side="right"
-        className="flex w-full flex-col gap-0 overflow-y-auto border-l-4 border-black bg-white p-0 shadow-[-8px_0px_0px_0px_rgba(0,0,0,1)] sm:max-w-[400px]"
+        className="flex w-full flex-col gap-0 overflow-y-auto border-l border-neutral-200 bg-white p-0 shadow-[0px_8px_32px_rgba(0,0,0,0.12)] sm:max-w-[400px]"
       >
         <SheetTitle className="sr-only">Agent Profile</SheetTitle>
 
         {/* Header */}
-        <div className="flex items-start justify-between gap-4 border-b-4 border-black bg-black p-5 sm:p-6">
+        <div className="flex items-start justify-between gap-4 border-b border-neutral-200 bg-black p-5 sm:p-6">
           <div className="flex items-center gap-4">
             <div className="flex h-16 w-16 items-center justify-center border-4 border-primary bg-primary text-2xl font-black text-black">
               {AGENT.initials}
@@ -58,7 +58,7 @@ function ProfileDrawer({ open, onClose }: { open: boolean; onClose: () => void }
               { label: "Closed Deals", value: String(AGENT.closedDeals) },
               { label: "Total Volume", value: AGENT.totalVolume },
             ].map(({ label, value }) => (
-              <div key={label} className="border-4 border-black p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+              <div key={label} className="border border-neutral-200 p-4 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
                 <div className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">{label}</div>
                 <div className="mt-1 font-mono text-xl font-black leading-tight">{value}</div>
               </div>
@@ -66,18 +66,18 @@ function ProfileDrawer({ open, onClose }: { open: boolean; onClose: () => void }
           </div>
 
           {/* Identifier */}
-          <div className="border-4 border-black bg-black p-4">
+          <div className="border border-neutral-200 bg-black p-4">
             <div className="text-[10px] font-black uppercase tracking-wider text-white/60">Agent ID</div>
             <div className="mt-1 font-mono text-sm font-black text-primary">AGT-2019-KL-047</div>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="mt-auto border-t-4 border-black p-5 sm:p-6">
+        <div className="mt-auto border-t border-neutral-200 p-5 sm:p-6">
           <button
             type="button"
             onClick={onClose}
-            className="w-full border-4 border-black bg-white py-3 text-sm font-black uppercase tracking-wider transition-colors hover:bg-black hover:text-white"
+            className="w-full border border-neutral-200 bg-white py-3 text-sm font-black uppercase tracking-wider transition-colors hover:bg-black hover:text-white"
           >
             Close Profile
           </button>
@@ -95,8 +95,8 @@ function LogoutModal({ open, onClose, onConfirm }: { open: boolean; onClose: () 
       {/* Overlay */}
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       {/* Dialog */}
-      <div className="relative border-4 border-black bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] w-full max-w-sm mx-4">
-        <div className="border-b-4 border-black bg-black px-5 py-4">
+      <div className="relative border border-neutral-200 bg-white shadow-[0px_4px_16px_rgba(0,0,0,0.10)] w-full max-w-sm mx-4">
+        <div className="border-b border-neutral-200 bg-black px-5 py-4">
           <div className="flex items-center gap-2">
             <LogOut className="h-4 w-4 text-primary" strokeWidth={2.5} />
             <span className="text-sm font-black uppercase tracking-wider text-white">Confirm Log Out</span>
@@ -110,14 +110,14 @@ function LogoutModal({ open, onClose, onConfirm }: { open: boolean; onClose: () 
             <button
               type="button"
               onClick={onConfirm}
-              className="flex-1 border-4 border-black bg-black py-3 text-sm font-black uppercase tracking-wider text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none"
+              className="flex-1 border border-neutral-200 bg-black py-3 text-sm font-black uppercase tracking-wider text-white shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-all hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)]"
             >
               Log Out
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 border-4 border-black bg-white py-3 text-sm font-black uppercase tracking-wider transition-colors hover:bg-black hover:text-white"
+              className="flex-1 border border-neutral-200 bg-white py-3 text-sm font-black uppercase tracking-wider transition-colors hover:bg-black hover:text-white"
             >
               Cancel
             </button>
@@ -179,9 +179,9 @@ export function AgentMenu({ onLogout }: AgentMenuProps) {
           onClick={() => setOpen((prev) => !prev)}
           aria-haspopup="menu"
           aria-expanded={open}
-          className="flex items-center gap-3 border-2 border-black bg-white px-3 py-2 text-left shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-transform hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] sm:px-4"
+          className="flex items-center gap-3 border border-neutral-200 bg-white px-3 py-2 text-left shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-transform hover:shadow-[0px_2px_8px_rgba(0,0,0,0.08)] sm:px-4"
         >
-          <div className="flex h-8 w-8 items-center justify-center border-2 border-black bg-primary text-xs font-black">
+          <div className="flex h-8 w-8 items-center justify-center border border-neutral-200 bg-primary text-xs font-black">
             {AGENT.initials}
           </div>
           <div className="text-xs font-black uppercase tracking-wider sm:text-sm">
@@ -196,13 +196,13 @@ export function AgentMenu({ onLogout }: AgentMenuProps) {
         {open ? (
           <div
             role="menu"
-            className="absolute right-0 top-full z-20 mt-3 w-56 border-4 border-black bg-white shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]"
+            className="absolute right-0 top-full z-20 mt-3 w-56 border border-neutral-200 bg-white shadow-[0px_2px_8px_rgba(0,0,0,0.08)]"
           >
             <button
               type="button"
               role="menuitem"
               onClick={handleProfile}
-              className="flex w-full items-center gap-2.5 border-b-2 border-black px-4 py-3 text-left text-xs font-black uppercase tracking-wider transition-colors hover:bg-black hover:text-white sm:text-sm"
+              className="flex w-full items-center gap-2.5 border-b border-neutral-200 px-4 py-3 text-left text-xs font-black uppercase tracking-wider transition-colors hover:bg-black hover:text-white sm:text-sm"
             >
               <UserCircle2 className="h-4 w-4" strokeWidth={2.5} />
               Profile

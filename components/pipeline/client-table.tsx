@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, useEffect, useRef, type ComponentType } from "react"
 import {
@@ -36,7 +36,7 @@ function TierBadge({ tier }: { tier: DeduplicatedClient["tier"] }) {
   }
   return (
     <span
-      className={`inline-flex w-[72px] items-center justify-center border-2 border-black py-1 text-[10px] font-black uppercase tracking-wider ${styles[tier]}`}
+      className={`inline-flex w-[72px] items-center justify-center border border-neutral-200 py-1 text-[10px] font-black uppercase tracking-wider ${styles[tier]}`}
     >
       {TIER_SHORT[tier]}
     </span>
@@ -105,7 +105,7 @@ function ClientEntity({
       >
         {/* 1 · Client */}
         <div className="flex items-center gap-3 min-w-0">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center border-2 border-black bg-black text-xs font-black text-white">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center border border-neutral-200 bg-black text-xs font-black text-white">
             {client.initials}
           </div>
           <div className="min-w-0 flex-1">
@@ -135,7 +135,7 @@ function ClientEntity({
             <span className="truncate">{client.bestMatch.property}</span>
           </div>
           {client.otherMatchCount > 0 && (
-            <span className="inline-flex w-fit items-center gap-1 border-2 border-black bg-black px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-primary">
+            <span className="inline-flex w-fit items-center gap-1 border border-neutral-200 bg-black px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-primary">
               <Layers className="h-2.5 w-2.5 shrink-0" strokeWidth={2.5} />
               +{client.otherMatchCount} other listing{client.otherMatchCount > 1 ? "s" : ""}
             </span>
@@ -149,7 +149,7 @@ function ClientEntity({
 
         {/* 4 · Probability */}
         <div className="flex items-center justify-end gap-2">
-          <div className="h-2.5 w-20 border-2 border-black bg-white overflow-hidden shrink-0">
+          <div className="h-2.5 w-20 border border-neutral-200 bg-white overflow-hidden shrink-0">
             <div
               className="h-full bg-black prob-bar-anim"
               style={{ width: `${probPercent}%` }}
@@ -162,7 +162,7 @@ function ClientEntity({
 
         {/* 5 · Expected Value */}
         <div className="flex items-center justify-end">
-          <span className="inline-flex w-[148px] items-center justify-center border-2 border-black bg-primary px-2 py-1 font-mono text-sm font-black text-black shrink-0">
+          <span className="inline-flex w-[148px] items-center justify-center border border-neutral-200 bg-primary px-2 py-1 font-mono text-sm font-black text-black shrink-0">
             <CountUp value={client.bestMatch.expectedValue} formatNumber={currency} />
           </span>
         </div>
@@ -171,12 +171,12 @@ function ClientEntity({
         <div className="flex items-center gap-1.5 pl-2 flex-wrap">
           <TierBadge tier={client.tier} />
           {client.bestMatch.outcome === "won" && (
-            <span className="inline-flex items-center border-2 border-black bg-primary px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-black">
+            <span className="inline-flex items-center border border-neutral-200 bg-primary px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-black">
               ✓ WON
             </span>
           )}
           {client.bestMatch.outcome === "lost" && (
-            <span className="inline-flex items-center border-2 border-black bg-white px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-black">
+            <span className="inline-flex items-center border border-neutral-200 bg-white px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-black">
               ✕ LOST
             </span>
           )}
@@ -191,7 +191,7 @@ function ClientEntity({
             <button
               type="button"
               onClick={() => handleInvite(client)}
-              className="flex items-center gap-1.5 whitespace-nowrap border-2 border-black bg-black text-white px-3 py-2 text-xs font-black uppercase tracking-wider shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-transform hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none"
+              className="flex items-center gap-1.5 whitespace-nowrap border border-neutral-200 bg-black text-white px-3 py-2 text-xs font-black uppercase tracking-wider shadow-[0px_1px_4px_rgba(0,0,0,0.07)] transition-transform hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)]"
             >
               <Send className="h-3.5 w-3.5 text-primary shrink-0" strokeWidth={2.5} />
               Generate Invite
@@ -222,7 +222,7 @@ const HEADER_GRID: React.CSSProperties = {
 function TableHeader() {
   return (
     <div
-      className="bg-black text-white border-4 border-black mb-2 sticky top-0 z-10"
+      className="bg-black text-white border border-neutral-200 mb-2 sticky top-0 z-10"
       style={HEADER_GRID}
     >
       <ColHead icon={UserRound}>Client</ColHead>
@@ -276,7 +276,7 @@ export function ClientTable({ clients, onGenerateInvite, onSelect }: ClientTable
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search by client name, property, or neighbourhood..."
-          className="w-full border-4 border-black bg-white py-3 pl-10 pr-4 font-mono text-sm font-bold placeholder:font-sans placeholder:font-bold placeholder:text-muted-foreground shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] outline-none transition-shadow focus:shadow-none focus:translate-x-0.5 focus:translate-y-0.5"
+          className="w-full border border-neutral-200 bg-white py-3 pl-10 pr-4 font-sans text-sm font-bold placeholder:font-sans placeholder:font-bold placeholder:text-muted-foreground shadow-[0px_2px_8px_rgba(0,0,0,0.08)] outline-none transition-shadow focus:shadow-none focus:translate-x-0.5 focus:translate-y-0.5"
         />
       </div>
 

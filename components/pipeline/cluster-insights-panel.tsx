@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState } from "react"
 import { Building2, Sparkles, Loader2 } from "lucide-react"
@@ -76,16 +76,16 @@ export function ClusterInsightsPanel({ clients }: ClusterInsightsPanelProps) {
 
   return (
     <ScrollConnect>
-      <div className="border-4 border-black bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+      <div className="border border-neutral-200 bg-white shadow-[0px_4px_16px_rgba(0,0,0,0.10)]">
         {/* Header */}
-        <div className="flex items-center justify-between gap-3 border-b-4 border-black bg-black px-5 py-3.5 sm:px-6">
+        <div className="flex items-center justify-between gap-3 border-b border-neutral-200 bg-black px-5 py-3.5 sm:px-6">
           <div className="flex items-center gap-2 text-white">
             <Building2 className="h-4 w-4 text-primary" strokeWidth={2.5} />
             <span className="text-xs font-black uppercase tracking-wider sm:text-sm">
               Neighborhood Cluster Intelligence ({clusters.length} Areas)
             </span>
           </div>
-          <span className="border-2 border-black bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
+          <span className="border border-neutral-200 bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
             On-Demand AI Strategy
           </span>
         </div>
@@ -98,14 +98,14 @@ export function ClusterInsightsPanel({ clients }: ClusterInsightsPanelProps) {
             return (
               <div
                 key={cl.neighborhood}
-                className="flex flex-col justify-between border-4 border-black bg-neutral-50 p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-transform hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]"
+                className="flex flex-col justify-between border border-neutral-200 bg-neutral-50 p-4 shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-transform hover:shadow-[0px_2px_8px_rgba(0,0,0,0.08)]"
               >
                 <div>
                   <div className="flex items-start justify-between gap-2">
                     <span className="font-sans text-sm font-black uppercase tracking-wide text-black">
                       {cl.neighborhood}
                     </span>
-                    <span className="border-2 border-black bg-white px-2 py-0.5 font-mono text-[10px] font-black">
+                    <span className="border border-neutral-200 bg-white px-2 py-0.5 font-mono text-[10px] font-black">
                       {cl.count} {cl.count === 1 ? "Lead" : "Leads"}
                     </span>
                   </div>
@@ -119,7 +119,7 @@ export function ClusterInsightsPanel({ clients }: ClusterInsightsPanelProps) {
 
                   {/* AI Strategy inline display */}
                   {state.insight && (
-                    <div className="mt-3 border-2 border-black bg-black p-2.5 font-mono text-xs font-bold leading-relaxed text-white">
+                    <div className="mt-3 border border-neutral-200 bg-black p-2.5 font-mono text-xs font-bold leading-relaxed text-white">
                       <DecryptedText
                         text={state.insight}
                         animateOn="view"
@@ -139,7 +139,7 @@ export function ClusterInsightsPanel({ clients }: ClusterInsightsPanelProps) {
                     type="button"
                     disabled={state.loading}
                     onClick={() => handleGetStrategy(cl.neighborhood)}
-                    className="flex w-full items-center justify-center gap-1.5 border-2 border-black bg-primary py-2 text-[11px] font-black uppercase tracking-wider text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex w-full items-center justify-center gap-1.5 border border-neutral-200 bg-primary py-2 text-[11px] font-black uppercase tracking-wider text-black shadow-[0px_1px_4px_rgba(0,0,0,0.07)] transition-all hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {state.loading ? (
                       <>

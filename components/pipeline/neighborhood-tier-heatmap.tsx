@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, Fragment } from "react"
 import { MapPin } from "lucide-react"
@@ -58,7 +58,7 @@ export function NeighborhoodTierHeatmap({ clients, onCellClick }: NeighborhoodTi
 
   if (neighborhoods.length === 0) {
     return (
-      <div className="border-4 border-black bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+      <div className="border border-neutral-200 bg-white shadow-[0px_4px_16px_rgba(0,0,0,0.10)]">
         <HeatmapHeader />
         <div className="flex items-center justify-center p-10 text-xs font-black uppercase tracking-wider text-muted-foreground">
           No data
@@ -80,7 +80,7 @@ export function NeighborhoodTierHeatmap({ clients, onCellClick }: NeighborhoodTi
 
   return (
     <ScrollConnect>
-      <div className="border-4 border-black bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+      <div className="border border-neutral-200 bg-white shadow-[0px_4px_16px_rgba(0,0,0,0.10)]">
         <HeatmapHeader />
 
         <div className="overflow-x-auto p-4 sm:p-5">
@@ -94,7 +94,7 @@ export function NeighborhoodTierHeatmap({ clients, onCellClick }: NeighborhoodTi
             {TIERS.map((tier) => (
               <div
                 key={tier}
-                className="border-2 border-black px-2 py-1.5 text-center text-[10px] font-black uppercase tracking-wider"
+                className="border border-neutral-200 px-2 py-1.5 text-center text-[10px] font-black uppercase tracking-wider"
                 style={{
                   background: tier === "TIER_1" ? "var(--primary)" : tier === "TIER_2" ? "#000" : "#c4c4c4",
                   color: tier === "TIER_2" ? "#fff" : "#000",
@@ -110,7 +110,7 @@ export function NeighborhoodTierHeatmap({ clients, onCellClick }: NeighborhoodTi
                 {/* Row label */}
                 <div
                   key={`label-${nbhd}`}
-                  className="flex items-center gap-1 border-2 border-black bg-black px-2 py-2 text-[10px] font-black uppercase tracking-wider text-white"
+                  className="flex items-center gap-1 border border-neutral-200 bg-black px-2 py-2 text-[10px] font-black uppercase tracking-wider text-white"
                   style={{ minHeight: "44px" }}
                 >
                   <MapPin className="h-2.5 w-2.5 shrink-0 text-primary" strokeWidth={2.5} />
@@ -130,7 +130,7 @@ export function NeighborhoodTierHeatmap({ clients, onCellClick }: NeighborhoodTi
                   return (
                     <div
                       key={key}
-                      className="heatmap-cell-enter relative border-2 border-black transition-transform duration-150"
+                      className="heatmap-cell-enter relative border border-neutral-200 transition-transform duration-150"
                       style={{
                         animationDelay: `${cellDelay}ms`,
                         background:
@@ -200,7 +200,7 @@ export function NeighborhoodTierHeatmap({ clients, onCellClick }: NeighborhoodTi
         {/* Floating tooltip */}
         {hover && (
           <div
-            className="pointer-events-none fixed z-50 border-4 border-black bg-white px-4 py-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+            className="pointer-events-none fixed z-50 border border-neutral-200 bg-white px-4 py-3 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]"
             style={{ top: hover.y - 10, left: hover.x + 10, transform: "translateY(-100%)" }}
           >
             <div className="text-xs font-black uppercase tracking-wider">
@@ -221,14 +221,14 @@ export function NeighborhoodTierHeatmap({ clients, onCellClick }: NeighborhoodTi
 
 function HeatmapHeader() {
   return (
-    <div className="flex items-center justify-between gap-3 border-b-4 border-black bg-black px-5 py-3.5 sm:px-6">
+    <div className="flex items-center justify-between gap-3 border-b border-neutral-200 bg-black px-5 py-3.5 sm:px-6">
       <div className="flex items-center gap-2 text-white">
         <MapPin className="h-4 w-4" strokeWidth={2.5} />
         <span className="text-xs font-black uppercase tracking-wider sm:text-sm">
           Neighborhood × Tier Heatmap
         </span>
       </div>
-      <span className="border-2 border-black bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
+      <span className="border border-neutral-200 bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
         Click cell for AI analysis
       </span>
     </div>

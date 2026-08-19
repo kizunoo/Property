@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useEffect, useMemo, useState } from "react"
 import { Building2, Flame, Home, Loader2, RefreshCw, Snowflake, Star, Target, Trophy, Wallet } from "lucide-react"
@@ -35,21 +35,21 @@ interface PipelineDashboardProps {
 function HeroStatCard({ totalPipelineValue, dedupCount, syncTimestamp }: { totalPipelineValue: number; dedupCount: number; syncTimestamp: number }) {
   return (
     <AnimatedContent delay={0} className="sm:col-span-2">
-      <div className="relative flex flex-col justify-between overflow-hidden border-4 border-black bg-white p-5 sm:p-7 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+      <div className="relative flex flex-col justify-between overflow-hidden border border-neutral-200 bg-white p-5 sm:p-7 shadow-[0px_4px_16px_rgba(0,0,0,0.10)]">
         <div className="stripes-diagonal absolute inset-0" />
         <div className="relative z-10">
           <div className="flex items-start justify-between gap-3">
-            <span className="inline-block border-2 border-black bg-white px-3 py-1 text-xs font-black uppercase tracking-wider sm:text-sm">
+            <span className="inline-block border border-neutral-200 bg-white px-3 py-1 text-xs font-black uppercase tracking-wider sm:text-sm">
               <GlitchLabel text="Total Pipeline Value" triggerKey={syncTimestamp} />
             </span>
-            <span className="shrink-0 border-2 border-black bg-black p-1.5 text-primary">
+            <span className="shrink-0 border border-neutral-200 bg-black p-1.5 text-primary">
               <Wallet className="h-4 w-4" strokeWidth={2.5} />
             </span>
           </div>
           <div className="mt-4 font-sans text-5xl font-bold leading-[0.9] tracking-tight sm:text-6xl lg:text-7xl">
             <CountUp value={totalPipelineValue} formatNumber={currency} triggerKey={syncTimestamp} />
           </div>
-          <div className="mt-4 inline-block border-4 border-black bg-primary px-4 py-2 text-xs font-black uppercase tracking-wider shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] sm:text-sm">
+          <div className="mt-4 inline-block border border-neutral-200 bg-primary px-4 py-2 text-xs font-black uppercase tracking-wider shadow-[0px_2px_8px_rgba(0,0,0,0.08)] sm:text-sm">
             Sum of E(x) across {dedupCount} unique clients
           </div>
         </div>
@@ -198,7 +198,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
         {/* Header */}
         <header className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center border-4 border-black bg-black">
+            <div className="flex h-11 w-11 items-center justify-center border border-neutral-200 bg-black">
               <Building2 className="h-5 w-5 text-primary" strokeWidth={2.5} />
             </div>
             <div>

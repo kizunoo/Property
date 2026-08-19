@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { Treemap, ResponsiveContainer, Tooltip } from "recharts"
 import { LayoutDashboard } from "lucide-react"
@@ -26,7 +26,7 @@ function TreeTooltip({ active, payload }: TooltipPayload) {
   if (!active || !payload?.length) return null
   const item = payload[0].payload
   return (
-    <div className="border-4 border-black bg-white px-4 py-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+    <div className="border border-neutral-200 bg-white px-4 py-3 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
       <div className="text-xs font-black uppercase tracking-wider">{item.label}</div>
       <div className="mt-1 font-mono text-lg font-black">{currency(item.value)}</div>
       <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -124,15 +124,15 @@ export function TierValueChart({ clients, onTierClick }: TierValueChartProps) {
 
   return (
     <ScrollConnect>
-      <div className="border-4 border-black bg-card shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
-        <div className="flex items-center justify-between gap-3 border-b-4 border-black bg-black px-5 py-3.5 sm:px-6">
+      <div className="border border-neutral-200 bg-card shadow-[0px_4px_16px_rgba(0,0,0,0.10)]">
+        <div className="flex items-center justify-between gap-3 border-b border-neutral-200 bg-black px-5 py-3.5 sm:px-6">
           <div className="flex items-center gap-2 text-white">
             <LayoutDashboard className="h-4 w-4" strokeWidth={2.5} />
             <span className="text-xs font-black uppercase tracking-wider sm:text-sm">
               Expected Value by Tier
             </span>
           </div>
-          <span className="border-2 border-black bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
+          <span className="border border-neutral-200 bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
             Click segment for AI analysis
           </span>
         </div>

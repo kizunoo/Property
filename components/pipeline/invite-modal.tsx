@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useEffect, useState } from "react"
 import { Check, Copy, Loader2, Mail, Send, X } from "lucide-react"
@@ -83,14 +83,14 @@ export function InviteModal({
       onClick={onClose}
     >
       <div
-        className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden border-4 border-black bg-white shadow-[14px_14px_0px_0px_rgba(0,0,0,1)]"
+        className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden border border-neutral-200 bg-white shadow-[0px_8px_32px_rgba(0,0,0,0.14)]"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label="Generated Client Invite"
       >
         {/* Header */}
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b-4 border-black bg-black p-5 sm:p-6">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-neutral-200 bg-black p-5 sm:p-6">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center border-4 border-primary bg-primary text-black">
               <Mail className="h-6 w-6" strokeWidth={2.5} />
@@ -131,7 +131,7 @@ export function InviteModal({
           )}
 
           {!loading && error && (
-            <div className="border-4 border-black bg-white p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+            <div className="border border-neutral-200 bg-white p-5 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
               <p className="text-xs font-black uppercase tracking-wider text-black">Generation Error</p>
               <p className="mt-2 text-sm font-bold text-muted-foreground">{error}</p>
             </div>
@@ -139,7 +139,7 @@ export function InviteModal({
 
           {!loading && !error && draft && (
             <div className="flex flex-col gap-4">
-              <div className="border-4 border-black bg-primary/20 p-5 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
+              <div className="border border-neutral-200 bg-primary/20 p-5 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
                 <p className="font-sans text-sm font-bold leading-relaxed whitespace-pre-wrap text-black">
                   {draft}
                 </p>
@@ -152,13 +152,13 @@ export function InviteModal({
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 border-t-4 border-black p-5 sm:p-6 bg-card">
+        <div className="shrink-0 border-t border-neutral-200 p-5 sm:p-6 bg-card">
           <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
             {!loading && !error && draft && (
               <button
                 type="button"
                 onClick={handleCopy}
-                className="flex items-center justify-center gap-2 border-4 border-black bg-primary px-6 py-3 text-xs font-black uppercase tracking-wider text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none"
+                className="flex items-center justify-center gap-2 border border-neutral-200 bg-primary px-6 py-3 text-xs font-black uppercase tracking-wider text-black shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-all hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)]"
               >
                 {copied ? (
                   <>
@@ -176,7 +176,7 @@ export function InviteModal({
             <button
               type="button"
               onClick={onClose}
-              className="flex items-center justify-center gap-2 border-4 border-black bg-black px-6 py-3 text-xs font-black uppercase tracking-wider text-white transition-colors hover:bg-white hover:text-black"
+              className="flex items-center justify-center gap-2 border border-neutral-200 bg-black px-6 py-3 text-xs font-black uppercase tracking-wider text-white transition-colors hover:bg-white hover:text-black"
             >
               Close
             </button>

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+﻿import type { ReactNode } from "react"
 import { CountUp } from "@/components/animation/count-up"
 import { GlitchLabel } from "@/components/animation/glitch-label"
 import { AnimatedContent } from "@/components/animation/animated-content"

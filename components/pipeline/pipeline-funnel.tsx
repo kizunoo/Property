@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { BarChart3 } from "lucide-react"
@@ -23,7 +23,7 @@ function FunnelTooltip({ active, payload }: TooltipProps) {
   if (!active || !payload?.length) return null
   const d = payload[0].payload
   return (
-    <div className="border-4 border-black bg-white px-4 py-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+    <div className="border border-neutral-200 bg-white px-4 py-3 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
       <div className="text-xs font-black uppercase tracking-wider">{d.label}</div>
       <div className="mt-1 font-mono text-3xl font-black leading-none">{d.count}</div>
       <div className="mt-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -63,16 +63,16 @@ export function PipelineFunnel({ clients }: PipelineFunnelProps) {
 
   return (
     <ScrollConnect>
-      <div className="border-4 border-black bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+      <div className="border border-neutral-200 bg-white shadow-[0px_4px_16px_rgba(0,0,0,0.10)]">
         {/* Header */}
-        <div className="flex items-center justify-between gap-3 border-b-4 border-black bg-black px-5 py-3.5 sm:px-6">
+        <div className="flex items-center justify-between gap-3 border-b border-neutral-200 bg-black px-5 py-3.5 sm:px-6">
           <div className="flex items-center gap-2 text-white">
             <BarChart3 className="h-4 w-4" strokeWidth={2.5} />
             <span className="text-xs font-black uppercase tracking-wider sm:text-sm">
               Current Tier Distribution
             </span>
           </div>
-          <span className="border-2 border-black bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
+          <span className="border border-neutral-200 bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
             Live
           </span>
         </div>

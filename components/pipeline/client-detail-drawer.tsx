@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useEffect, useRef, useState } from "react"
 import {
@@ -72,7 +72,7 @@ function TierBadge({ tier }: { tier: DeduplicatedClient["tier"] }) {
     TIER_3: "bg-white text-black",
   }
   return (
-    <span className={`inline-block border-2 border-black px-3 py-1 text-xs font-black uppercase tracking-wider ${styles[tier]}`}>
+    <span className={`inline-block border border-neutral-200 px-3 py-1 text-xs font-black uppercase tracking-wider ${styles[tier]}`}>
       {TIER_SHORT[tier]}
     </span>
   )
@@ -89,7 +89,7 @@ function ScoreBar({ row }: { row: ScoreRow }) {
           <span className="font-bold text-muted-foreground"> / {row.max}%</span>
         </span>
       </div>
-      <div className="h-3 w-full border-2 border-black bg-white">
+      <div className="h-3 w-full border border-neutral-200 bg-white">
         <div
           className={`h-full transition-all duration-300 ${row.earned ? "bg-black" : "bg-transparent"}`}
           style={{ width: `${pct}%` }}
@@ -101,7 +101,7 @@ function ScoreBar({ row }: { row: ScoreRow }) {
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2 border-b-2 border-black pb-2">
+    <div className="flex items-center gap-2 border-b border-neutral-200 pb-2">
       <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{children}</span>
     </div>
   )
@@ -119,8 +119,8 @@ function StatRow({ label, value }: { label: string; value: string }) {
 // ─── Match list (other properties) ───────────────────────────────────────────
 function OtherMatchRow({ match, rank }: { match: DeduplicatedClient["allMatches"][0]; rank: number }) {
   return (
-    <div className="flex items-center gap-3 border-b-2 border-black px-4 py-3 last:border-b-0">
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center border-2 border-black bg-black font-mono text-[10px] font-black text-white">
+    <div className="flex items-center gap-3 border-b border-neutral-200 px-4 py-3 last:border-b-0">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center border border-neutral-200 bg-black font-mono text-[10px] font-black text-white">
         {rank}
       </span>
       <div className="flex-1 overflow-hidden">
@@ -150,7 +150,7 @@ function ReasoningBox({
 }) {
   if (loading) {
     return (
-      <div className="mt-3 border-4 border-black bg-black p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+      <div className="mt-3 border border-neutral-200 bg-black p-4 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
         <div className="flex items-center gap-2">
           <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" strokeWidth={2.5} />
           <span className="font-mono text-xs font-black uppercase tracking-widest text-white/60">
@@ -170,7 +170,7 @@ function ReasoningBox({
 
   if (error) {
     return (
-      <div className="mt-3 border-4 border-black bg-white p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+      <div className="mt-3 border border-neutral-200 bg-white p-4 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
         <div className="flex gap-2">
           <Brain className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={2.5} />
           <div>
@@ -187,7 +187,7 @@ function ReasoningBox({
   }
 
   return (
-    <div className="mt-3 border-4 border-black bg-primary p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+    <div className="mt-3 border border-neutral-200 bg-primary p-4 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
       <div className="flex gap-2">
         <Brain className="mt-0.5 h-4 w-4 shrink-0 text-black" strokeWidth={2.5} />
         <p className="text-sm font-bold leading-relaxed text-black">{text}</p>
@@ -412,14 +412,14 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
     >
       {/* Modal panel — stop click from closing when inside */}
       <div
-        className="relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden border-4 border-black bg-white shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]"
+        className="relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden border border-neutral-200 bg-white shadow-[0px_8px_32px_rgba(0,0,0,0.14)]"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label={`Client Detail — ${client.name}`}
       >
         {/* ── Header ── */}
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b-4 border-black bg-black p-5 sm:p-6">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-neutral-200 bg-black p-5 sm:p-6">
           <div className="flex items-center gap-4">
             <div className="flex h-16 w-16 shrink-0 items-center justify-center border-4 border-primary bg-primary text-2xl font-black text-black">
               {client.initials}
@@ -458,14 +458,14 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
         <div className="overflow-y-auto">
           <div className="grid grid-cols-1 gap-0 lg:grid-cols-2">
             {/* ── Left column ── */}
-            <div className="flex flex-col gap-6 border-b-4 border-black p-5 lg:border-b-0 lg:border-r-4 sm:p-6">
+            <div className="flex flex-col gap-6 border-b border-neutral-200 p-5 lg:border-b-0 lg:border-r-4 sm:p-6">
               {/* Financial overview */}
               <div>
                 <SectionHeading>
                   <Wallet className="inline h-3 w-3 mr-1" strokeWidth={2.5} />
                   Financial &amp; Preference Overview
                 </SectionHeading>
-                <div className="mt-3 border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                <div className="mt-3 border border-neutral-200 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
                   <div className="px-4">
                     <StatRow label="Highest Value Match"  value={client.bestMatch.property} />
                     <StatRow label="Property Value"       value={currency(client.bestMatch.propertyValue)} />
@@ -493,16 +493,16 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                   <Brain className="inline h-3 w-3 mr-1" strokeWidth={2.5} />
                   AI Score Decomposition
                 </SectionHeading>
-                <div className="mt-3 border-4 border-black p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                <div className="mt-3 border border-neutral-200 p-4 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
                   <div className="flex flex-col gap-4">
                     {scoreRows.map((row) => <ScoreBar key={row.label} row={row} />)}
                   </div>
-                  <div className="mt-5 border-t-4 border-black pt-4">
+                  <div className="mt-5 border-t border-neutral-200 pt-4">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-black uppercase tracking-wider">Total P(Buy)</span>
                       <span className="font-mono text-2xl font-black transition-all duration-300">{percent(effectiveProbability)}</span>
                     </div>
-                    <div className="mt-2 h-5 w-full border-2 border-black bg-white">
+                    <div className="mt-2 h-5 w-full border border-neutral-200 bg-white">
                       <div className="h-full bg-black transition-all duration-500" style={{ width: `${totalProb}%` }} />
                     </div>
                     <div className="mt-1 flex justify-between text-[10px] font-bold text-muted-foreground">
@@ -542,8 +542,8 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                     <Layers className="inline h-3 w-3 mr-1" strokeWidth={2.5} />
                     Other Listing Matches ({otherProps.length})
                   </SectionHeading>
-                  <div className="mt-3 border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-                    <div className="flex items-center gap-3 border-b-4 border-black bg-black px-4 py-2">
+                  <div className="mt-3 border border-neutral-200 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
+                    <div className="flex items-center gap-3 border-b border-neutral-200 bg-black px-4 py-2">
                       <span className="flex-1 text-[10px] font-black uppercase tracking-wider text-white">Property</span>
                       <span className="text-[10px] font-black uppercase tracking-wider text-white">P / E(x)</span>
                     </div>
@@ -561,9 +561,9 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                     <Building2 className="inline h-3 w-3 mr-1" strokeWidth={2.5} />
                     Target Listing Snapshot
                   </SectionHeading>
-                  <div className="mt-3 border-4 border-black p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                  <div className="mt-3 border border-neutral-200 p-4 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center border-2 border-black bg-black">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center border border-neutral-200 bg-black">
                         <Building2 className="h-5 w-5 text-primary" strokeWidth={2.5} />
                       </div>
                       <div>
@@ -586,11 +586,11 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
         </div>
 
         {/* ── Footer ── */}
-        <div className="shrink-0 border-t-4 border-black bg-card">
+        <div className="shrink-0 border-t border-neutral-200 bg-card">
 
           {/* Log Viewing confirmation banner */}
           {viewingResult && (
-            <div className="flex items-center gap-3 border-b-4 border-black bg-primary px-5 py-3">
+            <div className="flex items-center gap-3 border-b border-neutral-200 bg-primary px-5 py-3">
               <CheckCircle2 className="h-5 w-5 shrink-0 text-black" strokeWidth={2.5} />
               <p className="flex-1 text-sm font-black text-black">
                 Viewing logged.{" "}
@@ -601,7 +601,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
               <button
                 type="button"
                 onClick={() => setViewingResult(null)}
-                className="shrink-0 border-2 border-black p-1 text-black hover:bg-black hover:text-primary"
+                className="shrink-0 border border-neutral-200 p-1 text-black hover:bg-black hover:text-primary"
                 aria-label="Dismiss log confirmation"
               >
                 <X className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -609,14 +609,14 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
             </div>
           )}
           {viewingError && (
-            <div className="border-b-4 border-black bg-white px-5 py-3">
+            <div className="border-b border-neutral-200 bg-white px-5 py-3">
               <span className="text-xs font-black uppercase tracking-wider text-red-600">Error: {viewingError}</span>
             </div>
           )}
 
           {/* Outcome confirmation banner */}
           {outcomeResult && (
-            <div className={`flex items-center gap-3 border-b-4 border-black px-5 py-3 ${
+            <div className={`flex items-center gap-3 border-b border-neutral-200 px-5 py-3 ${
               outcomeResult === "won" ? "bg-primary" : "bg-white"
             }`}>
               {outcomeResult === "won" ? (
@@ -631,7 +631,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
               <button
                 type="button"
                 onClick={() => setOutcomeResult(null)}
-                className="shrink-0 border-2 border-black p-1 text-black hover:bg-black hover:text-primary"
+                className="shrink-0 border border-neutral-200 p-1 text-black hover:bg-black hover:text-primary"
                 aria-label="Dismiss outcome confirmation"
               >
                 <X className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -639,14 +639,14 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
             </div>
           )}
           {outcomeError && (
-            <div className="border-b-4 border-black bg-white px-5 py-3">
+            <div className="border-b border-neutral-200 bg-white px-5 py-3">
               <span className="text-xs font-black uppercase tracking-wider text-red-600">Error: {outcomeError}</span>
             </div>
           )}
 
           {/* Schedule Viewing confirmation banner */}
           {schedSuccess && (
-            <div className="flex items-center gap-3 border-b-4 border-black bg-black px-5 py-3">
+            <div className="flex items-center gap-3 border-b border-neutral-200 bg-black px-5 py-3">
               <Calendar className="h-5 w-5 shrink-0 text-primary" strokeWidth={2.5} />
               <p className="flex-1 text-sm font-black text-white">{schedSuccess}</p>
               <button
@@ -660,7 +660,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
             </div>
           )}
           {schedError && (
-            <div className="border-b-4 border-black bg-white px-5 py-3">
+            <div className="border-b border-neutral-200 bg-white px-5 py-3">
               <span className="text-xs font-black uppercase tracking-wider text-red-600">Error: {schedError}</span>
             </div>
           )}
@@ -669,7 +669,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
           {schedFormOpen && (
             <form
               onSubmit={handleScheduleViewingSubmit}
-              className="border-b-4 border-black bg-white px-5 py-4"
+              className="border-b border-neutral-200 bg-white px-5 py-4"
             >
               <div className="mb-3 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                 Set viewing date &amp; time
@@ -684,7 +684,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                     value={schedDate}
                     onChange={(e) => setSchedDate(e.target.value)}
                     min={new Date().toISOString().split("T")[0]}
-                    className="border-2 border-black bg-white px-3 py-2 font-mono text-sm font-bold outline-none focus:border-black focus:ring-2 focus:ring-primary"
+                    className="border border-neutral-200 bg-white px-3 py-2 font-mono text-sm font-bold outline-none focus:border-black focus:ring-2 focus:ring-primary"
                   />
                 </div>
                 <div className="flex flex-1 flex-col gap-1">
@@ -695,14 +695,14 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                     required
                     value={schedTime}
                     onChange={(e) => setSchedTime(e.target.value)}
-                    className="border-2 border-black bg-white px-3 py-2 font-mono text-sm font-bold outline-none focus:border-black focus:ring-2 focus:ring-primary"
+                    className="border border-neutral-200 bg-white px-3 py-2 font-mono text-sm font-bold outline-none focus:border-black focus:ring-2 focus:ring-primary"
                   />
                 </div>
                 <div className="flex items-end gap-2">
                   <button
                     type="submit"
                     disabled={schedLoading || !schedDate || !schedTime}
-                    className="flex items-center gap-2 border-4 border-black bg-black px-4 py-2 text-xs font-black uppercase tracking-wider text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] disabled:opacity-50"
+                    className="flex items-center gap-2 border border-neutral-200 bg-black px-4 py-2 text-xs font-black uppercase tracking-wider text-white shadow-[0px_1px_4px_rgba(0,0,0,0.07)] transition-all hover:shadow-[0px_2px_8px_rgba(0,0,0,0.08)] disabled:opacity-50"
                   >
                     {schedLoading ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />
@@ -714,7 +714,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                   <button
                     type="button"
                     onClick={() => { setSchedFormOpen(false); setSchedError(null) }}
-                    className="border-4 border-black bg-white px-4 py-2 text-xs font-black uppercase tracking-wider text-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all hover:-translate-x-0.5 hover:-translate-y-0.5"
+                    className="border border-neutral-200 bg-white px-4 py-2 text-xs font-black uppercase tracking-wider text-black shadow-[0px_1px_4px_rgba(0,0,0,0.07)] transition-all"
                   >
                     Cancel
                   </button>
@@ -731,7 +731,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                 onClick={() => {
                   if (onGenerateInvite) onGenerateInvite(client)
                 }}
-                className="flex flex-1 items-center justify-center gap-2 border-4 border-black bg-black py-3.5 text-sm font-black uppercase tracking-wider text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none"
+                className="flex flex-1 items-center justify-center gap-2 border border-neutral-200 bg-black py-3.5 text-sm font-black uppercase tracking-wider text-white shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-all hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)]"
               >
                 <Send className="h-4 w-4 text-primary" strokeWidth={2.5} />
                 Generate Invite
@@ -740,7 +740,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
               <button
                 type="button"
                 disabled
-                className="flex flex-1 cursor-not-allowed items-center justify-center gap-2 border-4 border-black/40 bg-muted py-3.5 text-sm font-black uppercase tracking-wider text-muted-foreground"
+                className="flex flex-1 cursor-not-allowed items-center justify-center gap-2 border border-neutral-200/40 bg-muted py-3.5 text-sm font-black uppercase tracking-wider text-muted-foreground"
               >
                 <Send className="h-4 w-4 text-muted-foreground" strokeWidth={2.5} />
                 Generate Invite (VIP/Warm Only)
@@ -751,7 +751,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
             <button
               type="button"
               onClick={() => { setSchedFormOpen((o) => !o); setSchedError(null) }}
-              className={`flex flex-1 items-center justify-center gap-2 border-4 border-black py-3.5 text-sm font-black uppercase tracking-wider shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none ${
+              className={`flex flex-1 items-center justify-center gap-2 border border-neutral-200 py-3.5 text-sm font-black uppercase tracking-wider shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-all hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)] ${
                 schedFormOpen ? "bg-black text-white" : "bg-white text-black"
               }`}
             >
@@ -764,7 +764,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
               type="button"
               onClick={handleLogViewing}
               disabled={viewingLoading}
-              className="flex flex-1 items-center justify-center gap-2 border-4 border-black bg-white py-3.5 text-sm font-black uppercase tracking-wider text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex flex-1 items-center justify-center gap-2 border border-neutral-200 bg-white py-3.5 text-sm font-black uppercase tracking-wider text-black shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-all hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {viewingLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
@@ -783,7 +783,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                   type="button"
                   disabled={outcomeLoading}
                   onClick={() => handleRecordOutcome("won")}
-                  className="flex flex-1 items-center justify-center gap-2 border-4 border-black bg-primary py-3 text-sm font-black uppercase tracking-wider text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex flex-1 items-center justify-center gap-2 border border-neutral-200 bg-primary py-3 text-sm font-black uppercase tracking-wider text-black shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-all hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {outcomeLoading ? (
                     <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
@@ -796,7 +796,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                   type="button"
                   disabled={outcomeLoading}
                   onClick={() => handleRecordOutcome("lost")}
-                  className="flex flex-1 items-center justify-center gap-2 border-4 border-black bg-white py-3 text-sm font-black uppercase tracking-wider text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex flex-1 items-center justify-center gap-2 border border-neutral-200 bg-white py-3 text-sm font-black uppercase tracking-wider text-black shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-all hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {outcomeLoading ? (
                     <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
@@ -809,7 +809,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
             ) : (
               <>
                 {/* Already decided — show a compact change option */}
-                <div className={`flex flex-1 items-center gap-3 border-4 border-black px-4 py-3 ${
+                <div className={`flex flex-1 items-center gap-3 border border-neutral-200 px-4 py-3 ${
                   effectiveOutcome === "won" ? "bg-primary" : "bg-white"
                 }`}>
                   {effectiveOutcome === "won" ? (
@@ -828,7 +828,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                   type="button"
                   disabled={outcomeLoading}
                   onClick={() => handleRecordOutcome(effectiveOutcome === "won" ? "lost" : "won")}
-                  className="flex shrink-0 items-center justify-center gap-2 border-4 border-black bg-white px-4 py-3 text-xs font-black uppercase tracking-wider text-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex shrink-0 items-center justify-center gap-2 border border-neutral-200 bg-white px-4 py-3 text-xs font-black uppercase tracking-wider text-black shadow-[0px_1px_4px_rgba(0,0,0,0.07)] transition-all hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Change to {effectiveOutcome === "won" ? "Lost" : "Won"}
                 </button>

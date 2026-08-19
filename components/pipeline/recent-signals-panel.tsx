@@ -42,7 +42,6 @@ export function RecentSignalsPanel({ onOpenClient }: { onOpenClient: (clientId: 
   const getAccentColor = (type: string) => {
     switch (type) {
       case "first_vip":
-        return "#FFD400"
       case "tier_upgrade":
         return "#FFD400"
       case "viewing_logged":
@@ -53,104 +52,43 @@ export function RecentSignalsPanel({ onOpenClient }: { onOpenClient: (clientId: 
   }
 
   return (
-    <div
-      style={{
-        border: "4px solid #000",
-        boxShadow: "8px 8px 0px 0px rgba(0,0,0,1)",
-        marginBottom: "28px",
-        background: "#fff",
-      }}
-    >
-      <div
-        style={{
-          borderBottom: "4px solid #000",
-          padding: "14px 20px",
-          fontWeight: 800,
-          fontSize: "14px",
-          textTransform: "uppercase",
-          letterSpacing: "0.6px",
-          background: "#f4f4f4",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <span>Live Signal Feed</span>
-        <span
-          style={{
-            fontSize: "11px",
-            fontWeight: 700,
-            background: "#000",
-            color: "#fff",
-            padding: "2px 8px",
-            border: "1px solid #000",
-          }}
-        >
+    <div className="mb-7 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-neutral-200 bg-neutral-50 px-5 py-3.5">
+        <span className="text-[13px] font-semibold uppercase tracking-wider text-neutral-700">
+          Live Signal Feed
+        </span>
+        <span className="rounded-md bg-neutral-900 px-2 py-0.5 text-[11px] font-semibold text-white">
           {signals.length} ACTIVE
         </span>
       </div>
+
+      {/* Signal rows */}
       <div>
         {signals.map((s) => (
           <div
             key={s.id}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              borderLeft: `8px solid ${getAccentColor(s.type)}`,
-              borderBottom: "2px solid #000",
-              padding: "16px 20px",
-              background: "#fff",
-            }}
-            className="transition-colors hover:bg-neutral-50"
+            style={{ borderLeft: `4px solid ${getAccentColor(s.type)}` }}
+            className="flex items-center justify-between border-b border-neutral-100 bg-white px-5 py-4 last:border-b-0 transition-colors hover:bg-neutral-50"
           >
             <button
               onClick={() => onOpenClient(s.client_id)}
-              style={{
-                background: "none",
-                border: "none",
-                textAlign: "left",
-                cursor: "pointer",
-                fontSize: "14px",
-                fontWeight: 700,
-                flex: 1,
-                color: "#000",
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-              }}
+              className="flex flex-1 items-center gap-3 text-left"
             >
               <span
-                style={{
-                  fontSize: "10px",
-                  fontWeight: 900,
-                  textTransform: "uppercase",
-                  padding: "2px 6px",
-                  border: "2px solid #000",
-                  background: getAccentColor(s.type),
-                  color: "#000",
-                }}
+                style={{ background: getAccentColor(s.type) }}
+                className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-900"
               >
                 {s.type.replace("_", " ")}
               </span>
-              <span>{s.message}</span>
+              <span className="text-sm font-medium text-neutral-800">{s.message}</span>
             </button>
             <button
               onClick={() => dismiss(s.id)}
               aria-label="Dismiss"
-              style={{
-                background: "#000",
-                color: "#fff",
-                border: "2px solid #000",
-                cursor: "pointer",
-                fontWeight: 900,
-                fontSize: "11px",
-                padding: "4px 8px",
-                marginLeft: "12px",
-              }}
-              className="transition-transform hover:scale-105"
+              className="ml-3 rounded-md border border-neutral-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-neutral-500 transition-colors hover:border-neutral-400 hover:text-neutral-800"
             >
-              DISMISS
+              Dismiss
             </button>
           </div>
         ))}

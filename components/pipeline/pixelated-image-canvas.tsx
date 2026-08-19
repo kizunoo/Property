@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useEffect, useRef, useState } from "react"
 import { Building2 } from "lucide-react"
@@ -209,11 +209,11 @@ export function PixelatedImageCanvas({
   if (error || !src) {
     return (
       <div
-        className={`stripes-diagonal relative flex ${containerHeightClass} w-full items-center justify-center bg-white rounded-none ${
-          borderBottomOnly ? "border-b-4 border-black" : "border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]"
+        className={`stripes-diagonal relative flex ${containerHeightClass} w-full items-center justify-center bg-white rounded-lg ${
+          borderBottomOnly ? "border-b border-neutral-200" : "border border-neutral-200 shadow-[0px_4px_16px_rgba(0,0,0,0.10)]"
         }`}
       >
-        <div className="relative z-10 flex h-16 w-16 items-center justify-center border-4 border-black bg-primary shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-none">
+        <div className="relative z-10 flex h-16 w-16 items-center justify-center border border-neutral-200 bg-primary shadow-[0px_2px_8px_rgba(0,0,0,0.08)] rounded-lg">
           <Building2 className="h-8 w-8 text-black" strokeWidth={2.5} />
         </div>
       </div>
@@ -225,13 +225,13 @@ export function PixelatedImageCanvas({
       ref={containerRef}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      className={`group relative w-full overflow-hidden bg-black rounded-none ${containerHeightClass} ${
-        borderBottomOnly ? "border-b-4 border-black" : "border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]"
+      className={`group relative w-full overflow-hidden bg-black rounded-lg ${containerHeightClass} ${
+        borderBottomOnly ? "border-b border-neutral-200" : "border border-neutral-200 shadow-[0px_4px_16px_rgba(0,0,0,0.10)]"
       } ${className}`}
     >
-      <canvas ref={canvasRef} className="block h-full w-full cursor-pointer rounded-none" aria-label={alt} />
+      <canvas ref={canvasRef} className="block h-full w-full cursor-pointer rounded-lg" aria-label={alt} />
       {showCreditBadge && (
-        <span className="absolute bottom-2.5 right-2.5 rounded-none border-2 border-black bg-black px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-primary shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+        <span className="absolute bottom-2.5 right-2.5 rounded-lg border border-neutral-200 bg-black px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-primary shadow-[0px_1px_4px_rgba(0,0,0,0.07)]">
           Photos via Pexels
         </span>
       )}
