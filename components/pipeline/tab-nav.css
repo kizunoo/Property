@@ -1,10 +1,12 @@
 .rect-tab-nav {
   display: inline-flex;
-  border: 3px solid var(--border, #000);
+  border: 1px solid #e5e5e5;
   background: var(--background, #fff);
-  box-shadow: 6px 6px 0px 0px rgba(0, 0, 0, 1); /* hard offset, no blur */
+  box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
   max-width: 100%;
   overflow-x: auto;
+  overflow: hidden; /* clip child border-radius */
 }
 
 .rect-tab-list {
@@ -18,7 +20,7 @@
 .rect-tab-list > li {
   display: flex;
   flex: 1;
-  border-right: 2px solid var(--border, #000);
+  border-right: 1px solid #e5e5e5;
 }
 .rect-tab-list > li:last-child {
   border-right: none;
@@ -40,14 +42,14 @@
   text-transform: uppercase;
   letter-spacing: 0.4px;
   border: none;
-  border-radius: 0; /* no pill shape */
+  border-radius: 0; /* tabs are flush inside the container — container has the radius */
   cursor: pointer;
   overflow: hidden;
   white-space: nowrap;
 }
 
 .rect-tab.is-active {
-  background: var(--primary, #ffd400); /* acid yellow fill for the active tab, hard-cut not animated as a color transition */
+  background: var(--primary, #ffd400); /* acid yellow fill — kept exactly as-is */
 }
 
 .rect-tab .hover-block {
