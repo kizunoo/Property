@@ -6,63 +6,81 @@
 :root {
   color-scheme: light;
 
-  /* Neo-brutalist: stark white base, ink black ink, single acid accent */
+  /* Softened Neo-brutalist: warm white base, near-black ink, acid-yellow accent */
   --background: oklch(1 0 0);
-  --foreground: oklch(0 0 0);
+  --foreground: oklch(0.08 0 0);
 
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0 0 0);
+  --card-foreground: oklch(0.08 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0 0 0);
+  --popover-foreground: oklch(0.08 0 0);
 
   /* Accent: acid yellow — the one signature color, used sparingly */
   --primary: oklch(0.87 0.19 96);
   --primary-foreground: oklch(0 0 0);
 
   --secondary: oklch(0.96 0 0);
-  --secondary-foreground: oklch(0 0 0);
+  --secondary-foreground: oklch(0.08 0 0);
   --muted: oklch(0.94 0 0);
-  --muted-foreground: oklch(0.32 0 0);
+  --muted-foreground: oklch(0.45 0 0);
   --accent: oklch(0.87 0.19 96);
   --accent-foreground: oklch(0 0 0);
 
   --destructive: oklch(0.58 0.24 25);
   --destructive-foreground: oklch(1 0 0);
 
-  --border: oklch(0 0 0);
-  --input: oklch(0 0 0);
-  --ring: oklch(0 0 0);
+  /* Borders: dark gray instead of pure black — reserve #000 for hero moments */
+  --border: oklch(0.82 0 0);
+  --border-strong: oklch(0.2 0 0);
+  --input: oklch(0.2 0 0);
+  --ring: oklch(0.87 0.19 96);
 
-  --chart-1: oklch(0 0 0);
+  --chart-1: oklch(0.08 0 0);
   --chart-2: oklch(0.87 0.19 96);
   --chart-3: oklch(0.55 0 0);
   --chart-4: oklch(0.32 0 0);
   --chart-5: oklch(0.94 0 0);
 
-  --radius: 0rem;
+  /* Radius: 10px consistent rounding */
+  --radius: 0.625rem;
 
   --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0 0 0);
+  --sidebar-foreground: oklch(0.08 0 0);
   --sidebar-primary: oklch(0.87 0.19 96);
   --sidebar-primary-foreground: oklch(0 0 0);
   --sidebar-accent: oklch(0.96 0 0);
-  --sidebar-accent-foreground: oklch(0 0 0);
-  --sidebar-border: oklch(0 0 0);
-  --sidebar-ring: oklch(0 0 0);
+  --sidebar-accent-foreground: oklch(0.08 0 0);
+  --sidebar-border: oklch(0.82 0 0);
+  --sidebar-ring: oklch(0.87 0.19 96);
 
   /* Segment tokens */
   --tier-1: oklch(0.87 0.19 96);
   --tier-1-foreground: oklch(0 0 0);
   --tier-2: oklch(0.94 0 0);
-  --tier-2-foreground: oklch(0 0 0);
+  --tier-2-foreground: oklch(0.08 0 0);
   --tier-3: oklch(1 0 0);
-  --tier-3-foreground: oklch(0.32 0 0);
+  --tier-3-foreground: oklch(0.45 0 0);
+
+  /* Elevation shadows — soft, blurred, no offset */
+  --shadow-xs:    0px 1px 3px rgba(0,0,0,0.06);
+  --shadow-sm:    0px 2px 8px rgba(0,0,0,0.08);
+  --shadow-md:    0px 4px 16px rgba(0,0,0,0.10);
+  --shadow-lg:    0px 8px 32px rgba(0,0,0,0.12);
+  --shadow-xl:    0px 16px 48px rgba(0,0,0,0.14);
+
+  /* Hover elevations */
+  --shadow-sm-hover: 0px 4px 16px rgba(0,0,0,0.12);
+  --shadow-md-hover: 0px 8px 24px rgba(0,0,0,0.14);
 }
 
 @theme inline {
-  --font-sans: 'Space Grotesk', 'Space Grotesk Fallback', system-ui, sans-serif;
-  --font-mono: 'Space Mono', 'Space Mono Fallback', monospace;
-  --font-display: 'Space Grotesk', 'Space Grotesk Fallback', system-ui, sans-serif;
+  /* Primary UI font: Geist — clean modern grotesk */
+  --font-sans: var(--font-geist), system-ui, sans-serif;
+  /* Display / headline numbers: Space Grotesk — keep character for large numerics only */
+  --font-display: var(--font-space-grotesk), system-ui, sans-serif;
+  /* Mono: Space Mono — retained for decrypt text, briefing, code contexts */
+  --font-mono: var(--font-space-mono), monospace;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -80,6 +98,7 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);
@@ -87,10 +106,13 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
-  --radius-sm: 0rem;
-  --radius-md: 0rem;
-  --radius-lg: 0rem;
-  --radius-xl: 0rem;
+
+  /* Consistent radius scale */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 8px);
+
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -121,26 +143,26 @@
   }
 }
 
-/* ── Neo-brutalist stripe pattern ──────────────────────────────── */
+/* ── Subtle stripe patterns ─────────────────────────────────────── */
 .stripes-diagonal {
   background-image: repeating-linear-gradient(45deg,
       transparent,
       transparent 10px,
-      rgba(0, 0, 0, 0.06) 10px,
-      rgba(0, 0, 0, 0.06) 20px);
+      rgba(0, 0, 0, 0.03) 10px,
+      rgba(0, 0, 0, 0.03) 20px);
 }
 
 .stripes-grid {
   background-image: repeating-linear-gradient(0deg,
       transparent,
       transparent 20px,
-      rgba(0, 0, 0, 0.08) 20px,
-      rgba(0, 0, 0, 0.08) 21px),
+      rgba(0, 0, 0, 0.04) 20px,
+      rgba(0, 0, 0, 0.04) 21px),
     repeating-linear-gradient(90deg,
       transparent,
       transparent 20px,
-      rgba(0, 0, 0, 0.08) 20px,
-      rgba(0, 0, 0, 0.08) 21px);
+      rgba(0, 0, 0, 0.04) 20px,
+      rgba(0, 0, 0, 0.04) 21px);
 }
 
 .scrollbar-none {
@@ -164,6 +186,7 @@
   }
 }
 
+/* card-snap-in: ends with soft elevation shadow, not hard offset */
 @keyframes card-snap-in {
   0% {
     opacity: 0;
@@ -180,7 +203,7 @@
   100% {
     opacity: 1;
     transform: translateY(0);
-    box-shadow: 6px 6px 0px 0px rgba(0, 0, 0, 1);
+    box-shadow: var(--shadow-sm);
   }
 }
 
@@ -299,7 +322,7 @@
  */
 .client-entity {
   overflow: hidden;           /* clip the scaleY so nothing paints outside the card area */
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .client-entity-inner {
@@ -311,9 +334,10 @@
   min-width: 1040px;          /* prevent internal collapse on narrow viewports */
   height: 68px;
   padding: 0 20px;
-  border: 3px solid #000;
+  border: 1px solid oklch(0.82 0 0);
+  border-radius: var(--radius);
   background: #fff;
-  box-shadow: 6px 6px 0px 0px rgba(0, 0, 0, 1);
+  box-shadow: var(--shadow-sm);
 
   /* start flat & invisible */
   transform: scaleY(0);
@@ -321,7 +345,12 @@
   opacity: 0;
   transition:
     transform 300ms steps(8, end),
-    opacity   300ms steps(8, end);
+    opacity   300ms steps(8, end),
+    box-shadow 200ms ease;
+}
+
+.client-entity-inner:hover {
+  box-shadow: var(--shadow-sm-hover);
 }
 
 .client-entity-inner.is-visible {
@@ -331,7 +360,7 @@
 
 /* alternate tint — keep stripe rhythm without relying on bg-secondary */
 .client-entity.entity-alt .client-entity-inner {
-  background: oklch(0.96 0 0);
+  background: oklch(0.97 0 0);
 }
 
 @media (prefers-reduced-motion: reduce) {

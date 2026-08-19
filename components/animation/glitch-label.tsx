@@ -43,5 +43,5 @@ export function GlitchLabel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [triggerKey]);
 
-  return <span className={className} style={{ fontFamily: "var(--font-mono)" }}>{display}</span>;
+  return <span className={className}>{display}</span>;
 }

@@ -196,7 +196,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
     <main className="min-h-screen bg-transparent px-4 py-6 sm:px-6 sm:py-10 lg:px-10">
       <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 sm:gap-8">
         {/* Header */}
-        <header className="flex flex-col gap-4 border-b-4 border-black pb-5 sm:flex-row sm:items-center sm:justify-between">
+        <header className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center border-4 border-black bg-black">
               <Building2 className="h-5 w-5 text-primary" strokeWidth={2.5} />
@@ -213,7 +213,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
 
           <div className="flex items-center gap-3">
             {syncMsg && (
-              <span className="border-2 border-black bg-primary px-3 py-1.5 text-xs font-black uppercase tracking-wider shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+              <span className="rounded-[var(--radius-sm)] border border-primary bg-primary px-3 py-1.5 text-xs font-semibold uppercase tracking-wider shadow-[var(--shadow-xs)]">
                 {syncMsg}
               </span>
             )}
@@ -221,7 +221,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
               type="button"
               disabled={syncing || loading}
               onClick={handleSync}
-              className="flex items-center gap-2 border-2 border-black bg-white px-3 py-2 text-xs font-black uppercase tracking-wider shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-transform hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] disabled:opacity-50 sm:px-4"
+              className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-border bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wider shadow-[var(--shadow-xs)] transition-shadow duration-150 hover:shadow-[var(--shadow-sm)] disabled:opacity-50 sm:px-4"
               title="Re-run evaluation engine against Supabase and refresh data"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin text-black" : "text-black"}`} strokeWidth={2.5} />
@@ -235,18 +235,18 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
         <TabNav active={tab} onChange={setTab} />
 
         {loading ? (
-          <div className="flex flex-col items-center justify-center gap-4 border-4 border-black bg-white py-24 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
-            <Loader2 className="h-8 w-8 animate-spin text-black" strokeWidth={2.5} />
-            <p className="text-xs font-black uppercase tracking-wider text-muted-foreground">
+          <div className="flex flex-col items-center justify-center gap-4 rounded-[var(--radius)] border border-border bg-white py-24 shadow-[var(--shadow-sm)]">
+            <Loader2 className="h-8 w-8 animate-spin text-foreground" strokeWidth={2} />
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Loading pipeline data…
             </p>
           </div>
         ) : null}
 
         {!loading && error ? (
-          <div className="border-4 border-black bg-white p-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
-            <p className="text-xs font-black uppercase tracking-wider text-black">Data Error</p>
-            <p className="mt-2 text-sm font-bold text-muted-foreground">{error}</p>
+          <div className="rounded-[var(--radius)] border border-border bg-white p-6 shadow-[var(--shadow-sm)]">
+            <p className="text-xs font-semibold uppercase tracking-wider text-foreground">Data Error</p>
+            <p className="mt-2 text-sm text-muted-foreground">{error}</p>
           </div>
         ) : null}
 
@@ -330,18 +330,18 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                 {/* Prediction Accuracy card */}
                 <section className="grid grid-cols-1 gap-4 sm:gap-6">
                   <AnimatedContent delay={0}>
-                    <div className="relative flex flex-col gap-3 border-4 border-black bg-white p-5 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] sm:p-6">
+                    <div className="relative flex flex-col gap-3 rounded-[var(--radius)] border border-border bg-white p-5 shadow-[var(--shadow-sm)] sm:p-6">
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
-                          <span className="border-2 border-black bg-black p-1.5 text-primary">
-                            <Trophy className="h-4 w-4" strokeWidth={2.5} />
+                          <span className="rounded-[calc(var(--radius)-2px)] bg-foreground p-1.5 text-primary">
+                            <Trophy className="h-4 w-4" strokeWidth={2} />
                           </span>
                           <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground sm:text-xs">
                             Prediction Accuracy
                           </span>
                         </div>
                         {accuracy && accuracy.total_recorded > 0 && (
-                          <span className="border-2 border-black bg-primary px-2 py-0.5 font-mono text-xs font-black">
+                          <span className="rounded-[var(--radius-sm)] bg-primary px-2 py-0.5 font-mono text-xs font-semibold">
                             {accuracy.total_recorded} recorded
                           </span>
                         )}
@@ -353,39 +353,39 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                          <div className="border-2 border-black p-3">
-                            <div className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Deals Won</div>
-                            <div className="mt-1 font-mono text-2xl font-black">{accuracy.won_count ?? 0}</div>
-                            {accuracy.avg_predicted_probability_when_won !== undefined && (
-                              <div className="mt-1 text-[11px] font-bold text-muted-foreground">
-                                Avg predicted{" "}
-                                <span className="font-black text-black">{accuracy.avg_predicted_probability_when_won}%</span>
-                              </div>
-                            )}
-                          </div>
-                          <div className="border-2 border-black p-3">
-                            <div className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Deals Lost</div>
-                            <div className="mt-1 font-mono text-2xl font-black">{accuracy.lost_count ?? 0}</div>
-                            {accuracy.avg_predicted_probability_when_lost !== undefined && (
-                              <div className="mt-1 text-[11px] font-bold text-muted-foreground">
-                                Avg predicted{" "}
-                                <span className="font-black text-black">{accuracy.avg_predicted_probability_when_lost}%</span>
-                              </div>
-                            )}
-                          </div>
-                          <div className="border-2 border-black bg-primary p-3">
-                            <div className="text-[10px] font-black uppercase tracking-wider">Model Signal</div>
-                            <div className="mt-1 font-mono text-sm font-black leading-tight">
-                              {accuracy.avg_predicted_probability_when_won !== undefined && accuracy.avg_predicted_probability_when_lost !== undefined ? (
-                                <>Won @ {accuracy.avg_predicted_probability_when_won}% &middot; Lost @ {accuracy.avg_predicted_probability_when_lost}%</>
-                              ) : "—"}
-                            </div>
-                            <div className="mt-1 text-[10px] font-bold">
-                              {accuracy.avg_predicted_probability_when_won !== undefined && accuracy.avg_predicted_probability_when_lost !== undefined && accuracy.avg_predicted_probability_when_won > accuracy.avg_predicted_probability_when_lost
-                                ? "Model is discriminating correctly ✓"
-                                : accuracy.total_recorded < 3 ? "Need more outcomes to assess" : "Review model calibration"}
-                            </div>
-                          </div>
+                           <div className="rounded-[var(--radius-sm)] border border-border p-3">
+                             <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Deals Won</div>
+                             <div className="mt-1 font-display text-2xl font-bold">{accuracy.won_count ?? 0}</div>
+                             {accuracy.avg_predicted_probability_when_won !== undefined && (
+                               <div className="mt-1 text-[11px] text-muted-foreground">
+                                 Avg predicted{" "}
+                                 <span className="font-semibold text-foreground">{accuracy.avg_predicted_probability_when_won}%</span>
+                               </div>
+                             )}
+                           </div>
+                           <div className="rounded-[var(--radius-sm)] border border-border p-3">
+                             <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Deals Lost</div>
+                             <div className="mt-1 font-display text-2xl font-bold">{accuracy.lost_count ?? 0}</div>
+                             {accuracy.avg_predicted_probability_when_lost !== undefined && (
+                               <div className="mt-1 text-[11px] text-muted-foreground">
+                                 Avg predicted{" "}
+                                 <span className="font-semibold text-foreground">{accuracy.avg_predicted_probability_when_lost}%</span>
+                               </div>
+                             )}
+                           </div>
+                           <div className="rounded-[var(--radius-sm)] border border-l-[3px] border-l-primary border-border bg-card p-3">
+                             <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Model Signal</div>
+                             <div className="mt-1 font-mono text-sm font-semibold leading-tight text-foreground">
+                               {accuracy.avg_predicted_probability_when_won !== undefined && accuracy.avg_predicted_probability_when_lost !== undefined ? (
+                                 <>Won @ {accuracy.avg_predicted_probability_when_won}% &middot; Lost @ {accuracy.avg_predicted_probability_when_lost}%</>
+                               ) : "—"}
+                             </div>
+                             <div className="mt-1 text-[10px] text-muted-foreground">
+                               {accuracy.avg_predicted_probability_when_won !== undefined && accuracy.avg_predicted_probability_when_lost !== undefined && accuracy.avg_predicted_probability_when_won > accuracy.avg_predicted_probability_when_lost
+                                 ? "Model is discriminating correctly ✓"
+                                 : accuracy.total_recorded < 3 ? "Need more outcomes to assess" : "Review model calibration"}
+                             </div>
+                           </div>
                         </div>
                       )}
                     </div>
@@ -443,7 +443,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                 <section className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <SegmentPills active={filter} onChange={setFilter} counts={counts} />
                   {lastInvite ? (
-                    <div className="border-2 border-black bg-primary px-4 py-2 text-xs font-black uppercase tracking-wider shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] sm:text-sm">
+                    <div className="rounded-[var(--radius-sm)] border border-primary bg-primary px-4 py-2 text-xs font-semibold uppercase tracking-wider shadow-[var(--shadow-xs)] sm:text-sm">
                       Invite generated for {lastInvite}
                     </div>
                   ) : null}
@@ -479,7 +479,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
           </>
         ) : null}
 
-        <footer className="border-t-4 border-black pt-5 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+        <footer className="border-t border-border pt-5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
           E(x) = P(Buy) × Property Value — Segmentation: Tier 1 E(x) &gt; RM50K &amp; prob ≥ 65% · Tier 2 prob ≥
           35% · Tier 3 &lt; 35%
         </footer>

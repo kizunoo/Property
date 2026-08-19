@@ -1,14 +1,24 @@
 import type { Metadata, Viewport } from 'next'
-import { Space_Grotesk, Space_Mono } from 'next/font/google'
+import { Geist, Space_Grotesk, Space_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { CustomCursor } from '@/components/cursor/custom-cursor'
 import './globals.css'
 
+/** Primary UI font — clean modern grotesk for all body, labels, table content */
+const _geist = Geist({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-geist",
+})
+
+/** Display font — retained for large headline numbers and titles only */
 const _spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
   weight: ["500", "600", "700"],
   variable: "--font-space-grotesk",
 })
+
+/** Mono font — retained for decrypt text, AI briefing, and code contexts */
 const _spaceMono = Space_Mono({
   subsets: ["latin"],
   weight: ["400", "700"],
@@ -33,7 +43,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${_spaceGrotesk.variable} ${_spaceMono.variable} bg-background`}>
+    <html lang="en" className={`${_geist.variable} ${_spaceGrotesk.variable} ${_spaceMono.variable} bg-background`}>
       <body className="font-sans antialiased">
         <CustomCursor />
         {children}

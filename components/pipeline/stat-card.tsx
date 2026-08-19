@@ -27,25 +27,27 @@ export function StatCard({
   return (
     <AnimatedContent delay={index * 0.04} className="h-full">
       <div
-        className={`flex h-full flex-col justify-between gap-4 border-4 border-black p-5 sm:p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] ${
-          emphasis ? "bg-primary text-primary-foreground" : "bg-card text-card-foreground"
+        className={`group flex h-full flex-col justify-between gap-4 rounded-[var(--radius)] border p-5 sm:p-6 transition-shadow duration-200 ${
+          emphasis
+            ? "border-l-[3px] border-l-primary border-border bg-card shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-sm-hover)]"
+            : "border-border bg-card shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-sm-hover)]"
         }`}
       >
         <div className="flex items-start justify-between gap-3">
-          <span className="text-xs sm:text-sm font-black uppercase tracking-wider border-b-2 border-black pb-1">
+          <span className={`text-xs sm:text-sm font-semibold uppercase tracking-wider pb-1 ${emphasis ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
             <GlitchLabel text={label} triggerKey={triggerKey} />
           </span>
           {icon ? (
-            <span className={`shrink-0 border-2 border-black p-1.5 ${emphasis ? "bg-black text-primary" : "bg-black text-white"}`}>
+            <span className={`shrink-0 rounded-[calc(var(--radius)-2px)] p-1.5 ${emphasis ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"}`}>
               {icon}
             </span>
           ) : null}
         </div>
         <div>
-          <div className="font-sans text-3xl sm:text-4xl font-bold leading-none tracking-tight">
+          <div className="font-display text-3xl sm:text-4xl font-bold leading-none tracking-tight">
             <CountUp value={numericValue} formatNumber={formatNumber} triggerKey={triggerKey} />
           </div>
-          {detail ? <div className="mt-2 text-xs sm:text-sm font-bold text-muted-foreground">{detail}</div> : null}
+          {detail ? <div className="mt-2 text-xs sm:text-sm text-muted-foreground">{detail}</div> : null}
         </div>
       </div>
     </AnimatedContent>
