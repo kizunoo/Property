@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { Treemap, ResponsiveContainer, Tooltip } from "recharts"
 import { LayoutDashboard } from "lucide-react"
@@ -12,7 +12,7 @@ const TIER_ORDER: Tier[] = ["TIER_1", "TIER_2", "TIER_3"]
 
 const TIER_META: Record<Tier, { label: string; shortLabel: string; fill: string; textColor: string }> = {
   TIER_1: { label: "TIER 1 · VIP",  shortLabel: "VIP",  fill: "var(--primary)", textColor: "#000000" },
-  TIER_2: { label: "TIER 2 · WARM", shortLabel: "WARM", fill: "#000000",        textColor: "#ffffff" },
+  TIER_2: { label: "TIER 2 · WARM", shortLabel: "WARM", fill: "#1a1a1a",        textColor: "#ffffff" },
   TIER_3: { label: "TIER 3 · COLD", shortLabel: "COLD", fill: "#c4c4c4",        textColor: "#000000" },
 }
 
@@ -26,10 +26,10 @@ function TreeTooltip({ active, payload }: TooltipPayload) {
   if (!active || !payload?.length) return null
   const item = payload[0].payload
   return (
-    <div className="border border-neutral-200 bg-white px-4 py-3 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
-      <div className="text-xs font-black uppercase tracking-wider">{item.label}</div>
-      <div className="mt-1 font-mono text-lg font-black">{currency(item.value)}</div>
-      <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+    <div className="rounded-lg border border-neutral-200 bg-white px-4 py-3 shadow-[0px_4px_16px_rgba(0,0,0,0.12)]">
+      <div className="text-xs font-semibold uppercase tracking-wider">{item.label}</div>
+      <div className="mt-1 font-mono text-lg font-bold">{currency(item.value)}</div>
+      <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
         {item.count} {item.count === 1 ? "client" : "clients"}
       </div>
     </div>
@@ -54,18 +54,23 @@ function TreeCell({ x = 0, y = 0, width = 0, height = 0, tier, value, count, onT
   const isSmall = width < 90 || height < 60
   const isTiny  = width < 55 || height < 40
 
+  // Gap between segments: inset each cell by 2px on each side
+  const gap = 3
+  const rx = x + gap
+  const ry = y + gap
+  const rw = width - gap * 2
+  const rh = height - gap * 2
+
   return (
     <g style={{ cursor: onTierClick ? "pointer" : "default" }} onClick={() => onTierClick?.(tier)}>
-      <rect x={x + 2} y={y + 2} width={width - 4} height={height - 4} fill={meta.fill} stroke="#000000" strokeWidth={3} />
-      {tier === "TIER_1" && !isTiny && (
-        <rect x={x + 6} y={y + 6} width={width - 12} height={4} fill="rgba(0,0,0,0.15)" />
-      )}
+      {/* Soft gap achieved by insetting rect; thin 1px stroke instead of heavy 3px */}
+      <rect x={rx} y={ry} width={rw} height={rh} fill={meta.fill} stroke="rgba(255,255,255,0.25)" strokeWidth={1} rx={4} ry={4} />
       {!isTiny && (
         <text
           x={x + width / 2} y={y + (isSmall ? height / 2 - 4 : height / 2 - 14)}
           textAnchor="middle" dominantBaseline="middle"
-          fill={meta.textColor} fontSize={isSmall ? 10 : 13} fontWeight={900}
-          fontFamily="var(--font-space-mono, monospace)"
+          fill={meta.textColor} fontSize={isSmall ? 10 : 13} fontWeight={700}
+          fontFamily="var(--font-sans)"
           style={{ userSelect: "none", textTransform: "uppercase", letterSpacing: "0.08em" }}
         >
           {meta.shortLabel}
@@ -75,8 +80,8 @@ function TreeCell({ x = 0, y = 0, width = 0, height = 0, tier, value, count, onT
         <text
           x={x + width / 2} y={y + height / 2 + 4}
           textAnchor="middle" dominantBaseline="middle"
-          fill={meta.textColor} fontSize={11} fontWeight={700}
-          fontFamily="var(--font-space-mono, monospace)" opacity={0.85}
+          fill={meta.textColor} fontSize={11} fontWeight={600}
+          fontFamily="var(--font-sans)" opacity={0.85}
           style={{ userSelect: "none" }}
         >
           {currency(value)}
@@ -86,8 +91,8 @@ function TreeCell({ x = 0, y = 0, width = 0, height = 0, tier, value, count, onT
         <text
           x={x + width / 2} y={y + height / 2 + 22}
           textAnchor="middle" dominantBaseline="middle"
-          fill={meta.textColor} fontSize={10} fontWeight={700}
-          fontFamily="var(--font-space-mono, monospace)" opacity={0.7}
+          fill={meta.textColor} fontSize={10} fontWeight={600}
+          fontFamily="var(--font-sans)" opacity={0.7}
           style={{ userSelect: "none", textTransform: "uppercase", letterSpacing: "0.06em" }}
         >
           {count} {count === 1 ? "client" : "clients"}
@@ -124,15 +129,18 @@ export function TierValueChart({ clients, onTierClick }: TierValueChartProps) {
 
   return (
     <ScrollConnect>
-      <div className="border border-neutral-200 bg-card shadow-[0px_4px_16px_rgba(0,0,0,0.10)]">
-        <div className="flex items-center justify-between gap-3 border-b border-neutral-200 bg-black px-5 py-3.5 sm:px-6">
+      <div className="overflow-hidden rounded-[10px] border border-neutral-200 bg-card shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
+        <div
+          className="flex items-center justify-between gap-3 border-b border-neutral-200 bg-neutral-900 px-5 py-3.5 sm:px-6"
+          style={{ borderRadius: "10px 10px 0 0" }}
+        >
           <div className="flex items-center gap-2 text-white">
-            <LayoutDashboard className="h-4 w-4" strokeWidth={2.5} />
-            <span className="text-xs font-black uppercase tracking-wider sm:text-sm">
+            <LayoutDashboard className="h-4 w-4" strokeWidth={2} />
+            <span className="text-xs font-semibold uppercase tracking-wider sm:text-sm">
               Expected Value by Tier
             </span>
           </div>
-          <span className="border border-neutral-200 bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
+          <span className="rounded-md bg-primary px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-black sm:text-xs">
             Click segment for AI analysis
           </span>
         </div>
