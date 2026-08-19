@@ -13,6 +13,9 @@ import {
   MapPin,
   Send,
   Sparkles,
+  ThumbsDown,
+  ThumbsUp,
+  Trophy,
   Wallet,
   X,
 } from "lucide-react"
@@ -199,9 +202,10 @@ interface ClientDetailModalProps {
   open: boolean
   onClose: () => void
   onGenerateInvite?: (client: DeduplicatedClient) => void
+  onOutcomeRecorded?: () => void
 }
 
-export function ClientDetailModal({ client, open, onClose, onGenerateInvite }: ClientDetailModalProps) {
+export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onOutcomeRecorded }: ClientDetailModalProps) {
   // ── Reasoning state ──────────────────────────────────────────────────────
   const [reasoning, setReasoning]               = useState<string | null>(null)
   const [reasoningLoading, setReasoningLoading] = useState(false)
@@ -228,6 +232,12 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite }: C
   const [schedSuccess, setSchedSuccess]       = useState<string | null>(null)
   const schedSuccessTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // ── Outcome (won/lost) state ───────────────────────────────────────────────
+  const [outcomeLoading, setOutcomeLoading]   = useState(false)
+  const [outcomeResult, setOutcomeResult]     = useState<"won" | "lost" | null>(null)
+  const [outcomeError, setOutcomeError]       = useState<string | null>(null)
+  const outcomeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Reset local overrides when a different client is opened
   const prevClientId = useRef<string | null>(null)
   useEffect(() => {
@@ -239,6 +249,8 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite }: C
       setLocalTier(null)
       setViewingResult(null)
       setViewingError(null)
+      setOutcomeResult(null)
+      setOutcomeError(null)
       setSchedFormOpen(false)
       setSchedDate("")
       setSchedTime("")
@@ -292,6 +304,35 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite }: C
       setSchedError(err instanceof Error ? err.message : "Failed to schedule viewing")
     } finally {
       setSchedLoading(false)
+    }
+  }
+
+  const handleRecordOutcome = async (outcome: "won" | "lost") => {
+    if (!client || outcomeLoading) return
+    setOutcomeLoading(true)
+    setOutcomeError(null)
+    try {
+      const res = await fetch("/api/record_outcome", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: client.clientId,
+          property_id: client.bestMatch.propertyId,
+          outcome,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail ?? "Failed to record outcome")
+      }
+      setOutcomeResult(outcome)
+      if (outcomeTimer.current) clearTimeout(outcomeTimer.current)
+      // Call parent so the Prediction Accuracy card refreshes immediately
+      onOutcomeRecorded?.()
+    } catch (err) {
+      setOutcomeError(err instanceof Error ? err.message : "Failed to record outcome")
+    } finally {
+      setOutcomeLoading(false)
     }
   }
 
@@ -359,6 +400,9 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite }: C
     ? [...client.allMatches].sort((a, b) => b.probability - a.probability)[0]
     : null
 
+  // Effective outcome: local state wins, then the server-supplied value
+  const effectiveOutcome = outcomeResult ?? client.bestMatch.outcome
+
   return (
     /* Backdrop */
     <div
@@ -383,8 +427,20 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite }: C
             <div>
               <div className="text-xl font-black leading-tight text-white sm:text-2xl">{client.name}</div>
               <div className="mt-1 font-mono text-[11px] text-white/60">{client.bestMatch.neighborhood}</div>
-              <div className="mt-2">
+              <div className="mt-2 flex items-center gap-2">
                 <TierBadge tier={effectiveTier} />
+                {effectiveOutcome === "won" && (
+                  <span className="inline-flex items-center gap-1 border-2 border-primary bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black">
+                    <Trophy className="h-3 w-3" strokeWidth={2.5} />
+                    Won
+                  </span>
+                )}
+                {effectiveOutcome === "lost" && (
+                  <span className="inline-flex items-center gap-1 border-2 border-white/40 bg-white/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white">
+                    <ThumbsDown className="h-3 w-3" strokeWidth={2.5} />
+                    Lost
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -558,6 +614,36 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite }: C
             </div>
           )}
 
+          {/* Outcome confirmation banner */}
+          {outcomeResult && (
+            <div className={`flex items-center gap-3 border-b-4 border-black px-5 py-3 ${
+              outcomeResult === "won" ? "bg-primary" : "bg-white"
+            }`}>
+              {outcomeResult === "won" ? (
+                <Trophy className="h-5 w-5 shrink-0 text-black" strokeWidth={2.5} />
+              ) : (
+                <ThumbsDown className="h-5 w-5 shrink-0 text-black" strokeWidth={2.5} />
+              )}
+              <p className="flex-1 text-sm font-black text-black">
+                {client?.name} marked as <span className="uppercase">{outcomeResult}</span>.
+                {" "}Outcome recorded for prediction accuracy tracking.
+              </p>
+              <button
+                type="button"
+                onClick={() => setOutcomeResult(null)}
+                className="shrink-0 border-2 border-black p-1 text-black hover:bg-black hover:text-primary"
+                aria-label="Dismiss outcome confirmation"
+              >
+                <X className="h-3.5 w-3.5" strokeWidth={2.5} />
+              </button>
+            </div>
+          )}
+          {outcomeError && (
+            <div className="border-b-4 border-black bg-white px-5 py-3">
+              <span className="text-xs font-black uppercase tracking-wider text-red-600">Error: {outcomeError}</span>
+            </div>
+          )}
+
           {/* Schedule Viewing confirmation banner */}
           {schedSuccess && (
             <div className="flex items-center gap-3 border-b-4 border-black bg-black px-5 py-3">
@@ -687,6 +773,67 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite }: C
               )}
               {viewingLoading ? "Logging…" : "Log Viewing"}
             </button>
+          </div>
+
+          {/* Won / Lost outcome row */}
+          <div className="flex gap-3 border-t-2 border-black/20 px-5 pb-5 pt-3 sm:px-6">
+            {effectiveOutcome === "pending" ? (
+              <>
+                <button
+                  type="button"
+                  disabled={outcomeLoading}
+                  onClick={() => handleRecordOutcome("won")}
+                  className="flex flex-1 items-center justify-center gap-2 border-4 border-black bg-primary py-3 text-sm font-black uppercase tracking-wider text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {outcomeLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
+                  ) : (
+                    <ThumbsUp className="h-4 w-4" strokeWidth={2.5} />
+                  )}
+                  Mark as Won
+                </button>
+                <button
+                  type="button"
+                  disabled={outcomeLoading}
+                  onClick={() => handleRecordOutcome("lost")}
+                  className="flex flex-1 items-center justify-center gap-2 border-4 border-black bg-white py-3 text-sm font-black uppercase tracking-wider text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {outcomeLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
+                  ) : (
+                    <ThumbsDown className="h-4 w-4" strokeWidth={2.5} />
+                  )}
+                  Mark as Lost
+                </button>
+              </>
+            ) : (
+              <>
+                {/* Already decided — show a compact change option */}
+                <div className={`flex flex-1 items-center gap-3 border-4 border-black px-4 py-3 ${
+                  effectiveOutcome === "won" ? "bg-primary" : "bg-white"
+                }`}>
+                  {effectiveOutcome === "won" ? (
+                    <Trophy className="h-5 w-5 shrink-0 text-black" strokeWidth={2.5} />
+                  ) : (
+                    <ThumbsDown className="h-5 w-5 shrink-0 text-black" strokeWidth={2.5} />
+                  )}
+                  <div className="flex-1">
+                    <div className="text-xs font-black uppercase tracking-wider text-black">
+                      Outcome recorded: {effectiveOutcome?.toUpperCase()}
+                    </div>
+                    <div className="text-[10px] font-bold text-black/70">Tracked in Prediction Accuracy</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={outcomeLoading}
+                  onClick={() => handleRecordOutcome(effectiveOutcome === "won" ? "lost" : "won")}
+                  className="flex shrink-0 items-center justify-center gap-2 border-4 border-black bg-white px-4 py-3 text-xs font-black uppercase tracking-wider text-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Change to {effectiveOutcome === "won" ? "Lost" : "Won"}
+                </button>
+              </>
+            )}
           </div>
         </div>
 

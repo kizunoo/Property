@@ -113,7 +113,7 @@ export function AnalyticsInsightPanel({ clients, activeFilters }: AnalyticsInsig
         </div>
         <div className="flex items-center gap-2">
           <span className="border-2 border-black bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
-            Groq · Llama 3.1
+            Groq · GPT-OSS 120B
           </span>
           <button
             type="button"

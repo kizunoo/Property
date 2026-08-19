@@ -1,4 +1,5 @@
 import os
+from hashlib import md5
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -181,7 +182,11 @@ def _build_prompt(client: dict, prop: dict) -> str:
         else "0 past viewings — no prior engagement"
     )
 
-    return f"""You are a senior real estate analyst for PIPELINE.EV, a Malaysian property investment platform.
+    return f"""You are writing an internal analysis note for a real estate AGENT about their CLIENT — not a message to the client themselves.
+
+CRITICAL PERSPECTIVE RULES:
+- Write strictly in the THIRD PERSON, referring to the client by their full name (e.g. "{client['name']}'s budget...", "{client['name']} has viewed...").
+- NEVER use second-person pronouns ("you", "your", "for you", "yours"). This is the agent's private analytical reasoning, NOT client-facing copy.
 
 Client profile:
 - Name: {client['name']}
@@ -201,13 +206,83 @@ Score breakdown:
 
 Note: This specific target property was selected for this client because it represents their single Highest Expected Value (E(x)) opportunity in the pipeline.
 
-Write a 2-4 sentence natural-language rationale explaining why this property is the client's highest-value match opportunity. Explain the trade-off honestly: acknowledge any lower probability or budget stretch if applicable, but justify the match by the potential deal size and expected value to the agent. Do NOT conclude that the property "isn't a strong match" or shouldn't be pursued. Reference their actual budget, neighbourhood preference, and viewing history. Be specific, concise, and professional using Malaysian English conventions. No bullet points or headers. Do not include any preamble — start directly with the client's name."""
+Write a 2-4 sentence internal rationale from the agent's perspective explaining why this property is {client['name']}'s highest-value match opportunity. Explain the trade-off honestly: acknowledge any lower probability or budget stretch if applicable, but justify the match by the potential deal size and expected value to the agent. Do NOT conclude that the property "isn't a strong match" or shouldn't be pursued. Reference their actual budget, neighbourhood preference, and viewing history. Be specific, concise, and professional using Malaysian English conventions. No bullet points or headers. Do not include any preamble — start directly with the client's name."""
+
+
+def generate_reasoning_text(client_id: str, property_id: str) -> str:
+    """
+    Core reasoning generator: checks cache, fetches client & property,
+    calls Groq LLM, caches result, and returns reasoning string.
+    """
+    # 1. Try reasoning cache
+    try:
+        cache_res = (
+            supabase.table("reasoning_cache")
+            .select("reasoning")
+            .eq("client_id", client_id)
+            .eq("property_id", property_id)
+            .limit(1)
+            .execute()
+        )
+        if cache_res.data:
+            return cache_res.data[0]["reasoning"]
+    except Exception:
+        pass
+
+    # 2. Fetch client + property
+    try:
+        client_res = (
+            supabase.table("clients").select("*").eq("id", client_id).limit(1).execute()
+        )
+        prop_res = (
+            supabase.table("properties").select("*").eq("id", property_id).limit(1).execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch client/property: {exc}") from exc
+
+    if not client_res.data or not prop_res.data:
+        raise HTTPException(status_code=404, detail="Client or property not found")
+
+    client = client_res.data[0]
+    prop = prop_res.data[0]
+
+    # 3. Call Groq LLM
+    if not groq_client:
+        raise HTTPException(status_code=503, detail="GROQ_API_KEY not configured")
+
+    prompt = _build_prompt(client, prop)
+
+    try:
+        chat_completion = groq_client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="openai/gpt-oss-120b",
+            temperature=0.4,
+            max_tokens=400,
+            timeout=20.0,
+        )
+        reasoning = chat_completion.choices[0].message.content.strip()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"LLM generation failed: {exc}") from exc
+
+    # 4. Persist to reasoning_cache
+    try:
+        supabase.table("reasoning_cache").upsert(
+            {
+                "client_id": client_id,
+                "property_id": property_id,
+                "reasoning": reasoning,
+            },
+            on_conflict="client_id,property_id",
+        ).execute()
+    except Exception:
+        pass
+
+    return reasoning
 
 
 @app.post("/api/generate_reasoning")
 def generate_reasoning(body: ReasoningRequest):
-    # ── 1. Try reasoning cache (non-fatal if table doesn't exist yet) ────────
-    cached_reasoning: str | None = None
+    # Check cache first for cached flag
     try:
         cache_res = (
             supabase.table("reasoning_cache")
@@ -220,59 +295,112 @@ def generate_reasoning(body: ReasoningRequest):
         if cache_res.data:
             return {"reasoning": cache_res.data[0]["reasoning"], "cached": True}
     except Exception:
-        # reasoning_cache table may not exist yet — skip cache, go straight to LLM
-        cached_reasoning = None
-
-    # ── 2. Fetch client + property from Supabase ─────────────────────────────
-    try:
-        client_res = (
-            supabase.table("clients").select("*").eq("id", body.client_id).limit(1).execute()
-        )
-        prop_res = (
-            supabase.table("properties").select("*").eq("id", body.property_id).limit(1).execute()
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch client/property: {exc}") from exc
-
-    if not client_res.data or not prop_res.data:
-        raise HTTPException(status_code=404, detail="Client or property not found")
-
-    client = client_res.data[0]
-    prop = prop_res.data[0]
-
-    # ── 3. Call Groq LLM (20-second timeout) ─────────────────────────────────
-    if not groq_client:
-        raise HTTPException(status_code=503, detail="GROQ_API_KEY not configured")
-
-    prompt = _build_prompt(client, prop)
-
-    try:
-        chat_completion = groq_client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt}],
-            model="llama-3.1-8b-instant",
-            temperature=0.4,
-            max_tokens=200,
-            timeout=20.0,
-        )
-        reasoning = chat_completion.choices[0].message.content.strip()
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"LLM generation failed: {exc}") from exc
-
-    # ── 4. Persist to reasoning_cache (non-fatal if table doesn't exist) ─────
-    try:
-        supabase.table("reasoning_cache").upsert(
-            {
-                "client_id": body.client_id,
-                "property_id": body.property_id,
-                "reasoning": reasoning,
-            },
-            on_conflict="client_id,property_id",
-        ).execute()
-    except Exception:
-        # Non-fatal — still return the generated text
         pass
 
+    reasoning = generate_reasoning_text(body.client_id, body.property_id)
     return {"reasoning": reasoning, "cached": False}
+
+
+def generate_briefing_line(client_name: str, property_name: str, expected_value: float, probability: float, reasoning_context: str) -> str:
+    prompt = (
+        f"Based on this analysis: \"{reasoning_context}\" — "
+        f"write ONE short, punchy sentence (max 20 words) for a real estate agent's dashboard briefing "
+        f"summarizing why {client_name} is a top opportunity for {property_name} "
+        f"(P(Buy) {probability*100:.0f}%, expected value RM{expected_value:,.0f}). "
+        f"No preamble, no filler, just the single sentence."
+    )
+    chat_completion = groq_client.chat.completions.create(
+        messages=[{"role": "user", "content": prompt}],
+        model="openai/gpt-oss-120b",
+        temperature=0.5,
+        max_tokens=500,
+        timeout=20.0,
+    )
+    content = chat_completion.choices[0].message.content.strip()
+    if not content:
+        # Fallback if reasoning model used entire budget on chain of thought
+        return f"{client_name} is a prime opportunity for {property_name} with {probability*100:.0f}% buy probability and RM{expected_value:,.0f} expected value."
+    return content
+
+
+@app.get("/api/dashboard_briefing")
+def get_dashboard_briefing():
+    # Pull top 3 VIP clients by best-match expected_value
+    try:
+        evals = (
+            supabase.table("pipeline_evaluations")
+            .select("*, clients(name), properties(address, neighborhood, property_value)")
+            .eq("segment_tier", "TIER_1")
+            .order("expected_value", desc=True)
+            .limit(3)
+            .execute()
+            .data
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch evaluations: {exc}") from exc
+
+    briefing = []
+    for row in (evals or []):
+        client_id = row["client_id"]
+        property_id = row["property_id"]
+        client_info = row.get("clients") or {}
+        prop_info = row.get("properties") or {}
+        client_name = client_info.get("name", "Unknown Client")
+        property_name = prop_info.get("address") or prop_info.get("name", "Unknown Property")
+        expected_val = float(row.get("expected_value", 0))
+        prob = float(row.get("ai_probability", 0))
+
+        # Check briefing_cache first
+        cached_briefing = None
+        try:
+            b_cache_res = (
+                supabase.table("briefing_cache")
+                .select("briefing")
+                .eq("client_id", client_id)
+                .eq("property_id", property_id)
+                .limit(1)
+                .execute()
+            )
+            if b_cache_res.data:
+                cached_briefing = b_cache_res.data[0]["briefing"]
+        except Exception:
+            cached_briefing = None
+
+        if cached_briefing:
+            briefing_text = cached_briefing
+        else:
+            reasoning_context = generate_reasoning_text(client_id, property_id)
+            briefing_text = generate_briefing_line(
+                client_name=client_name,
+                property_name=property_name,
+                expected_value=expected_val,
+                probability=prob,
+                reasoning_context=reasoning_context,
+            )
+            # Try caching in briefing_cache
+            try:
+                supabase.table("briefing_cache").upsert(
+                    {
+                        "client_id": client_id,
+                        "property_id": property_id,
+                        "briefing": briefing_text,
+                    },
+                    on_conflict="client_id,property_id",
+                ).execute()
+            except Exception:
+                pass
+
+        briefing.append({
+            "client_id": client_id,
+            "client_name": client_name,
+            "property_name": property_name,
+            "neighborhood": prop_info.get("neighborhood", ""),
+            "expected_value": expected_val,
+            "briefing": briefing_text,
+            "reasoning": briefing_text,
+        })
+
+    return briefing
 
 
 # ─── Log Viewing endpoint ──────────────────────────────────────────────────────
@@ -711,9 +839,9 @@ def generate_invite(body: InviteRequest):
     try:
         chat_completion = groq_client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
-            model="llama-3.1-8b-instant",
+            model="openai/gpt-oss-120b",
             temperature=0.5,
-            max_tokens=250,
+            max_tokens=500,
             timeout=20.0,
         )
         draft = chat_completion.choices[0].message.content.strip()
@@ -798,9 +926,9 @@ def generate_insight(body: InsightRequest):
     try:
         chat_completion = groq_client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
-            model="llama-3.1-8b-instant",
+            model="openai/gpt-oss-120b",
             temperature=0.4,
-            max_tokens=150,
+            max_tokens=400,
             timeout=20.0,
         )
         insight = chat_completion.choices[0].message.content.strip()
@@ -809,3 +937,171 @@ def generate_insight(body: InsightRequest):
 
     return {"insight": insight, "cached": False}
 
+
+@app.post("/api/generate_chart_insight")
+def generate_chart_insight(body: dict):
+    slice_type = body.get("slice_type")  # "tier" | "scatter_point" | "heatmap_cell" | "cluster"
+    slice_data = body.get("slice_data", {})  # dict of relevant filter values
+
+    cache_key = md5(f"{slice_type}:{sorted(slice_data.items())}".encode()).hexdigest()
+    try:
+        cached = supabase.table("chart_insight_cache").select("insight").eq("cache_key", cache_key).execute().data
+        if cached:
+            return {"insight": cached[0]["insight"]}
+    except Exception:
+        pass
+
+    if slice_type == "tier":
+        # Deduplicate to unique clients in this tier (using best-match row per client)
+        rows = supabase.table("pipeline_evaluations").select("*, clients(id, name)").execute().data or []
+        client_best_matches = {}
+        for r in rows:
+            cid = r.get("clients", {}).get("id") or r.get("client_id")
+            if cid not in client_best_matches or r["expected_value"] > client_best_matches[cid]["expected_value"]:
+                client_best_matches[cid] = r
+
+        tier_clients = [r for r in client_best_matches.values() if r.get("segment_tier") == slice_data["tier"]]
+        client_count = len(tier_clients)
+        total_value = sum(r["expected_value"] for r in tier_clients)
+
+        prompt = (
+            f"There are EXACTLY {client_count} {slice_data['tier']} clients in the pipeline, "
+            f"representing RM{total_value:,.0f} in total expected value. "
+            f"You MUST use the exact number {client_count} if you reference a client count — do not estimate, round, or invent a different number. "
+            f"In one short sentence, explain what this means for an agent's priorities."
+        )
+
+    elif slice_type == "scatter_point":
+        row_res = supabase.table("pipeline_evaluations").select("*, clients(name), properties(address)").eq("client_id", slice_data["client_id"]).eq("property_id", slice_data["property_id"]).limit(1).execute()
+        if not row_res.data:
+            raise HTTPException(status_code=404, detail="Evaluation data not found")
+        row = row_res.data[0]
+        c_name = row.get("clients", {}).get("name", "Client")
+        p_name = row.get("properties", {}).get("address", "Property")
+        prob_pct = round(float(row.get("ai_probability", 0)) * 100)
+        ex_val = float(row.get("expected_value", 0))
+
+        prompt = (
+            f"Client {c_name} has an EXACT buy probability of {prob_pct}% and expected value of RM{ex_val:,.0f} for {p_name}. "
+            f"You MUST use the exact probability {prob_pct}% if you mention a probability — do not estimate, round, or invent a different figure. "
+            f"In one short sentence, explain why {c_name} sits in this position and what action the agent should take."
+        )
+
+    elif slice_type == "heatmap_cell":
+        # Deduplicate: each client counted once, placed by preferred_neighborhood × overall tier
+        rows = supabase.table("pipeline_evaluations").select("*, clients(id, name, preferred_neighborhood)").execute().data or []
+        client_best_matches = {}
+        for r in rows:
+            cid = r.get("clients", {}).get("id") or r.get("client_id")
+            if cid not in client_best_matches or r["expected_value"] > client_best_matches[cid]["expected_value"]:
+                client_best_matches[cid] = r
+
+        matching = [
+            r for r in client_best_matches.values()
+            if r.get("segment_tier") == slice_data["tier"]
+            and r.get("clients", {}).get("preferred_neighborhood") == slice_data["neighborhood"]
+        ]
+        client_count = len(matching)
+        total_value = sum(r["expected_value"] for r in matching)
+
+        prompt = (
+            f"There are EXACTLY {client_count} {slice_data['tier']} clients interested in {slice_data['neighborhood']}, "
+            f"representing RM{total_value:,.0f} in total expected value. "
+            f"You MUST use the exact number {client_count} if you reference a client count — do not estimate, round, or invent a different number. "
+            f"In one short sentence, explain the significance of this concentration for an agent's outreach strategy."
+        )
+
+    elif slice_type == "cluster":
+        # Deduplicate to unique clients per neighborhood matching the frontend card calculation
+        rows = supabase.table("pipeline_evaluations").select("*, clients(id, name, preferred_neighborhood)").execute().data or []
+        nbhd_rows = [r for r in rows if r.get("clients", {}).get("preferred_neighborhood") == slice_data["neighborhood"]]
+        
+        # Take the best-match evaluation row per unique client
+        client_best_matches = {}
+        for r in nbhd_rows:
+            cid = r.get("clients", {}).get("id") or r.get("client_id")
+            if cid not in client_best_matches or r["expected_value"] > client_best_matches[cid]["expected_value"]:
+                client_best_matches[cid] = r
+                
+        unique_matches = list(client_best_matches.values())
+        client_count = len(unique_matches)
+        total_value = sum(r["expected_value"] for r in unique_matches)
+
+        prompt = (
+            f"There are EXACTLY {client_count} clients interested in {slice_data['neighborhood']}, "
+            f"representing RM{total_value:,.0f} in total expected value. "
+            f"You MUST use the exact number {client_count} if you reference a client count — do not estimate, round, or invent a different number. "
+            f"In one short strategic sentence, advise an agent on their approach to this cluster."
+        )
+
+    else:
+        raise HTTPException(status_code=400, detail="Unknown slice_type")
+
+    if not groq_client:
+        raise HTTPException(status_code=503, detail="GROQ_API_KEY not configured")
+
+    try:
+        chat_completion = groq_client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="openai/gpt-oss-120b",
+            temperature=0.4,
+            max_tokens=250,
+            timeout=20.0,
+        )
+        insight = chat_completion.choices[0].message.content.strip()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"LLM generation failed: {exc}") from exc
+
+    try:
+        supabase.table("chart_insight_cache").insert({"cache_key": cache_key, "insight": insight}).execute()
+    except Exception:
+        pass
+
+    return {"insight": insight}
+
+
+# ─── Outcome Tracking ──────────────────────────────────────────────────────────
+
+@app.post("/api/record_outcome")
+def record_outcome(body: dict):
+    client_id = body.get("client_id")
+    property_id = body.get("property_id")
+    outcome = body.get("outcome")
+
+    if not client_id or not property_id:
+        raise HTTPException(status_code=400, detail="client_id and property_id are required")
+    if outcome not in ("won", "lost"):
+        raise HTTPException(status_code=400, detail="outcome must be 'won' or 'lost'")
+
+    supabase.table("pipeline_evaluations").update({
+        "outcome": outcome,
+        "outcome_recorded_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("client_id", client_id).eq("property_id", property_id).execute()
+
+    return {"success": True}
+
+
+@app.get("/api/prediction_accuracy")
+def get_prediction_accuracy():
+    try:
+        rows = supabase.table("pipeline_evaluations").select("*").neq("outcome", "pending").execute().data or []
+    except Exception:
+        # outcome column doesn't exist yet — return graceful fallback
+        return {"total_recorded": 0, "message": "Run the outcome migration in Supabase SQL Editor first"}
+
+    if not rows:
+        return {"total_recorded": 0, "message": "No outcomes recorded yet"}
+
+    won = [r for r in rows if r.get("outcome") == "won"]
+    lost = [r for r in rows if r.get("outcome") == "lost"]
+
+    avg_prob_won = sum(r["ai_probability"] for r in won) / len(won) if won else 0
+    avg_prob_lost = sum(r["ai_probability"] for r in lost) / len(lost) if lost else 0
+
+    return {
+        "total_recorded": len(rows),
+        "won_count": len(won),
+        "lost_count": len(lost),
+        "avg_predicted_probability_when_won": round(avg_prob_won * 100, 1),
+        "avg_predicted_probability_when_lost": round(avg_prob_lost * 100, 1),
+    }

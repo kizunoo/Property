@@ -15,6 +15,7 @@ export interface Client {
   statedBudget?: number
   preferredNeighborhood?: string
   pastViewings?: number
+  outcome?: "pending" | "won" | "lost"
 }
 
 /**
@@ -40,6 +41,7 @@ export interface DeduplicatedClient {
     probability: number
     expectedValue: number
     neighborhood: string
+    outcome: "pending" | "won" | "lost"
   }
   /** How many additional property evaluations exist for this client (0 = only one match) */
   otherMatchCount: number
@@ -90,6 +92,7 @@ export interface PipelineEvaluationRow {
   ai_probability: number
   expected_value: number
   segment_tier: Tier
+  outcome?: string | null
   clients:
     | {
         id: string
@@ -155,6 +158,7 @@ export function mapEvaluationToClient(row: PipelineEvaluationRow): Client | null
     statedBudget: client.stated_budget,
     preferredNeighborhood: client.preferred_neighborhood,
     pastViewings: client.past_viewings,
+    outcome: (row.outcome === "won" || row.outcome === "lost") ? row.outcome : "pending",
   }
 }
 

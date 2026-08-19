@@ -1,8 +1,7 @@
 "use client"
 
-import { useState, type ComponentType } from "react"
+import { useState, useEffect, useRef, type ComponentType } from "react"
 import {
-  CheckCircle2,
   DollarSign,
   Home,
   Layers,
@@ -17,14 +16,17 @@ import {
 import { TIER_SHORT, currency, percent, type DeduplicatedClient } from "@/lib/pipeline-data"
 import { CountUp } from "@/components/animation/count-up"
 
-// 7-column grid matching header + row cells
-const GRID_COLS = "grid-cols-[1.8fr_1.8fr_1fr_1fr_1.2fr_0.8fr_1fr]"
+// ─── Column layout comment ────────────────────────────────────────────────────
+//
+//  The grid template lives in globals.css → .client-entity-inner
+//  grid-template-columns: 220px 1fr 140px 160px 170px 96px 180px
+//  gap: 28px
+//
+//  Column order: Client | Best Match | Prop. Value | Probability | E(x) | Segment | Action
+//
+//  The sticky header row uses the exact same template so labels align over every card.
 
-interface ClientTableProps {
-  clients: DeduplicatedClient[]
-  onGenerateInvite: (client: DeduplicatedClient) => void
-  onSelect: (client: DeduplicatedClient) => void
-}
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function TierBadge({ tier }: { tier: DeduplicatedClient["tier"] }) {
   const styles: Record<DeduplicatedClient["tier"], string> = {
@@ -34,14 +36,14 @@ function TierBadge({ tier }: { tier: DeduplicatedClient["tier"] }) {
   }
   return (
     <span
-      className={`inline-block border-2 border-black px-2.5 py-1 text-[10px] sm:text-xs font-black uppercase tracking-wider ${styles[tier]}`}
+      className={`inline-flex w-[72px] items-center justify-center border-2 border-black py-1 text-[10px] font-black uppercase tracking-wider ${styles[tier]}`}
     >
       {TIER_SHORT[tier]}
     </span>
   )
 }
 
-function ColumnHeading({
+function ColHead({
   icon: Icon,
   children,
   align = "left",
@@ -51,14 +53,20 @@ function ColumnHeading({
   align?: "left" | "right"
 }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : ""}`}>
-      <Icon className="h-3.5 w-3.5" strokeWidth={2.5} />
-      {children}
+    <span
+      className={`inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wider ${
+        align === "right" ? "justify-end w-full" : ""
+      }`}
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
+      <span>{children}</span>
     </span>
   )
 }
 
-function ClientTableRow({
+// ─── Entity Card ─────────────────────────────────────────────────────────────
+
+function ClientEntity({
   client,
   index,
   onSelect,
@@ -70,109 +78,174 @@ function ClientTableRow({
   handleInvite: (client: DeduplicatedClient) => void
 }) {
   const probPercent = Math.round(client.bestMatch.probability * 100)
-  const rowBg = index % 2 === 1 ? "bg-secondary" : "bg-card"
+  const innerRef = useRef<HTMLDivElement>(null)
+
+  // IntersectionObserver drives .is-visible — no GSAP, no scrub
+  useEffect(() => {
+    const el = innerRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        el.classList.toggle("is-visible", entry.isIntersecting)
+      },
+      { threshold: 0.15 },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   return (
     <div
-      role="row"
-      onClick={() => onSelect(client)}
-      className={`grid ${GRID_COLS} min-w-[920px] items-stretch cursor-pointer transition-colors hover:bg-primary/20 ${rowBg}`}
+      className={`client-entity${index % 2 === 1 ? " entity-alt" : ""}`}
     >
-      {/* Client name + neighbourhood */}
-      <div role="cell" className="flex items-center px-4 py-4 sm:px-5">
-        <div className="flex items-center gap-3">
+      <div
+        ref={innerRef}
+        className="client-entity-inner cursor-pointer hover:bg-primary/10 transition-colors"
+        onClick={() => onSelect(client)}
+      >
+        {/* 1 · Client */}
+        <div className="flex items-center gap-3 min-w-0">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center border-2 border-black bg-black text-xs font-black text-white">
             {client.initials}
           </div>
-          <div>
-            <div className="flex items-center gap-1.5 text-sm font-black leading-tight sm:text-base">
+          <div className="min-w-0 flex-1">
+            <div
+              className="flex items-center gap-1 text-sm font-black leading-tight min-w-0"
+              title={client.name}
+            >
               <UserRound className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={2.5} />
-              {client.name}
+              <span className="truncate">{client.name}</span>
             </div>
-            <div className="font-mono text-[11px] text-muted-foreground">
+            <div
+              className="font-mono text-[11px] text-muted-foreground truncate"
+              title={client.bestMatch.neighborhood}
+            >
               {client.bestMatch.neighborhood}
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Highest Value Match property + "+N other" indicator */}
-      <div role="cell" className="flex items-center px-4 py-4 sm:px-5">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-1.5 text-sm font-bold">
+        {/* 2 · Highest Value Match */}
+        <div
+          className="flex flex-col justify-center gap-0.5 min-w-0"
+          title={client.bestMatch.property}
+        >
+          <div className="flex items-center gap-1 text-sm font-bold min-w-0">
             <MapPin className="h-3 w-3 shrink-0 text-muted-foreground" strokeWidth={2.5} />
-            {client.bestMatch.property}
+            <span className="truncate">{client.bestMatch.property}</span>
           </div>
           {client.otherMatchCount > 0 && (
             <span className="inline-flex w-fit items-center gap-1 border-2 border-black bg-black px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-primary">
-              <Layers className="h-2.5 w-2.5" strokeWidth={2.5} />
+              <Layers className="h-2.5 w-2.5 shrink-0" strokeWidth={2.5} />
               +{client.otherMatchCount} other listing{client.otherMatchCount > 1 ? "s" : ""}
             </span>
           )}
         </div>
-      </div>
 
-      {/* Property value */}
-      <div role="cell" className="px-4 py-4 text-right font-mono text-sm font-bold sm:px-5 flex items-center justify-end">
-        {currency(client.bestMatch.propertyValue)}
-      </div>
+        {/* 3 · Property Value */}
+        <div className="flex items-center justify-end font-mono text-sm font-bold">
+          <span className="truncate">{currency(client.bestMatch.propertyValue)}</span>
+        </div>
 
-      {/* Probability bar */}
-      <div role="cell" className="px-4 py-4 sm:px-5 flex items-center justify-end">
+        {/* 4 · Probability */}
         <div className="flex items-center justify-end gap-2">
-          <div className="h-2.5 w-16 border-2 border-black bg-white overflow-hidden sm:w-20">
+          <div className="h-2.5 w-20 border-2 border-black bg-white overflow-hidden shrink-0">
             <div
               className="h-full bg-black prob-bar-anim"
               style={{ width: `${probPercent}%` }}
             />
           </div>
-          <span className="w-10 text-right font-mono text-sm font-black">
+          <span className="w-8 text-right font-mono text-sm font-black shrink-0">
             {percent(client.bestMatch.probability)}
           </span>
         </div>
-      </div>
 
-      {/* Expected value */}
-      <div role="cell" className="px-4 py-4 sm:px-5 flex items-center justify-end">
-        <span className="inline-flex w-[140px] items-center justify-center border-2 border-black bg-primary px-2 py-1 font-mono text-sm font-black text-black">
-          <CountUp
-            value={client.bestMatch.expectedValue}
-            formatNumber={currency}
-          />
-        </span>
-      </div>
+        {/* 5 · Expected Value */}
+        <div className="flex items-center justify-end">
+          <span className="inline-flex w-[148px] items-center justify-center border-2 border-black bg-primary px-2 py-1 font-mono text-sm font-black text-black shrink-0">
+            <CountUp value={client.bestMatch.expectedValue} formatNumber={currency} />
+          </span>
+        </div>
 
-      {/* Tier */}
-      <div role="cell" className="px-4 py-4 sm:px-5 flex items-center">
-        <TierBadge tier={client.tier} />
-      </div>
+        {/* 6 · Segment */}
+        <div className="flex items-center gap-1.5 pl-2 flex-wrap">
+          <TierBadge tier={client.tier} />
+          {client.bestMatch.outcome === "won" && (
+            <span className="inline-flex items-center border-2 border-black bg-primary px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-black">
+              ✓ WON
+            </span>
+          )}
+          {client.bestMatch.outcome === "lost" && (
+            <span className="inline-flex items-center border-2 border-black bg-white px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-black">
+              ✕ LOST
+            </span>
+          )}
+        </div>
 
-      {/* Action */}
-      <div
-        role="cell"
-        className="px-4 py-4 sm:px-5 flex items-center"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {client.tier === "TIER_1" || client.tier === "TIER_2" ? (
-          <button
-            type="button"
-            onClick={() => handleInvite(client)}
-            className="flex items-center gap-1.5 whitespace-nowrap border-2 border-black bg-black text-white px-3 py-2 text-xs font-black uppercase tracking-wider shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-transform hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none"
-          >
-            <Send className="h-3.5 w-3.5 text-primary" strokeWidth={2.5} />
-            Generate Invite
-          </button>
-        ) : (
-          <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">—</span>
-        )}
+        {/* 7 · Action */}
+        <div
+          className="flex items-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {client.tier === "TIER_1" || client.tier === "TIER_2" ? (
+            <button
+              type="button"
+              onClick={() => handleInvite(client)}
+              className="flex items-center gap-1.5 whitespace-nowrap border-2 border-black bg-black text-white px-3 py-2 text-xs font-black uppercase tracking-wider shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-transform hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none"
+            >
+              <Send className="h-3.5 w-3.5 text-primary shrink-0" strokeWidth={2.5} />
+              Generate Invite
+            </button>
+          ) : (
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">—</span>
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
+// ─── Sticky header row ────────────────────────────────────────────────────────
+//
+//  Uses inline style to mirror .client-entity-inner's grid-template-columns and gap
+//  exactly — keeping header labels pinned over each card column.
+
+const HEADER_GRID: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "220px 1fr 140px 160px 170px 96px 180px",
+  gap: "28px",
+  alignItems: "center",
+  minWidth: 1040,
+  padding: "12px 20px",
+}
+
+function TableHeader() {
+  return (
+    <div
+      className="bg-black text-white border-4 border-black mb-2 sticky top-0 z-10"
+      style={HEADER_GRID}
+    >
+      <ColHead icon={UserRound}>Client</ColHead>
+      <ColHead icon={Home}>Highest Value Match</ColHead>
+      <div className="flex justify-end"><ColHead icon={DollarSign} align="right">Property Value</ColHead></div>
+      <div className="flex justify-end"><ColHead icon={PercentIcon} align="right">Probability</ColHead></div>
+      <div className="flex justify-end"><ColHead icon={TrendingUp} align="right">Expected Value</ColHead></div>
+      <div className="pl-2"><ColHead icon={Tags}>Segment</ColHead></div>
+      <ColHead icon={Send}>Action</ColHead>
+    </div>
+  )
+}
+
+// ─── Table root ───────────────────────────────────────────────────────────────
+
+interface ClientTableProps {
+  clients: DeduplicatedClient[]
+  onGenerateInvite: (client: DeduplicatedClient) => void
+  onSelect: (client: DeduplicatedClient) => void
+}
+
 export function ClientTable({ clients, onGenerateInvite, onSelect }: ClientTableProps) {
-  const [invited, setInvited] = useState<Record<string, boolean>>({})
-  const [query, setQuery]   = useState("")
+  const [query, setQuery] = useState("")
 
   const visible = query.trim()
     ? clients.filter((c) => {
@@ -187,13 +260,12 @@ export function ClientTable({ clients, onGenerateInvite, onSelect }: ClientTable
     : clients
 
   function handleInvite(client: DeduplicatedClient) {
-    setInvited((prev) => ({ ...prev, [client.clientId]: true }))
     onGenerateInvite(client)
   }
 
   return (
     <div className="flex flex-col gap-3">
-      {/* ── Search bar ── */}
+      {/* Search bar */}
       <div className="relative">
         <Search
           className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -208,55 +280,20 @@ export function ClientTable({ clients, onGenerateInvite, onSelect }: ClientTable
         />
       </div>
 
-      {/* ── Grid table ── */}
-      <div
-        role="table"
-        aria-label="Client pipeline"
-        className="border-4 border-black bg-card shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] overflow-hidden"
-      >
-        {/* Scrollable container — scroll-x for narrow viewports */}
-        <div className="overflow-x-auto scrollbar-none">
+      {/* Horizontal scroll wrapper — only triggers on viewports < 960 px */}
+      <div className="overflow-x-auto">
+        {/* Sticky header */}
+        <TableHeader />
 
-          {/* Header */}
-          <div
-            role="rowgroup"
-            className={`grid ${GRID_COLS} min-w-[920px] bg-black text-white border-b-4 border-black`}
-          >
-            <div role="columnheader" className="px-4 py-3.5 text-left text-xs font-black uppercase tracking-wider sm:px-5">
-              <ColumnHeading icon={UserRound}>Client</ColumnHeading>
-            </div>
-            <div role="columnheader" className="px-4 py-3.5 text-left text-xs font-black uppercase tracking-wider sm:px-5">
-              <ColumnHeading icon={Home}>Highest Value Match</ColumnHeading>
-            </div>
-            <div role="columnheader" className="px-4 py-3.5 text-right text-xs font-black uppercase tracking-wider sm:px-5">
-              <ColumnHeading icon={DollarSign} align="right">Property Value</ColumnHeading>
-            </div>
-            <div role="columnheader" className="px-4 py-3.5 text-right text-xs font-black uppercase tracking-wider sm:px-5">
-              <ColumnHeading icon={PercentIcon} align="right">Probability</ColumnHeading>
-            </div>
-            <div role="columnheader" className="px-4 py-3.5 text-right text-xs font-black uppercase tracking-wider sm:px-5">
-              <ColumnHeading icon={TrendingUp} align="right">Expected Value</ColumnHeading>
-            </div>
-            <div role="columnheader" className="px-4 py-3.5 text-left text-xs font-black uppercase tracking-wider sm:px-5">
-              <ColumnHeading icon={Tags}>Segment</ColumnHeading>
-            </div>
-            <div role="columnheader" className="px-4 py-3.5 text-left text-xs font-black uppercase tracking-wider sm:px-5">
-              <ColumnHeading icon={Send}>Action</ColumnHeading>
-            </div>
+        {/* Entity cards */}
+        {visible.length === 0 ? (
+          <div className="px-5 py-10 text-center text-xs font-black uppercase tracking-wider text-muted-foreground">
+            No clients match &ldquo;{query}&rdquo;
           </div>
-
-          {/* Rows */}
-          <div role="rowgroup">
-            {visible.length === 0 && (
-              <div
-                role="row"
-                className="px-5 py-10 text-center text-xs font-black uppercase tracking-wider text-muted-foreground"
-              >
-                No clients match &ldquo;{query}&rdquo;
-              </div>
-            )}
+        ) : (
+          <div>
             {visible.map((client, index) => (
-              <ClientTableRow
+              <ClientEntity
                 key={client.clientId}
                 client={client}
                 index={index}
@@ -265,8 +302,7 @@ export function ClientTable({ clients, onGenerateInvite, onSelect }: ClientTable
               />
             ))}
           </div>
-
-        </div>
+        )}
       </div>
     </div>
   )

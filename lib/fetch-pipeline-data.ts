@@ -28,6 +28,7 @@ export async function fetchPipelineClients(): Promise<Client[]> {
       ai_probability,
       expected_value,
       segment_tier,
+      outcome,
       clients ( id, name, stated_budget, preferred_neighborhood, past_viewings ),
       properties ( id, address, neighborhood, property_value )
     `,
@@ -80,6 +81,7 @@ export async function fetchDeduplicatedClients(): Promise<DeduplicatedClient[]> 
         probability:   best.probability,
         expectedValue: best.expectedValue,
         neighborhood:  best.agent,
+        outcome:       best.outcome ?? "pending",
       },
       otherMatchCount: sorted.length - 1,
       allMatches: sorted,

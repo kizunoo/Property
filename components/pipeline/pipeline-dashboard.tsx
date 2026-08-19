@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Building2, Flame, Home, Loader2, RefreshCw, Snowflake, Star, Target, Wallet } from "lucide-react"
+import { Building2, Flame, Home, Loader2, RefreshCw, Snowflake, Star, Target, Trophy, Wallet } from "lucide-react"
 import { currency, percent, getDashboardSummary, type Client, type DeduplicatedClient, type Property, type Tier } from "@/lib/pipeline-data"
 import { fetchDeduplicatedClients, fetchPipelineClients, fetchProperties } from "@/lib/fetch-pipeline-data"
 import { StatCard } from "./stat-card"
@@ -13,7 +13,7 @@ import { ClientDetailModal } from "./client-detail-drawer"
 import { PropertyDetailModal } from "./property-detail-drawer"
 import { TierValueChart } from "./tier-value-chart"
 import { PriorityMatrixChart } from "./priority-matrix-chart"
-import { PipelineFunnel } from "./pipeline-funnel"
+import { ClusterInsightsPanel } from "./cluster-insights-panel"
 import { NeighborhoodTierHeatmap } from "./neighborhood-tier-heatmap"
 import { AnalyticsInsightPanel } from "./analytics-insight-panel"
 import { AnalyticsFilters, type AnalyticsTierFilter, type NeighborhoodFilter } from "./analytics-filters"
@@ -24,7 +24,12 @@ import { ShortlistModal } from "./shortlist-modal"
 import { InviteModal } from "./invite-modal"
 import { ViewingsBoard } from "./viewings-board"
 import { RecentSignalsPanel } from "./recent-signals-panel"
+import { AIBriefingHero } from "./ai-briefing-hero"
 import { AnimatedContent } from "@/components/animation/animated-content"
+
+interface PipelineDashboardProps {
+  onLogout?: () => void
+}
 
 
 function HeroStatCard({ totalPipelineValue, dedupCount, syncTimestamp }: { totalPipelineValue: number; dedupCount: number; syncTimestamp: number }) {
@@ -84,6 +89,31 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
 
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
+
+  // ── Prediction accuracy (outcome tracking) ──
+  const [accuracy, setAccuracy] = useState<{
+    total_recorded: number
+    won_count?: number
+    lost_count?: number
+    avg_predicted_probability_when_won?: number
+    avg_predicted_probability_when_lost?: number
+    message?: string
+  } | null>(null)
+
+  const refreshAccuracy = () => {
+    fetch("/api/prediction_accuracy")
+      .then((r) => r.json())
+      .then(setAccuracy)
+      .catch(() => {})
+  }
+
+  useEffect(() => { refreshAccuracy() }, [])
+
+  // Also refetch on tab focus (e.g. user switches away and back)
+  useEffect(() => {
+    window.addEventListener("focus", refreshAccuracy)
+    return () => window.removeEventListener("focus", refreshAccuracy)
+  }, [])
 
   async function loadData() {
     setLoading(true)
@@ -225,6 +255,12 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
             {/* Dashboard tab */}
             {tab === "DASHBOARD" ? (
               <>
+                <AIBriefingHero onOpenClient={(clientId) => {
+                  const found = dedupClients.find((c) => c.clientId === clientId)
+                  if (found) {
+                    setSelectedClient(found)
+                  }
+                }} />
                 <RecentSignalsPanel onOpenClient={(clientId) => {
                   const found = dedupClients.find((c) => c.clientId === clientId)
                   if (found) {
@@ -290,6 +326,71 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                     triggerKey={syncTimestamp}
                   />
                 </section>
+
+                {/* Prediction Accuracy card */}
+                <section className="grid grid-cols-1 gap-4 sm:gap-6">
+                  <AnimatedContent delay={0}>
+                    <div className="relative flex flex-col gap-3 border-4 border-black bg-white p-5 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] sm:p-6">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <span className="border-2 border-black bg-black p-1.5 text-primary">
+                            <Trophy className="h-4 w-4" strokeWidth={2.5} />
+                          </span>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground sm:text-xs">
+                            Prediction Accuracy
+                          </span>
+                        </div>
+                        {accuracy && accuracy.total_recorded > 0 && (
+                          <span className="border-2 border-black bg-primary px-2 py-0.5 font-mono text-xs font-black">
+                            {accuracy.total_recorded} recorded
+                          </span>
+                        )}
+                      </div>
+
+                      {!accuracy || accuracy.total_recorded === 0 ? (
+                        <div className="text-sm font-bold text-muted-foreground">
+                          No outcomes recorded yet — mark a client <span className="font-black text-black">Won</span> or <span className="font-black text-black">Lost</span> in their detail panel to start tracking.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                          <div className="border-2 border-black p-3">
+                            <div className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Deals Won</div>
+                            <div className="mt-1 font-mono text-2xl font-black">{accuracy.won_count ?? 0}</div>
+                            {accuracy.avg_predicted_probability_when_won !== undefined && (
+                              <div className="mt-1 text-[11px] font-bold text-muted-foreground">
+                                Avg predicted{" "}
+                                <span className="font-black text-black">{accuracy.avg_predicted_probability_when_won}%</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="border-2 border-black p-3">
+                            <div className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Deals Lost</div>
+                            <div className="mt-1 font-mono text-2xl font-black">{accuracy.lost_count ?? 0}</div>
+                            {accuracy.avg_predicted_probability_when_lost !== undefined && (
+                              <div className="mt-1 text-[11px] font-bold text-muted-foreground">
+                                Avg predicted{" "}
+                                <span className="font-black text-black">{accuracy.avg_predicted_probability_when_lost}%</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="border-2 border-black bg-primary p-3">
+                            <div className="text-[10px] font-black uppercase tracking-wider">Model Signal</div>
+                            <div className="mt-1 font-mono text-sm font-black leading-tight">
+                              {accuracy.avg_predicted_probability_when_won !== undefined && accuracy.avg_predicted_probability_when_lost !== undefined ? (
+                                <>Won @ {accuracy.avg_predicted_probability_when_won}% &middot; Lost @ {accuracy.avg_predicted_probability_when_lost}%</>
+                              ) : "—"}
+                            </div>
+                            <div className="mt-1 text-[10px] font-bold">
+                              {accuracy.avg_predicted_probability_when_won !== undefined && accuracy.avg_predicted_probability_when_lost !== undefined && accuracy.avg_predicted_probability_when_won > accuracy.avg_predicted_probability_when_lost
+                                ? "Model is discriminating correctly ✓"
+                                : accuracy.total_recorded < 3 ? "Need more outcomes to assess" : "Review model calibration"}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </AnimatedContent>
+                </section>
               </>
             ) : null}
 
@@ -311,29 +412,17 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                   filteredCount={analyticsClients.length}
                 />
 
-                {/* Treemap — click tier to jump to Clients tab filtered by that tier */}
-                <TierValueChart
-                  clients={analyticsClients}
-                  onTierClick={(tier) => {
-                    setFilter(tier)
-                    setTab("CLIENTS")
-                  }}
-                />
+                {/* Treemap with inline AI analysis */}
+                <TierValueChart clients={analyticsClients} />
 
-                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                  <PriorityMatrixChart clients={analyticsClients} />
-                  <PipelineFunnel clients={analyticsClients} />
-                </div>
+                {/* Priority Matrix with inline AI analysis */}
+                <PriorityMatrixChart clients={analyticsClients} />
 
-                {/* Heatmap — click cell to jump to Clients tab filtered by tier (neighborhood filter stays in analytics) */}
-                <NeighborhoodTierHeatmap
-                  clients={analyticsClients}
-                  onCellClick={(neighborhood, tier) => {
-                    setAnalyticsNeighborhood(neighborhood)
-                    setFilter(tier)
-                    setTab("CLIENTS")
-                  }}
-                />
+                {/* Heatmap with inline AI analysis */}
+                <NeighborhoodTierHeatmap clients={analyticsClients} />
+
+                {/* Neighborhood Cluster Intelligence */}
+                <ClusterInsightsPanel clients={analyticsClients} />
               </section>
             ) : null}
 
@@ -410,6 +499,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
             propertyName: client.bestMatch.property,
           })
         }}
+        onOutcomeRecorded={refreshAccuracy}
       />
       <PropertyDetailModal
         property={selectedProperty}

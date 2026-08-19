@@ -5,6 +5,7 @@ import { LayoutDashboard } from "lucide-react"
 import { currency, getDashboardSummary, type Client, type Tier } from "@/lib/pipeline-data"
 
 import { ScrollConnect } from "@/components/animation/scroll-connect"
+import { useChartInsight, ChartInsightPanel } from "./chart-insight-panel"
 
 
 const TIER_ORDER: Tier[] = ["TIER_1", "TIER_2", "TIER_3"]
@@ -103,6 +104,7 @@ interface TierValueChartProps {
 }
 
 export function TierValueChart({ clients, onTierClick }: TierValueChartProps) {
+  const { insight, loading, fetchInsight } = useChartInsight()
   // Single shared aggregation — same deduplication logic as Dashboard stat cards
   const { byTier, byTierEx } = getDashboardSummary(clients)
 
@@ -115,37 +117,45 @@ export function TierValueChart({ clients, onTierClick }: TierValueChartProps) {
 
   const treeChildren = rawData.map((d) => ({ ...d, name: d.label, size: d.value }))
 
+  const handleCellClick = (tier: Tier) => {
+    fetchInsight("tier", { tier })
+    if (onTierClick) onTierClick(tier)
+  }
+
   return (
     <ScrollConnect>
       <div className="border-4 border-black bg-card shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
-      <div className="flex items-center justify-between gap-3 border-b-4 border-black bg-black px-5 py-3.5 sm:px-6">
-        <div className="flex items-center gap-2 text-white">
-          <LayoutDashboard className="h-4 w-4" strokeWidth={2.5} />
-          <span className="text-xs font-black uppercase tracking-wider sm:text-sm">
-            Expected Value by Tier
+        <div className="flex items-center justify-between gap-3 border-b-4 border-black bg-black px-5 py-3.5 sm:px-6">
+          <div className="flex items-center gap-2 text-white">
+            <LayoutDashboard className="h-4 w-4" strokeWidth={2.5} />
+            <span className="text-xs font-black uppercase tracking-wider sm:text-sm">
+              Expected Value by Tier
+            </span>
+          </div>
+          <span className="border-2 border-black bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
+            Click segment for AI analysis
           </span>
         </div>
-        <span className="border-2 border-black bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
-          {onTierClick ? "Click to filter" : "Live"}
-        </span>
-      </div>
 
-      <div className="h-[300px] p-4 sm:h-[340px] sm:p-5">
-        <ResponsiveContainer width="100%" height="100%">
-          <Treemap
-            data={treeChildren}
-            dataKey="size"
-            aspectRatio={4 / 3}
-            isAnimationActive={true}
-            animationDuration={600}
-            animationEasing="ease-out"
-            content={<TreeCell onTierClick={onTierClick} />}
-          >
-            <Tooltip content={<TreeTooltip />} />
-          </Treemap>
-        </ResponsiveContainer>
+        <div className="p-4 sm:p-5">
+          <div className="h-[280px] sm:h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <Treemap
+                data={treeChildren}
+                dataKey="size"
+                aspectRatio={4 / 3}
+                isAnimationActive={true}
+                animationDuration={600}
+                animationEasing="ease-out"
+                content={<TreeCell onTierClick={handleCellClick} />}
+              >
+                <Tooltip content={<TreeTooltip />} />
+              </Treemap>
+            </ResponsiveContainer>
+          </div>
+          <ChartInsightPanel insight={insight} loading={loading} />
+        </div>
       </div>
-    </div>
     </ScrollConnect>
   )
 }

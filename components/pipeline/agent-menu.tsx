@@ -130,7 +130,7 @@ function LogoutModal({ open, onClose, onConfirm }: { open: boolean; onClose: () 
 
 // ─── Agent menu ───────────────────────────────────────────────────────────────
 interface AgentMenuProps {
-  onLogout: () => void
+  onLogout?: () => void
 }
 
 export function AgentMenu({ onLogout }: AgentMenuProps) {
@@ -168,7 +168,7 @@ export function AgentMenu({ onLogout }: AgentMenuProps) {
 
   function handleLogoutConfirm() {
     setLogoutOpen(false)
-    onLogout()
+    onLogout?.()
   }
 
   return (
