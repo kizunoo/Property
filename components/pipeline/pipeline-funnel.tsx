@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { BarChart3 } from "lucide-react"
@@ -49,15 +49,15 @@ export function PipelineFunnel({ clients }: PipelineFunnelProps) {
   // Single shared aggregation — same deduplication logic as Dashboard stat cards
   const { byTier, uniqueClientCount: total } = getDashboardSummary(clients)
 
-  // Display order: Cold → Warm → VIP
+  // Display order: Unlikely → Possible → Likely
   const funnelOrder: Tier[] = ["TIER_3", "TIER_2", "TIER_1"]
 
   const data: FunnelRow[] = funnelOrder.map((tier) => ({
     tier,
     label:
-      tier === "TIER_1" ? "TIER 1 · VIP"
-      : tier === "TIER_2" ? "TIER 2 · WARM"
-      : "TIER 3 · COLD",
+      tier === "TIER_1" ? "TIER 1 · HIGH-FIT"
+      : tier === "TIER_2" ? "TIER 2 · POSSIBLE-FIT"
+      : "TIER 3 · LOW-FIT",
     count: byTier[tier],
   }))
 

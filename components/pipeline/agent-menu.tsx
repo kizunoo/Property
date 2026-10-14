@@ -3,21 +3,23 @@
 import { useEffect, useRef, useState } from "react"
 import { ChevronDown, LogOut, UserCircle2, X } from "lucide-react"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
-
-// ─── Static agent data ────────────────────────────────────────────────────────
-const AGENT = {
-  initials: "RD",
-  name:     "R. Delgado",
-  role:     "Senior Agent",
-  email:    "r.delgado@pipeline.ev",
-  region:   "Kuala Lumpur Metro",
-  since:    "2019",
-  closedDeals: 47,
-  totalVolume: "$128M",
-}
+import type { Agent } from "@/lib/pipeline-data"
 
 // ─── Profile drawer ───────────────────────────────────────────────────────────
-function ProfileDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+function ProfileDrawer({
+  open,
+  onClose,
+  agent,
+}: {
+  open: boolean
+  onClose: () => void
+  agent: Agent | null
+}) {
+  const displayName     = agent?.name     ?? "All Agents"
+  const displayInitials = agent?.initials ?? "EV"
+  const displayRole     = agent?.role     ?? "Broker View"
+  const displayEmail    = agent ? `${agent.initials.toLowerCase().replace(". ", ".")}.pipeline.ev` : "broker@pipeline.ev"
+
   return (
     <Sheet open={open} onOpenChange={(o) => { if (!o) onClose() }}>
       <SheetContent
@@ -30,12 +32,12 @@ function ProfileDrawer({ open, onClose }: { open: boolean; onClose: () => void }
         <div className="flex items-start justify-between gap-4 border-b border-neutral-200 bg-black p-5 sm:p-6">
           <div className="flex items-center gap-4">
             <div className="flex h-16 w-16 items-center justify-center border-4 border-primary bg-primary text-2xl font-black text-black">
-              {AGENT.initials}
+              {displayInitials}
             </div>
             <div>
-              <div className="text-lg font-black leading-tight text-white">{AGENT.name}</div>
-              <div className="mt-0.5 text-xs font-black uppercase tracking-wider text-primary">{AGENT.role}</div>
-              <div className="mt-1 font-mono text-[11px] text-white/60">{AGENT.email}</div>
+              <div className="text-lg font-black leading-tight text-white">{displayName}</div>
+              <div className="mt-0.5 text-xs font-black uppercase tracking-wider text-primary">{displayRole}</div>
+              <div className="mt-1 font-mono text-[11px] text-white/60">{displayEmail}</div>
             </div>
           </div>
           <button
@@ -50,13 +52,10 @@ function ProfileDrawer({ open, onClose }: { open: boolean; onClose: () => void }
 
         {/* Body */}
         <div className="flex flex-col gap-5 p-5 sm:p-6">
-          {/* Stats */}
           <div className="grid grid-cols-2 gap-3">
             {[
-              { label: "Region",       value: AGENT.region },
-              { label: "Agent Since",  value: AGENT.since },
-              { label: "Closed Deals", value: String(AGENT.closedDeals) },
-              { label: "Total Volume", value: AGENT.totalVolume },
+              { label: "Region",       value: "Kuala Lumpur Metro" },
+              { label: "View Mode",    value: agent ? "Agent View" : "Broker View" },
             ].map(({ label, value }) => (
               <div key={label} className="border border-neutral-200 p-4 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
                 <div className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">{label}</div>
@@ -65,10 +64,12 @@ function ProfileDrawer({ open, onClose }: { open: boolean; onClose: () => void }
             ))}
           </div>
 
-          {/* Identifier */}
+          {/* Agent ID */}
           <div className="border border-neutral-200 bg-black p-4">
-            <div className="text-[10px] font-black uppercase tracking-wider text-white/60">Agent ID</div>
-            <div className="mt-1 font-mono text-sm font-black text-primary">AGT-2019-KL-047</div>
+            <div className="text-[10px] font-black uppercase tracking-wider text-white/60">View Context</div>
+            <div className="mt-1 font-mono text-sm font-black text-primary">
+              {agent ? `AGENT — ${agent.initials}` : "BROKER — ALL AGENTS"}
+            </div>
           </div>
         </div>
 
@@ -88,7 +89,17 @@ function ProfileDrawer({ open, onClose }: { open: boolean; onClose: () => void }
 }
 
 // ─── Logout confirmation modal ────────────────────────────────────────────────
-function LogoutModal({ open, onClose, onConfirm }: { open: boolean; onClose: () => void; onConfirm: () => void }) {
+function LogoutModal({
+  open,
+  onClose,
+  onConfirm,
+  agent,
+}: {
+  open: boolean
+  onClose: () => void
+  onConfirm: () => void
+  agent: Agent | null
+}) {
   if (!open) return null
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center">
@@ -104,7 +115,8 @@ function LogoutModal({ open, onClose, onConfirm }: { open: boolean; onClose: () 
         </div>
         <div className="p-5">
           <p className="text-sm font-bold text-muted-foreground leading-relaxed">
-            You are about to end your session as <span className="font-black text-black">{AGENT.name}</span>. Any unsaved actions will be lost.
+            You are about to end your session
+            {agent ? <> as <span className="font-black text-black">{agent.name}</span></> : ""}. Any unsaved actions will be lost.
           </p>
           <div className="mt-5 flex gap-3">
             <button
@@ -128,12 +140,136 @@ function LogoutModal({ open, onClose, onConfirm }: { open: boolean; onClose: () 
   )
 }
 
-// ─── Agent menu ───────────────────────────────────────────────────────────────
-interface AgentMenuProps {
-  onLogout?: () => void
+// ─── Agent Selector dropdown ──────────────────────────────────────────────────
+export function AgentSelector({
+  selectedAgentId,
+  onChange,
+}: {
+  selectedAgentId: string | null
+  onChange: (agentId: string | null) => void
+}) {
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    fetch("/api/agents")
+      .then((r) => r.json())
+      .then((data) => { if (Array.isArray(data)) setAgents(data) })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false)
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    document.addEventListener("keydown", handleKeyDown)
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside)
+      document.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [])
+
+  const current = selectedAgentId ? agents.find((a) => a.id === selectedAgentId) : null
+  const displayLabel = current
+    ? `${current.initials} — ${current.name}`
+    : "All Sales Reps"
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        id="agent-selector-btn"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="flex items-center gap-3 border border-neutral-200 bg-white px-3 py-2 text-left shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-shadow hover:shadow-[0px_2px_12px_rgba(0,0,0,0.12)] sm:px-4"
+      >
+        <div className="flex h-8 w-8 items-center justify-center border border-neutral-200 bg-primary text-xs font-black shrink-0">
+          {current?.initials ?? "EV"}
+        </div>
+        <div className="flex flex-col items-start min-w-0">
+          <span className="text-xs font-black uppercase tracking-wider sm:text-sm leading-tight truncate">
+            {displayLabel}
+          </span>
+          {current && (
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight">
+              {current.role}
+            </span>
+          )}
+          {!current && (
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight">
+              All Reps View
+            </span>
+          )}
+        </div>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+          strokeWidth={3}
+        />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label="Select sales rep"
+          className="absolute right-0 top-full z-20 mt-2 min-w-[220px] border border-neutral-200 bg-white shadow-[0px_4px_16px_rgba(0,0,0,0.12)]"
+        >
+          {/* All Reps View option */}
+          <button
+            type="button"
+            role="option"
+            aria-selected={selectedAgentId === null}
+            onClick={() => { onChange(null); setOpen(false) }}
+            className={`flex w-full items-center gap-3 border-b border-neutral-100 px-4 py-3 text-left transition-colors hover:bg-black hover:text-white ${selectedAgentId === null ? "bg-primary/10" : ""}`}
+          >
+            <div className="flex h-7 w-7 items-center justify-center bg-black text-primary text-[10px] font-black shrink-0">
+              EV
+            </div>
+            <div className="flex flex-col items-start">
+              <span className="text-xs font-black uppercase tracking-wider">All Sales Reps</span>
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider group-hover:text-white">All Reps View</span>
+            </div>
+          </button>
+
+          {/* Per-agent options */}
+          {agents.map((agent, i) => (
+            <button
+              key={agent.id}
+              type="button"
+              role="option"
+              aria-selected={selectedAgentId === agent.id}
+              onClick={() => { onChange(agent.id); setOpen(false) }}
+              className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-black hover:text-white ${i < agents.length - 1 ? "border-b border-neutral-100" : ""} ${selectedAgentId === agent.id ? "bg-primary/10" : ""}`}
+            >
+              <div className="flex h-7 w-7 items-center justify-center bg-neutral-900 text-primary text-[10px] font-black shrink-0">
+                {agent.initials}
+              </div>
+              <div className="flex flex-col items-start">
+                <span className="text-xs font-black uppercase tracking-wider">{agent.name}</span>
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{agent.role}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
-export function AgentMenu({ onLogout }: AgentMenuProps) {
+// ─── Agent menu (Profile + Logout) ────────────────────────────────────────────
+interface AgentMenuProps {
+  onLogout?: () => void
+  selectedAgent: Agent | null
+}
+
+export function AgentMenu({ onLogout, selectedAgent }: AgentMenuProps) {
   const [open,         setOpen]         = useState(false)
   const [profileOpen,  setProfileOpen]  = useState(false)
   const [logoutOpen,   setLogoutOpen]   = useState(false)
@@ -176,27 +312,20 @@ export function AgentMenu({ onLogout }: AgentMenuProps) {
       <div ref={containerRef} className="relative">
         <button
           type="button"
+          id="agent-menu-btn"
           onClick={() => setOpen((prev) => !prev)}
           aria-haspopup="menu"
           aria-expanded={open}
-          className="flex items-center gap-3 border border-neutral-200 bg-white px-3 py-2 text-left shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-transform hover:shadow-[0px_2px_8px_rgba(0,0,0,0.08)] sm:px-4"
+          className="flex h-10 w-10 items-center justify-center border border-neutral-200 bg-white shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-shadow hover:shadow-[0px_2px_12px_rgba(0,0,0,0.12)]"
+          title="Agent profile & options"
         >
-          <div className="flex h-8 w-8 items-center justify-center border border-neutral-200 bg-primary text-xs font-black">
-            {AGENT.initials}
-          </div>
-          <div className="text-xs font-black uppercase tracking-wider sm:text-sm">
-            {AGENT.name} — {AGENT.role}
-          </div>
-          <ChevronDown
-            className={`h-4 w-4 shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
-            strokeWidth={3}
-          />
+          <UserCircle2 className="h-5 w-5" strokeWidth={2} />
         </button>
 
         {open ? (
           <div
             role="menu"
-            className="absolute right-0 top-full z-20 mt-3 w-56 border border-neutral-200 bg-white shadow-[0px_2px_8px_rgba(0,0,0,0.08)]"
+            className="absolute right-0 top-full z-20 mt-3 w-48 border border-neutral-200 bg-white shadow-[0px_2px_8px_rgba(0,0,0,0.08)]"
           >
             <button
               type="button"
@@ -221,12 +350,14 @@ export function AgentMenu({ onLogout }: AgentMenuProps) {
       </div>
 
       {/* Modals — rendered outside the dropdown container */}
-      <ProfileDrawer open={profileOpen} onClose={() => setProfileOpen(false)} />
+      <ProfileDrawer open={profileOpen} onClose={() => setProfileOpen(false)} agent={selectedAgent} />
       <LogoutModal
         open={logoutOpen}
         onClose={() => setLogoutOpen(false)}
         onConfirm={handleLogoutConfirm}
+        agent={selectedAgent}
       />
     </>
   )
 }
+

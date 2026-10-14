@@ -11,9 +11,18 @@ import {
   ReferenceLine,
 } from "recharts"
 import { Crosshair } from "lucide-react"
-import { currency, percent, type Client } from "@/lib/pipeline-data"
+import { currency, percent, type Client, type Property } from "@/lib/pipeline-data"
 import { ScrollConnect } from "@/components/animation/scroll-connect"
 import { useChartInsight, ChartInsightPanel } from "./chart-insight-panel"
+
+// Inject keyframe animation for the pulsing ring (once, client-side only)
+const PULSE_KEYFRAMES = `
+  @keyframes price-pulse {
+    0%   { opacity: 0.55; r: 12; }
+    50%  { opacity: 0.2;  r: 17; }
+    100% { opacity: 0.55; r: 12; }
+  }
+`
 
 // ─── Custom circle scatter shape (replaces old square) ────────────────────────
 interface CircleDotProps {
@@ -22,9 +31,10 @@ interface CircleDotProps {
   fill?: string
   payload?: ScatterPoint
   onClick?: (payload: ScatterPoint) => void
+  recentlyMovedIds?: Set<string>
 }
 
-function CircleDot({ cx = 0, cy = 0, payload, onClick }: CircleDotProps) {
+function CircleDot({ cx = 0, cy = 0, payload, onClick, recentlyMovedIds }: CircleDotProps) {
   const tierFill =
     payload?.tier === "TIER_1"
       ? "var(--primary)"
@@ -32,18 +42,33 @@ function CircleDot({ cx = 0, cy = 0, payload, onClick }: CircleDotProps) {
         ? "#1a1a1a"
         : "#c4c4c4"
 
+  const isPriceRecent = payload?.propertyId ? recentlyMovedIds?.has(payload.propertyId) : false
   const r = 7
   return (
-    <circle
-      cx={cx}
-      cy={cy}
-      r={r}
-      fill={tierFill}
-      stroke="rgba(255,255,255,0.6)"
-      strokeWidth={1}
-      style={{ cursor: "pointer" }}
-      onClick={() => payload && onClick?.(payload)}
-    />
+    <g>
+      {/* Pulsing halo for recently-moved properties */}
+      {isPriceRecent && (
+        <circle
+          cx={cx}
+          cy={cy}
+          r={12}
+          fill="#FFD400"
+          fillOpacity={0.35}
+          stroke="none"
+          style={{ animation: "price-pulse 1.8s ease-in-out infinite" }}
+        />
+      )}
+      <circle
+        cx={cx}
+        cy={cy}
+        r={r}
+        fill={tierFill}
+        stroke="rgba(255,255,255,0.6)"
+        strokeWidth={1}
+        style={{ cursor: "pointer" }}
+        onClick={() => payload && onClick?.(payload)}
+      />
+    </g>
   )
 }
 
@@ -62,9 +87,10 @@ interface ScatterPoint {
 interface TooltipProps {
   active?: boolean
   payload?: { payload: ScatterPoint }[]
+  onSelectProperty?: (propertyId: string) => void
 }
 
-function MatrixTooltip({ active, payload }: TooltipProps) {
+function MatrixTooltip({ active, payload, onSelectProperty }: TooltipProps) {
   if (!active || !payload?.length) return null
   const d = payload[0].payload
   return (
@@ -75,15 +101,27 @@ function MatrixTooltip({ active, payload }: TooltipProps) {
         {d.neighborhood}
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">P(Buy)</span>
+        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">P(Adopt)</span>
         <span className="text-right font-mono text-sm font-semibold">{percent(d.probability / 100)}</span>
-        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Property</span>
+        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Unit Cost</span>
         <span className="text-right font-mono text-sm font-semibold">{currency(d.propertyValue)}</span>
         <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">E(x)</span>
         <span className="text-right font-mono text-sm font-semibold">{currency(d.expectedValue)}</span>
       </div>
-      <div className="mt-2 border-t border-neutral-200 pt-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        {d.tier.replace("_", " ")} · Click dot for AI analysis
+      <div className="mt-2 border-t border-neutral-200 pt-2 flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <span>{d.tier.replace("_", " ")}</span>
+        {d.propertyId && onSelectProperty ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onSelectProperty(d.propertyId)
+            }}
+            className="text-black font-bold hover:underline"
+          >
+            View Unit Graph ↗
+          </button>
+        ) : null}
       </div>
     </div>
   )
@@ -92,10 +130,24 @@ function MatrixTooltip({ active, payload }: TooltipProps) {
 // ─── Component ────────────────────────────────────────────────────────────────
 interface PriorityMatrixChartProps {
   clients: Client[]
+  properties?: Property[]
+  onSelectProperty?: (propertyId: string) => void
 }
 
-export function PriorityMatrixChart({ clients }: PriorityMatrixChartProps) {
+export function PriorityMatrixChart({ clients, properties = [], onSelectProperty }: PriorityMatrixChartProps) {
   const { insight, loading, fetchInsight } = useChartInsight()
+
+  // Build a set of property IDs whose price changed within the last 24 hours
+  const now = Date.now()
+  const recentlyMovedIds = new Set(
+    properties
+      .filter(
+        (p) =>
+          p.lastPriceChangeAt &&
+          new Date(p.lastPriceChangeAt).getTime() > now - 24 * 60 * 60 * 1000
+      )
+      .map((p) => p.id)
+  )
 
   const data: ScatterPoint[] = clients.map((c) => ({
     clientId: c.clientDbId || c.id,
@@ -110,34 +162,36 @@ export function PriorityMatrixChart({ clients }: PriorityMatrixChartProps) {
 
   const handlePointClick = (pt: ScatterPoint) => {
     fetchInsight("scatter_point", { client_id: pt.clientId, property_id: pt.propertyId })
+    if (pt.propertyId && onSelectProperty) {
+      onSelectProperty(pt.propertyId)
+    }
   }
 
   return (
     <ScrollConnect>
-      <div className="overflow-hidden rounded-[10px] border border-neutral-200 bg-white shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
+      {/* Inject keyframe CSS for the pulsing halo */}
+      <style>{PULSE_KEYFRAMES}</style>
+      <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card shadow-[var(--shadow-sm)]">
 
-      {/* Header */}
-      <div
-        className="flex items-center justify-between gap-3 border-b border-neutral-200 bg-neutral-900 px-5 py-3.5 sm:px-6"
-        style={{ borderRadius: "10px 10px 0 0" }}
-      >
-        <div className="flex items-center gap-2 text-white">
-          <Crosshair className="h-4 w-4" strokeWidth={2} />
-          <span className="text-xs font-semibold uppercase tracking-wider sm:text-sm">
-            Priority Matrix · P(Buy) vs Property Value
+      {/* Header — Lighter style */}
+      <div className="flex items-center justify-between gap-3 border-b border-border bg-transparent px-5 py-3.5 sm:px-6">
+        <div className="flex items-center gap-2 text-foreground">
+          <Crosshair className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
+          <span className="text-xs font-bold uppercase tracking-wider text-foreground sm:text-sm">
+            Priority Matrix · P(Adopt) vs Unit Cost
           </span>
         </div>
-        <span className="rounded-md bg-primary px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-black sm:text-xs">
+        <span className="rounded-[var(--radius-sm)] border border-border bg-muted px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:text-xs">
           Click dot for AI analysis
         </span>
       </div>
 
       {/* Legend */}
-      <div className="flex flex-wrap items-center gap-4 border-b border-neutral-200 px-5 py-2.5">
+      <div className="flex flex-wrap items-center gap-4 border-b border-border bg-muted/20 px-5 py-2.5">
         {(["TIER_1", "TIER_2", "TIER_3"] as const).map((tier) => {
           const fill =
             tier === "TIER_1" ? "var(--primary)" : tier === "TIER_2" ? "#1a1a1a" : "#c4c4c4"
-          const label = tier === "TIER_1" ? "VIP" : tier === "TIER_2" ? "WARM" : "COLD"
+          const label = tier === "TIER_1" ? "HIGH-FIT" : tier === "TIER_2" ? "POSSIBLE-FIT" : "LOW-FIT"
           return (
             <span key={tier} className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider">
               {/* Circle legend marker — matches new circle dots */}
@@ -179,7 +233,7 @@ export function PriorityMatrixChart({ clients }: PriorityMatrixChartProps) {
                 axisLine={{ stroke: "#e5e7eb", strokeWidth: 1 }}
                 tickLine={{ stroke: "#e5e7eb", strokeWidth: 1 }}
                 label={{
-                  value: "P(Buy) Probability →",
+                  value: "P(Adopt) Probability →",
                   position: "insideBottomRight",
                   offset: -8,
                   fill: "#9ca3af",
@@ -196,7 +250,7 @@ export function PriorityMatrixChart({ clients }: PriorityMatrixChartProps) {
                 tickLine={{ stroke: "#e5e7eb", strokeWidth: 1 }}
                 width={60}
                 label={{
-                  value: "Property Value",
+                  value: "Unit Cost",
                   angle: -90,
                   position: "insideLeft",
                   offset: 12,
@@ -207,13 +261,13 @@ export function PriorityMatrixChart({ clients }: PriorityMatrixChartProps) {
               />
 
               <Tooltip
-                content={<MatrixTooltip />}
+                content={<MatrixTooltip onSelectProperty={onSelectProperty} />}
                 cursor={{ stroke: "#d1d5db", strokeWidth: 1, strokeDasharray: "4 2" }}
               />
 
               <Scatter
                 data={data}
-                shape={<CircleDot onClick={handlePointClick} />}
+                shape={<CircleDot onClick={handlePointClick} recentlyMovedIds={recentlyMovedIds} />}
                 isAnimationActive={true}
                 animationDuration={600}
                 animationEasing="ease-out"

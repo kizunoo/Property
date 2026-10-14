@@ -11,9 +11,9 @@ import { useChartInsight, ChartInsightPanel } from "./chart-insight-panel"
 const TIER_ORDER: Tier[] = ["TIER_1", "TIER_2", "TIER_3"]
 
 const TIER_META: Record<Tier, { label: string; shortLabel: string; fill: string; textColor: string }> = {
-  TIER_1: { label: "TIER 1 · VIP",  shortLabel: "VIP",  fill: "var(--primary)", textColor: "#000000" },
-  TIER_2: { label: "TIER 2 · WARM", shortLabel: "WARM", fill: "#1a1a1a",        textColor: "#ffffff" },
-  TIER_3: { label: "TIER 3 · COLD", shortLabel: "COLD", fill: "#c4c4c4",        textColor: "#000000" },
+  TIER_1: { label: "TIER 1 · HIGH-FIT PROSPECT", shortLabel: "HIGH-FIT", fill: "var(--primary)", textColor: "#000000" },
+  TIER_2: { label: "TIER 2 · POSSIBLE-FIT",      shortLabel: "POSSIBLE", fill: "#1a1a1a",        textColor: "#ffffff" },
+  TIER_3: { label: "TIER 3 · LOW-FIT",           shortLabel: "LOW-FIT",  fill: "#c4c4c4",        textColor: "#000000" },
 }
 
 // ─── Tooltip ─────────────────────────────────────────────────────────────────
@@ -30,7 +30,7 @@ function TreeTooltip({ active, payload }: TooltipPayload) {
       <div className="text-xs font-semibold uppercase tracking-wider">{item.label}</div>
       <div className="mt-1 font-mono text-lg font-bold">{currency(item.value)}</div>
       <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-        {item.count} {item.count === 1 ? "client" : "clients"}
+        {item.count} {item.count === 1 ? "company" : "companies"}
       </div>
     </div>
   )
@@ -51,52 +51,147 @@ interface TreeCellProps {
 function TreeCell({ x = 0, y = 0, width = 0, height = 0, tier, value, count, onTierClick }: TreeCellProps) {
   if (!tier || width < 2 || height < 2) return null
   const meta = TIER_META[tier]
-  const isSmall = width < 90 || height < 60
-  const isTiny  = width < 55 || height < 40
 
-  // Gap between segments: inset each cell by 2px on each side
+  // Gap between segments: inset each cell by 3px on each side
   const gap = 3
   const rx = x + gap
   const ry = y + gap
-  const rw = width - gap * 2
-  const rh = height - gap * 2
+  const rw = Math.max(0, width - gap * 2)
+  const rh = Math.max(0, height - gap * 2)
+
+  const cx = x + width / 2
+  const cy = y + height / 2
+
+  // Dimension categories
+  const isTiny = width < 35 || height < 25
+  const isCompactWidth = width < 90
+  const isNarrow = width < 65
+  const isShort = height < 52
+
+  // Formatted labels
+  const labelText = meta.shortLabel
+  const valueText = value !== undefined ? currency(value) : null
+  const countText = count !== undefined
+    ? (isNarrow && width < 58
+        ? `${count} ${count === 1 ? "co" : "cos"}`
+        : `${count} ${count === 1 ? "company" : "companies"}`)
+    : null
 
   return (
     <g style={{ cursor: onTierClick ? "pointer" : "default" }} onClick={() => onTierClick?.(tier)}>
       {/* Soft gap achieved by insetting rect; thin 1px stroke instead of heavy 3px */}
       <rect x={rx} y={ry} width={rw} height={rh} fill={meta.fill} stroke="rgba(255,255,255,0.25)" strokeWidth={1} rx={4} ry={4} />
+
       {!isTiny && (
-        <text
-          x={x + width / 2} y={y + (isSmall ? height / 2 - 4 : height / 2 - 14)}
-          textAnchor="middle" dominantBaseline="middle"
-          fill={meta.textColor} fontSize={isSmall ? 10 : 13} fontWeight={700}
-          fontFamily="var(--font-sans)"
-          style={{ userSelect: "none", textTransform: "uppercase", letterSpacing: "0.08em" }}
-        >
-          {meta.shortLabel}
-        </text>
-      )}
-      {!isSmall && value !== undefined && (
-        <text
-          x={x + width / 2} y={y + height / 2 + 4}
-          textAnchor="middle" dominantBaseline="middle"
-          fill={meta.textColor} fontSize={11} fontWeight={600}
-          fontFamily="var(--font-sans)" opacity={0.85}
-          style={{ userSelect: "none" }}
-        >
-          {currency(value)}
-        </text>
-      )}
-      {!isSmall && count !== undefined && (
-        <text
-          x={x + width / 2} y={y + height / 2 + 22}
-          textAnchor="middle" dominantBaseline="middle"
-          fill={meta.textColor} fontSize={10} fontWeight={600}
-          fontFamily="var(--font-sans)" opacity={0.7}
-          style={{ userSelect: "none", textTransform: "uppercase", letterSpacing: "0.06em" }}
-        >
-          {count} {count === 1 ? "client" : "clients"}
-        </text>
+        <>
+          {/* Layout A: Wide horizontal strip */}
+          {isShort && width >= 120 ? (
+            width >= 210 ? (
+              <text
+                x={cx}
+                y={cy}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill={meta.textColor}
+                fontSize={10.5}
+                fontWeight={700}
+                fontFamily="var(--font-sans)"
+                style={{ userSelect: "none" }}
+              >
+                {labelText}
+                {valueText ? ` · ${valueText}` : ""}
+                {countText ? ` · ${countText}` : ""}
+              </text>
+            ) : (
+              <>
+                <text
+                  x={cx}
+                  y={cy - 7}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fill={meta.textColor}
+                  fontSize={9.5}
+                  fontWeight={700}
+                  fontFamily="var(--font-sans)"
+                  style={{ userSelect: "none", textTransform: "uppercase", letterSpacing: "0.05em" }}
+                >
+                  {labelText}
+                  {valueText ? `: ${valueText}` : ""}
+                </text>
+                {countText && (
+                  <text
+                    x={cx}
+                    y={cy + 7}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fill={meta.textColor}
+                    fontSize={8.5}
+                    fontWeight={600}
+                    fontFamily="var(--font-sans)"
+                    opacity={0.8}
+                    style={{ userSelect: "none", textTransform: "uppercase", letterSpacing: "0.05em" }}
+                  >
+                    {countText}
+                  </text>
+                )}
+              </>
+            )
+          ) : (
+            /* Layout B: Standard or Tall Vertical Block (including narrow Low-Fit bar) */
+            <>
+              {/* Tier Label */}
+              <text
+                x={cx}
+                y={cy - 14}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill={meta.textColor}
+                fontSize={isNarrow ? 9 : isCompactWidth ? 10.5 : 13}
+                fontWeight={700}
+                fontFamily="var(--font-sans)"
+                style={{ userSelect: "none", textTransform: "uppercase", letterSpacing: isNarrow ? "0.03em" : "0.08em" }}
+              >
+                {labelText}
+              </text>
+
+              {/* RM Value */}
+              {valueText && (
+                <text
+                  x={cx}
+                  y={isCompactWidth ? cy + 1 : cy + 4}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fill={meta.textColor}
+                  fontSize={isNarrow ? 9 : isCompactWidth ? 10.5 : 11}
+                  fontWeight={600}
+                  fontFamily="var(--font-sans)"
+                  opacity={0.9}
+                  style={{ userSelect: "none", letterSpacing: isNarrow ? "0" : undefined }}
+                >
+                  {valueText}
+                </text>
+              )}
+
+              {/* Company Count */}
+              {countText && (
+                <text
+                  x={cx}
+                  y={isCompactWidth ? cy + 16 : cy + 22}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fill={meta.textColor}
+                  fontSize={isNarrow ? 8 : isCompactWidth ? 9.5 : 10}
+                  fontWeight={600}
+                  fontFamily="var(--font-sans)"
+                  opacity={0.75}
+                  style={{ userSelect: "none", textTransform: "uppercase", letterSpacing: isNarrow ? "0.01em" : "0.06em" }}
+                >
+                  {countText}
+                </text>
+              )}
+            </>
+          )}
+        </>
       )}
     </g>
   )
@@ -129,18 +224,15 @@ export function TierValueChart({ clients, onTierClick }: TierValueChartProps) {
 
   return (
     <ScrollConnect>
-      <div className="overflow-hidden rounded-[10px] border border-neutral-200 bg-card shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
-        <div
-          className="flex items-center justify-between gap-3 border-b border-neutral-200 bg-neutral-900 px-5 py-3.5 sm:px-6"
-          style={{ borderRadius: "10px 10px 0 0" }}
-        >
-          <div className="flex items-center gap-2 text-white">
-            <LayoutDashboard className="h-4 w-4" strokeWidth={2} />
-            <span className="text-xs font-semibold uppercase tracking-wider sm:text-sm">
-              Expected Value by Tier
+      <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card shadow-[var(--shadow-sm)]">
+        <div className="flex items-center justify-between gap-3 border-b border-border bg-transparent px-5 py-3.5 sm:px-6">
+          <div className="flex items-center gap-2 text-foreground">
+            <LayoutDashboard className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
+            <span className="text-xs font-bold uppercase tracking-wider text-foreground sm:text-sm">
+              Expected Value by Fit-Tier
             </span>
           </div>
-          <span className="rounded-md bg-primary px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-black sm:text-xs">
+          <span className="rounded-[var(--radius-sm)] border border-border bg-muted px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:text-xs">
             Click segment for AI analysis
           </span>
         </div>

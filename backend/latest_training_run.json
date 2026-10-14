@@ -1,0 +1,10 @@
+{
+  "trained": true,
+  "trained_at": "2026-09-14T02:54:27.075732+00:00",
+  "real_outcome_count": 0,
+  "synthetic_outcome_count": 300,
+  "train_accuracy": 0.6583,
+  "test_accuracy": 0.7167,
+  "test_auc": 0.697,
+  "notes": "Real outcomes weighted 5.0x synthetic"
+}

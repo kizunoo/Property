@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useRef } from "react";
 import { gsap } from "gsap";
@@ -22,9 +22,9 @@ export interface TabNavProps {
 const DEFAULT_ITEMS: TabItem[] = [
   { key: "DASHBOARD", label: "Dashboard" },
   { key: "ANALYTICS", label: "Analytics" },
-  { key: "PROPERTIES", label: "Properties" },
-  { key: "CLIENTS", label: "Clients" },
-  { key: "VIEWINGS", label: "Viewings" },
+  { key: "PROPERTIES", label: "Robot Fleet" },
+  { key: "CLIENTS", label: "Companies" },
+  { key: "VIEWINGS", label: "Demos" },
 ];
 
 export function TabNav({
@@ -73,7 +73,17 @@ export function TabNav({
     return () => window.removeEventListener("resize", layout);
   }, [items]);
 
+  useEffect(() => {
+    items.forEach((item, i) => {
+      if (item.key === currentActiveKey) {
+        tlRefs.current[i]?.seek(0).pause();
+        activeTweenRefs.current[i]?.kill();
+      }
+    });
+  }, [currentActiveKey, items]);
+
   const handleEnter = (i: number) => {
+    if (items[i].key === currentActiveKey) return;
     const tl = tlRefs.current[i];
     if (!tl) return;
     activeTweenRefs.current[i]?.kill();

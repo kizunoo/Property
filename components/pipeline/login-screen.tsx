@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useState, type FormEvent } from "react"
 import { ArrowRight, Building2, KeyRound, ShieldAlert, UserRound } from "lucide-react"
@@ -30,7 +30,7 @@ export function LoginScreen({ onSignIn }: LoginScreenProps) {
               PIPELINE<span className="text-muted-foreground">.EV</span>
             </div>
             <div className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">
-              Client Priority Console
+              Adoption Priority Console
             </div>
           </div>
         </div>
@@ -44,13 +44,13 @@ export function LoginScreen({ onSignIn }: LoginScreenProps) {
               <ShieldAlert className="h-3.5 w-3.5" strokeWidth={3} />
               Restricted Access
             </span>
-            <h1 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">Agent Sign In</h1>
+            <h1 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">Rep Sign In</h1>
           </div>
 
           <label className="flex flex-col gap-2">
             <span className="flex items-center gap-2 text-xs font-black uppercase tracking-wider">
               <UserRound className="h-4 w-4" strokeWidth={3} />
-              Agent ID
+              Rep ID
             </span>
             <input
               value={agentId}

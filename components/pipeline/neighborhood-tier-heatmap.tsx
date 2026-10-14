@@ -9,9 +9,9 @@ import { useChartInsight, ChartInsightPanel } from "./chart-insight-panel"
 const TIERS: Tier[] = ["TIER_1", "TIER_2", "TIER_3"]
 
 const TIER_META: Record<Tier, { label: string; shortLabel: string; baseColor: string; textColor: string }> = {
-  TIER_1: { label: "Tier 1 · VIP",  shortLabel: "VIP",  baseColor: "212, 170, 0",  textColor: "#000" },
-  TIER_2: { label: "Tier 2 · Warm", shortLabel: "WARM", baseColor: "0, 0, 0",       textColor: "#fff" },
-  TIER_3: { label: "Tier 3 · Cold", shortLabel: "COLD", baseColor: "160, 160, 160", textColor: "#000" },
+  TIER_1: { label: "Tier 1 · High-Fit",    shortLabel: "HIGH-FIT",     baseColor: "212, 170, 0",  textColor: "#000" },
+  TIER_2: { label: "Tier 2 · Possible-Fit", shortLabel: "POSSIBLE-FIT", baseColor: "0, 0, 0",       textColor: "#fff" },
+  TIER_3: { label: "Tier 3 · Low-Fit",     shortLabel: "LOW-FIT",      baseColor: "160, 160, 160", textColor: "#000" },
 }
 
 interface CellData {
@@ -80,7 +80,7 @@ export function NeighborhoodTierHeatmap({ clients, onCellClick }: NeighborhoodTi
 
   return (
     <ScrollConnect>
-      <div className="overflow-hidden rounded-[10px] border border-neutral-200 bg-white shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
+      <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card shadow-[var(--shadow-sm)]">
         <HeatmapHeader />
 
         <div className="overflow-x-auto p-4 sm:p-5">
@@ -110,10 +110,10 @@ export function NeighborhoodTierHeatmap({ clients, onCellClick }: NeighborhoodTi
                 {/* Row label */}
                 <div
                   key={`label-${nbhd}`}
-                  className="flex items-center gap-1 rounded-md bg-neutral-900 px-2 py-2 text-[10px] font-semibold uppercase tracking-wider text-white"
+                  className="flex items-center gap-1.5 rounded-md bg-muted border border-border px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-foreground"
                   style={{ minHeight: "44px" }}
                 >
-                  <MapPin className="h-2.5 w-2.5 shrink-0 text-primary" strokeWidth={2} />
+                  <MapPin className="h-2.5 w-2.5 shrink-0 text-muted-foreground" strokeWidth={2} />
                   <span className="truncate">{nbhd}</span>
                 </div>
 
@@ -180,7 +180,7 @@ export function NeighborhoodTierHeatmap({ clients, onCellClick }: NeighborhoodTi
           {/* Legend */}
           <div className="mt-4 flex items-center gap-3 border-t border-neutral-200 pt-3">
             <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              Intensity = client count
+              Intensity = company count
             </span>
             <div className="flex items-center gap-1">
               <div className="h-3 w-6 rounded-sm border border-neutral-200 bg-[#f5f5f5]" />
@@ -208,7 +208,7 @@ export function NeighborhoodTierHeatmap({ clients, onCellClick }: NeighborhoodTi
               {hover.neighborhood} × {TIER_META[hover.tier].shortLabel}
             </div>
             <div className="mt-1 font-mono text-lg font-bold leading-none">
-              {hover.count} {hover.count === 1 ? "client" : "clients"}
+              {hover.count} {hover.count === 1 ? "company" : "companies"}
             </div>
             <div className="mt-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
               {currency(hover.totalEx)} total E(x)
@@ -222,14 +222,14 @@ export function NeighborhoodTierHeatmap({ clients, onCellClick }: NeighborhoodTi
 
 function HeatmapHeader() {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-neutral-200 bg-neutral-900 px-5 py-3.5 sm:px-6" style={{ borderRadius: "10px 10px 0 0" }}>
-      <div className="flex items-center gap-2 text-white">
-        <MapPin className="h-4 w-4" strokeWidth={2} />
-        <span className="text-xs font-semibold uppercase tracking-wider sm:text-sm">
-          Neighborhood × Tier Heatmap
+    <div className="flex items-center justify-between gap-3 border-b border-border bg-transparent px-5 py-3.5 sm:px-6">
+      <div className="flex items-center gap-2 text-foreground">
+        <MapPin className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
+        <span className="text-xs font-bold uppercase tracking-wider text-foreground sm:text-sm">
+          Industry × Fit-Tier Heatmap
         </span>
       </div>
-      <span className="rounded-md bg-primary px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-black sm:text-xs">
+      <span className="rounded-[var(--radius-sm)] border border-border bg-muted px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:text-xs">
         Click cell for AI analysis
       </span>
     </div>

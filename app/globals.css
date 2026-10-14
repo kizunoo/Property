@@ -321,7 +321,6 @@
  * .client-entity-inner.is-visible — driven by IntersectionObserver
  */
 .client-entity {
-  overflow: hidden;           /* clip the scaleY so nothing paints outside the card area */
   margin-bottom: 8px;
 }
 
@@ -339,22 +338,23 @@
   background: #fff;
   box-shadow: var(--shadow-sm);
 
-  /* start flat & invisible */
-  transform: scaleY(0);
-  transform-origin: bottom center;   /* grows upward from its own bottom edge */
+  /* start shifted up & invisible — translateY keeps layout intact (no gap) */
+  transform: translateY(-6px);
   opacity: 0;
   transition:
-    transform 300ms steps(8, end),
-    opacity   300ms steps(8, end),
+    transform 250ms ease,
+    opacity   250ms ease,
     box-shadow 200ms ease;
 }
 
-.client-entity-inner:hover {
-  box-shadow: var(--shadow-sm-hover);
+.client-entity-inner:hover,
+.client-entity-inner.is-visible:hover {
+  box-shadow: 0px 4px 12px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
 }
 
 .client-entity-inner.is-visible {
-  transform: scaleY(1);
+  transform: translateY(0);
   opacity: 1;
 }
 
@@ -366,7 +366,7 @@
 @media (prefers-reduced-motion: reduce) {
   .client-entity-inner {
     transition: none;
-    transform: scaleY(1);
+    transform: translateY(0);
     opacity: 1;
   }
 }

@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import type { ComponentType } from "react"
 import { Crown, Flame, MapPin, Snowflake, Users } from "lucide-react"
@@ -12,10 +12,10 @@ const TIER_OPTIONS: {
   label: string
   icon: ComponentType<{ className?: string; strokeWidth?: number }>
 }[] = [
-  { value: "ALL",    label: "All Tiers",    icon: Users },
-  { value: "TIER_1", label: "Tier 1 · VIP", icon: Crown },
-  { value: "TIER_2", label: "Tier 2 · Warm", icon: Flame },
-  { value: "TIER_3", label: "Tier 3 · Cold", icon: Snowflake },
+  { value: "ALL",    label: "All Tiers",            icon: Users },
+  { value: "TIER_1", label: "Tier 1 · High-Fit",    icon: Crown },
+  { value: "TIER_2", label: "Tier 2 · Possible-Fit", icon: Flame },
+  { value: "TIER_3", label: "Tier 3 · Low-Fit",     icon: Snowflake },
 ]
 
 // ─── Neighbourhood filter ─────────────────────────────────────────────────────
@@ -40,23 +40,23 @@ function Pill({
       type="button"
       onClick={onClick}
       aria-pressed={isActive}
-      className={`flex items-center gap-2 border border-neutral-200 px-3 py-2 text-xs font-black uppercase tracking-wider transition-transform sm:px-4 sm:py-2.5 sm:text-sm ${
+      className={`flex items-center gap-2 rounded-[var(--radius-sm)] border px-3 py-2 text-xs font-bold uppercase tracking-wider transition-all sm:px-3.5 sm:py-2 ${
         isActive
-          ? "bg-black text-white shadow-[0px_2px_8px_rgba(0,0,0,0.08)] -translate-x-0.5 -translate-y-0.5"
-          : "bg-white text-black shadow-[0px_1px_4px_rgba(0,0,0,0.07)] hover:shadow-[0px_2px_8px_rgba(0,0,0,0.08)]"
+          ? "border-neutral-900 bg-black text-white shadow-[var(--shadow-xs)]"
+          : "border-border bg-card text-foreground hover:bg-muted shadow-[var(--shadow-xs)]"
       }`}
     >
       {Icon && (
         <Icon
-          className={`h-3.5 w-3.5 ${isActive ? "text-primary" : "text-black"}`}
+          className={`h-3.5 w-3.5 ${isActive ? "text-primary" : "text-muted-foreground"}`}
           strokeWidth={2.5}
         />
       )}
       {label}
       {count !== undefined && (
         <span
-          className={`border border-neutral-200 px-1.5 text-[10px] sm:text-xs ${
-            isActive ? "bg-primary text-black" : "bg-black text-white"
+          className={`rounded px-1.5 py-0.5 text-[10px] font-mono ${
+            isActive ? "bg-primary text-black font-bold" : "bg-muted text-muted-foreground"
           }`}
         >
           {count}
@@ -120,23 +120,23 @@ export function AnalyticsFilters({
   }
 
   return (
-    <div className="border border-neutral-200 bg-white shadow-[0px_4px_16px_rgba(0,0,0,0.10)]">
-      {/* Header bar */}
-      <div className="flex items-center justify-between gap-4 border-b border-neutral-200 bg-black px-5 py-3 sm:px-6">
-        <span className="text-xs font-black uppercase tracking-wider text-white sm:text-sm">
+    <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card shadow-[var(--shadow-sm)]">
+      {/* Header bar — Lighter style */}
+      <div className="flex items-center justify-between gap-4 border-b border-border bg-transparent px-5 py-3.5 sm:px-6">
+        <span className="text-xs font-bold uppercase tracking-wider text-foreground sm:text-sm">
           Analytics Filters
         </span>
-        <span className="border border-neutral-200 bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
+        <span className="rounded-[var(--radius-sm)] border border-border bg-muted px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:text-xs">
           {filteredCount} {filteredCount === 1 ? "result" : "results"}
         </span>
       </div>
 
-      <div className="flex flex-col gap-5 p-4 sm:p-5">
+      <div className="flex flex-col gap-5 p-5 sm:p-6">
         {/* ── Tier row ── */}
         <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
             <Crown className="h-3 w-3" strokeWidth={2.5} />
-            Segment Tier
+            Fit-Tier
           </div>
           <div className="flex flex-wrap gap-2">
             {TIER_OPTIONS.map((opt) => (
@@ -153,20 +153,20 @@ export function AnalyticsFilters({
         </div>
 
         {/* ── Divider ── */}
-        <div className="border-t-2 border-black border-dashed" />
+        <div className="border-t border-border" />
 
         {/* ── Neighborhood row ── */}
         <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
             <MapPin className="h-3 w-3" strokeWidth={2.5} />
-            Neighborhood
+            Target Environment
           </div>
           <div className="flex flex-wrap gap-2">
             {/* "ALL" pill */}
             <Pill
               isActive={neighborhoodFilter === "ALL"}
               onClick={() => onNeighborhoodChange("ALL")}
-              label="All Areas"
+              label="All Environments"
               count={uniqueClients.length}
             />
             {neighborhoods.map((n) => (
@@ -184,14 +184,14 @@ export function AnalyticsFilters({
 
         {/* ── Active filter summary ── */}
         {(tierFilter !== "ALL" || neighborhoodFilter !== "ALL") && (
-          <div className="flex items-center justify-between gap-3 border border-neutral-200 bg-primary px-3 py-2 shadow-[0px_1px_4px_rgba(0,0,0,0.07)]">
-            <span className="text-[10px] font-black uppercase tracking-wider text-black">
+          <div className="flex items-center justify-between gap-3 rounded-[var(--radius-sm)] border border-primary/40 bg-primary/10 px-3.5 py-2">
+            <span className="text-xs font-semibold text-foreground">
               Showing{" "}
               {tierFilter !== "ALL" && (
-                <span>{tierFilter.replace("_", " ")} </span>
+                <span className="font-bold">{tierFilter.replace("_", " ")} </span>
               )}
               {neighborhoodFilter !== "ALL" && (
-                <span>in {neighborhoodFilter} </span>
+                <span>in <span className="font-bold">{neighborhoodFilter}</span> </span>
               )}
               — {filteredCount} {filteredCount === 1 ? "result" : "results"}
             </span>
@@ -201,7 +201,7 @@ export function AnalyticsFilters({
                 onTierChange("ALL")
                 onNeighborhoodChange("ALL")
               }}
-              className="border border-neutral-200 bg-black px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white hover:bg-white hover:text-black transition-colors"
+              className="rounded-[var(--radius-sm)] border border-border bg-black px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white hover:bg-neutral-800 transition-colors"
             >
               Clear
             </button>

@@ -2,15 +2,17 @@
  * Client-side helpers for scheduled viewings.
  */
 
-export type ViewingStatus = "upcoming" | "completed" | "cancelled"
+export type ViewingStatus = "upcoming" | "completed" | "cancelled" | "requested"
 
 export interface ScheduledViewing {
   id: string
   client_id: string
   property_id: string
-  scheduled_at: string   // ISO-8601
+  scheduled_at: string | null   // ISO-8601; null when client requests without a date
   status: ViewingStatus
   cancellation_reason?: string | null
+  client_confirmed_at?: string | null
+  confirmation_status?: string | null
   // Joined from Supabase foreign key select
   clients?: { id: string; name: string; preferred_neighborhood: string | null }
   properties?: { id: string; address: string; neighborhood: string | null }

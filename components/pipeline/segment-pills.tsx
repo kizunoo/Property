@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useRef } from "react";
 import { gsap } from "gsap";
@@ -14,10 +14,10 @@ interface SegmentPillsProps {
 }
 
 const OPTIONS: { value: SegmentFilter; label: string }[] = [
-  { value: "ALL", label: "All Clients" },
-  { value: "TIER_1", label: "Tier 1 · VIP" },
-  { value: "TIER_2", label: "Tier 2 · Warm" },
-  { value: "TIER_3", label: "Tier 3 · Cold" },
+  { value: "ALL",    label: "All Companies" },
+  { value: "TIER_1", label: "Tier 1 · High-Fit" },
+  { value: "TIER_2", label: "Tier 2 · Possible-Fit" },
+  { value: "TIER_3", label: "Tier 3 · Low-Fit" },
 ];
 
 export function SegmentPills({ active, onChange, counts }: SegmentPillsProps) {

@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useState, useEffect, useRef, type ComponentType } from "react"
 import {
@@ -6,15 +6,17 @@ import {
   Home,
   Layers,
   MapPin,
+  Percent as PercentIcon,
   Search,
   Send,
+  ShieldCheck,
   Tags,
   TrendingUp,
   UserRound,
-  Percent as PercentIcon,
 } from "lucide-react"
 import { TIER_SHORT, currency, percent, type DeduplicatedClient } from "@/lib/pipeline-data"
 import { CountUp } from "@/components/animation/count-up"
+import { StageBadge } from "@/components/pipeline/stage-badge"
 
 // ─── Column layout comment ────────────────────────────────────────────────────
 //
@@ -30,13 +32,13 @@ import { CountUp } from "@/components/animation/count-up"
 
 function TierBadge({ tier }: { tier: DeduplicatedClient["tier"] }) {
   const styles: Record<DeduplicatedClient["tier"], string> = {
-    TIER_1: "bg-primary text-black",
-    TIER_2: "bg-black text-white",
-    TIER_3: "bg-white text-black",
+    TIER_1: "bg-primary text-black border-primary",
+    TIER_2: "bg-black text-white border-black",
+    TIER_3: "bg-muted text-foreground border-border",
   }
   return (
     <span
-      className={`inline-flex w-[72px] items-center justify-center border border-neutral-200 py-1 text-[10px] font-black uppercase tracking-wider ${styles[tier]}`}
+      className={`inline-flex w-[72px] items-center justify-center rounded-[var(--radius-sm)] border py-1 text-[10px] font-bold uppercase tracking-wider ${styles[tier]}`}
     >
       {TIER_SHORT[tier]}
     </span>
@@ -54,11 +56,11 @@ function ColHead({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wider ${
+      className={`inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground ${
         align === "right" ? "justify-end w-full" : ""
       }`}
     >
-      <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
+      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={2} />
       <span>{children}</span>
     </span>
   )
@@ -100,17 +102,17 @@ function ClientEntity({
     >
       <div
         ref={innerRef}
-        className="client-entity-inner cursor-pointer hover:bg-primary/10 transition-colors"
+        className="client-entity-inner cursor-pointer hover:bg-muted/30 transition-all hover:-translate-y-[1px]"
         onClick={() => onSelect(client)}
       >
         {/* 1 · Client */}
         <div className="flex items-center gap-3 min-w-0">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center border border-neutral-200 bg-black text-xs font-black text-white">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[6px] bg-black text-xs font-bold text-white">
             {client.initials}
           </div>
           <div className="min-w-0 flex-1">
             <div
-              className="flex items-center gap-1 text-sm font-black leading-tight min-w-0"
+              className="flex items-center gap-1 text-sm font-bold leading-tight text-foreground min-w-0"
               title={client.name}
             >
               <UserRound className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={2.5} />
@@ -122,6 +124,19 @@ function ClientEntity({
             >
               {client.bestMatch.neighborhood}
             </div>
+            {client.assignedAgent && (
+              <div className="flex items-center gap-1 mt-0.5">
+                <div
+                  title={`Agent: ${client.assignedAgent.name}`}
+                  className="flex h-4 w-4 items-center justify-center rounded-full bg-neutral-900 text-[8px] font-black text-primary shrink-0"
+                >
+                  {client.assignedAgent.initials}
+                </div>
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  {client.assignedAgent.name}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -130,12 +145,12 @@ function ClientEntity({
           className="flex flex-col justify-center gap-0.5 min-w-0"
           title={client.bestMatch.property}
         >
-          <div className="flex items-center gap-1 text-sm font-bold min-w-0">
+          <div className="flex items-center gap-1 text-sm font-bold text-foreground min-w-0">
             <MapPin className="h-3 w-3 shrink-0 text-muted-foreground" strokeWidth={2.5} />
             <span className="truncate">{client.bestMatch.property}</span>
           </div>
           {client.otherMatchCount > 0 && (
-            <span className="inline-flex w-fit items-center gap-1 border border-neutral-200 bg-black px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-primary">
+            <span className="inline-flex w-fit items-center gap-1 rounded-[4px] border border-border bg-black px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">
               <Layers className="h-2.5 w-2.5 shrink-0" strokeWidth={2.5} />
               +{client.otherMatchCount} other listing{client.otherMatchCount > 1 ? "s" : ""}
             </span>
@@ -143,43 +158,44 @@ function ClientEntity({
         </div>
 
         {/* 3 · Property Value */}
-        <div className="flex items-center justify-end font-mono text-sm font-bold">
+        <div className="flex items-center justify-end font-mono text-sm font-bold text-foreground">
           <span className="truncate">{currency(client.bestMatch.propertyValue)}</span>
         </div>
 
         {/* 4 · Probability */}
         <div className="flex items-center justify-end gap-2">
-          <div className="h-2.5 w-20 border border-neutral-200 bg-white overflow-hidden shrink-0">
+          <div className="h-2.5 w-20 rounded-[4px] border border-border bg-muted overflow-hidden shrink-0">
             <div
-              className="h-full bg-black prob-bar-anim"
+              className="h-full rounded-[4px] bg-black prob-bar-anim"
               style={{ width: `${probPercent}%` }}
             />
           </div>
-          <span className="w-8 text-right font-mono text-sm font-black shrink-0">
-            {percent(client.bestMatch.probability)}
+          <span className="w-12 text-right font-mono text-sm font-bold text-foreground shrink-0">
+            {(client.bestMatch.probability * 100).toFixed(1)}%
           </span>
         </div>
 
         {/* 5 · Expected Value */}
         <div className="flex items-center justify-end">
-          <span className="inline-flex w-[148px] items-center justify-center border border-neutral-200 bg-primary px-2 py-1 font-mono text-sm font-black text-black shrink-0">
+          <span className="inline-flex w-[148px] items-center justify-center rounded-[var(--radius-sm)] border border-primary bg-primary px-2 py-1 font-display text-sm font-bold text-black shrink-0">
             <CountUp value={client.bestMatch.expectedValue} formatNumber={currency} />
           </span>
         </div>
 
-        {/* 6 · Segment */}
-        <div className="flex items-center gap-1.5 pl-2 flex-wrap">
+        {/* 6 · Stage & Segment */}
+        <div className="flex flex-col items-start justify-center gap-1 pl-1">
+          <div className="flex items-center gap-1">
+            <StageBadge stage={client.relationshipStage} />
+            {client.pastPurchases && client.pastPurchases.length > 0 && (
+              <span
+                title={`Proven Buyer: ${client.pastPurchases.length} verified propert${client.pastPurchases.length === 1 ? "y" : "ies"} in portfolio`}
+                className="inline-flex items-center rounded-full border border-amber-400/50 bg-gradient-to-r from-amber-500/10 via-amber-400/20 to-amber-500/10 p-0.5 text-amber-900 shadow-[0_1px_2px_rgba(217,119,6,0.06)]"
+              >
+                <ShieldCheck className="h-3 w-3 text-amber-700" strokeWidth={2.5} />
+              </span>
+            )}
+          </div>
           <TierBadge tier={client.tier} />
-          {client.bestMatch.outcome === "won" && (
-            <span className="inline-flex items-center border border-neutral-200 bg-primary px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-black">
-              ✓ WON
-            </span>
-          )}
-          {client.bestMatch.outcome === "lost" && (
-            <span className="inline-flex items-center border border-neutral-200 bg-white px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-black">
-              ✕ LOST
-            </span>
-          )}
         </div>
 
         {/* 7 · Action */}
@@ -191,10 +207,10 @@ function ClientEntity({
             <button
               type="button"
               onClick={() => handleInvite(client)}
-              className="flex items-center gap-1.5 whitespace-nowrap border border-neutral-200 bg-black text-white px-3 py-2 text-xs font-black uppercase tracking-wider shadow-[0px_1px_4px_rgba(0,0,0,0.07)] transition-transform hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)]"
+              className="flex items-center gap-1.5 whitespace-nowrap rounded-[8px] border border-border bg-black text-white px-3 py-2 text-xs font-bold uppercase tracking-wider shadow-[var(--shadow-xs)] transition-all hover:bg-neutral-800 hover:shadow-[var(--shadow-sm)]"
             >
               <Send className="h-3.5 w-3.5 text-primary shrink-0" strokeWidth={2.5} />
-              Generate Invite
+              Send Pitch
             </button>
           ) : (
             <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">—</span>
@@ -222,15 +238,15 @@ const HEADER_GRID: React.CSSProperties = {
 function TableHeader() {
   return (
     <div
-      className="bg-black text-white border border-neutral-200 mb-2 sticky top-0 z-10"
+      className="border-b border-border bg-transparent text-muted-foreground mb-2 sticky top-0 z-10"
       style={HEADER_GRID}
     >
-      <ColHead icon={UserRound}>Client</ColHead>
-      <ColHead icon={Home}>Highest Value Match</ColHead>
-      <div className="flex justify-end"><ColHead icon={DollarSign} align="right">Property Value</ColHead></div>
+      <ColHead icon={UserRound}>Company</ColHead>
+      <ColHead icon={Home}>Best-Fit Match</ColHead>
+      <div className="flex justify-end"><ColHead icon={DollarSign} align="right">Unit Cost</ColHead></div>
       <div className="flex justify-end"><ColHead icon={PercentIcon} align="right">Probability</ColHead></div>
       <div className="flex justify-end"><ColHead icon={TrendingUp} align="right">Expected Value</ColHead></div>
-      <div className="pl-2"><ColHead icon={Tags}>Segment</ColHead></div>
+      <div className="pl-1"><ColHead icon={Tags}>Stage / Tier</ColHead></div>
       <ColHead icon={Send}>Action</ColHead>
     </div>
   )
@@ -275,7 +291,7 @@ export function ClientTable({ clients, onGenerateInvite, onSelect }: ClientTable
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by client name, property, or neighbourhood..."
+          placeholder="Search by company name, robot model, or target environment..."
           className="w-full border border-neutral-200 bg-white py-3 pl-10 pr-4 font-sans text-sm font-bold placeholder:font-sans placeholder:font-bold placeholder:text-muted-foreground shadow-[0px_2px_8px_rgba(0,0,0,0.08)] outline-none transition-shadow focus:shadow-none focus:translate-x-0.5 focus:translate-y-0.5"
         />
       </div>
@@ -288,7 +304,7 @@ export function ClientTable({ clients, onGenerateInvite, onSelect }: ClientTable
         {/* Entity cards */}
         {visible.length === 0 ? (
           <div className="px-5 py-10 text-center text-xs font-black uppercase tracking-wider text-muted-foreground">
-            No clients match &ldquo;{query}&rdquo;
+            No companies match &ldquo;{query}&rdquo;
           </div>
         ) : (
           <div>

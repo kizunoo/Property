@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useEffect, useRef, useState } from "react"
 import {
@@ -8,10 +8,13 @@ import {
   CalendarCheck,
   CheckCircle2,
   Eye,
+  History,
   Layers,
   Loader2,
   MapPin,
+  Plus,
   Send,
+  ShieldCheck,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
@@ -19,10 +22,12 @@ import {
   Wallet,
   X,
 } from "lucide-react"
-import { TIER_SHORT, currency, percent, type DeduplicatedClient } from "@/lib/pipeline-data"
+import { TIER_SHORT, currency, percent, type DeduplicatedClient, type PastPurchase } from "@/lib/pipeline-data"
 import { fetchReasoning } from "@/lib/generate-reasoning"
 import { logViewing, type ViewingResult } from "@/lib/log-viewing"
 import { scheduleViewing } from "@/lib/schedule-viewing"
+import { StageBadge } from "@/components/pipeline/stage-badge"
+import { PortalAccessPanel } from "@/components/pipeline/portal-access-panel"
 
 // ─── Probability decomposition ────────────────────────────────────────────────
 interface ScoreRow { label: string; points: number; max: number; earned: boolean }
@@ -50,29 +55,61 @@ function buildScoreRows(client: DeduplicatedClient): ScoreRow[] {
   }
   const finPts = Math.round(40 * finFactor)
 
-  // 3. Geo Match: +30% if preferred neighborhood matches target listing neighborhood, else 0%
+  // 3. Geo Match (primary): +30% if preferred neighborhood matches, else 0%
   const geoPts = (prefNbhd && prefNbhd === propNbhd) ? 30 : 0
 
   // 4. Engagement Bonus: +10% per past viewing, capped at +20%
   const engagementPts = Math.min((viewings || 0) * 10, 20)
 
-  return [
+  // ── Rich profile bonuses (additive, all optional) ─────────────────────────
+
+  // 5. Financing bonus: +5% if cash or pre-approved
+  const fin = client.financingStatus
+  const financingPts = (fin === "cash" || fin === "pre-approved") ? 5 : 0
+
+  // 6. Timeline urgency: +5% if moving within 6 months
+  const tl = client.moveInTimeline
+  const timelinePts = (tl === "< 3 months" || tl === "3-6 months") ? 5 : 0
+
+  // 7. Secondary geo: +10% if secondary neighborhood matches (only when primary didn't fire)
+  const secNbhd = client.secondaryNeighborhood
+  const secGeoPts = (secNbhd && secNbhd === propNbhd && geoPts === 0) ? 10 : 0
+
+  // 8. Past acquisition track record bonuses
+  const purchases = client.pastPurchases ?? []
+  const trackRecordPts = purchases.length > 0 ? 5 : 0
+  const repeatAreaPts = (propNbhd && purchases.some((p) => p.neighborhood === propNbhd)) ? 5 : 0
+
+  const rows: ScoreRow[] = [
     { label: "Base Probability", points: basePts,       max: 10, earned: basePts > 0 },
     { label: "Financial Fit",    points: finPts,        max: 40, earned: finPts > 0 },
     { label: "Geo Match",        points: geoPts,        max: 30, earned: geoPts > 0 },
     { label: "Engagement Bonus", points: engagementPts, max: 20, earned: engagementPts > 0 },
   ]
+
+  // Only show rich-profile rows when the data exists
+  if (fin)      rows.push({ label: "Financing Bonus",   points: financingPts, max: 5,  earned: financingPts > 0 })
+  if (tl)       rows.push({ label: "Urgency Bonus",     points: timelinePts,  max: 5,  earned: timelinePts > 0 })
+  if (secNbhd)  rows.push({ label: "Secondary Geo",     points: secGeoPts,    max: 10, earned: secGeoPts > 0 })
+  if (purchases.length > 0) {
+    rows.push({ label: "Track Record", points: trackRecordPts, max: 5, earned: trackRecordPts > 0 })
+    if (repeatAreaPts > 0) {
+      rows.push({ label: "Repeat Area Owner", points: repeatAreaPts, max: 5, earned: repeatAreaPts > 0 })
+    }
+  }
+
+  return rows
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 function TierBadge({ tier }: { tier: DeduplicatedClient["tier"] }) {
   const styles: Record<DeduplicatedClient["tier"], string> = {
-    TIER_1: "bg-primary text-black",
-    TIER_2: "bg-black text-white",
-    TIER_3: "bg-white text-black",
+    TIER_1: "bg-primary text-black border-primary",
+    TIER_2: "bg-black text-white border-black",
+    TIER_3: "bg-muted text-foreground border-border",
   }
   return (
-    <span className={`inline-block border border-neutral-200 px-3 py-1 text-xs font-black uppercase tracking-wider ${styles[tier]}`}>
+    <span className={`inline-block rounded-[6px] border px-2.5 py-1 text-xs font-bold uppercase tracking-wider ${styles[tier]}`}>
       {TIER_SHORT[tier]}
     </span>
   )
@@ -83,15 +120,15 @@ function ScoreBar({ row }: { row: ScoreRow }) {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-black uppercase tracking-wider">{row.label}</span>
-        <span className={`font-mono text-xs font-black ${row.earned ? "text-black" : "text-muted-foreground"}`}>
+        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{row.label}</span>
+        <span className={`font-mono text-xs font-bold ${row.earned ? "text-foreground" : "text-muted-foreground"}`}>
           {row.earned ? `+${row.points}%` : "—"}
-          <span className="font-bold text-muted-foreground"> / {row.max}%</span>
+          <span className="font-semibold text-muted-foreground"> / {row.max}%</span>
         </span>
       </div>
-      <div className="h-3 w-full border border-neutral-200 bg-white">
+      <div className="h-2.5 w-full rounded-[4px] border border-border bg-muted overflow-hidden">
         <div
-          className={`h-full transition-all duration-300 ${row.earned ? "bg-black" : "bg-transparent"}`}
+          className={`h-full rounded-[4px] transition-all duration-300 ${row.earned ? "bg-black" : "bg-transparent"}`}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -101,17 +138,17 @@ function ScoreBar({ row }: { row: ScoreRow }) {
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2 border-b border-neutral-200 pb-2">
-      <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{children}</span>
+    <div className="flex items-center gap-2 border-b border-border pb-2">
+      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{children}</span>
     </div>
   )
 }
 
 function StatRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between border-b border-dashed border-black/30 py-2.5 last:border-0">
-      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{label}</span>
-      <span className="font-mono text-sm font-black">{value}</span>
+    <div className="flex items-center justify-between border-b border-border/60 py-2.5 last:border-0">
+      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
+      <span className="font-mono text-sm font-bold text-foreground">{value}</span>
     </div>
   )
 }
@@ -119,19 +156,19 @@ function StatRow({ label, value }: { label: string; value: string }) {
 // ─── Match list (other properties) ───────────────────────────────────────────
 function OtherMatchRow({ match, rank }: { match: DeduplicatedClient["allMatches"][0]; rank: number }) {
   return (
-    <div className="flex items-center gap-3 border-b border-neutral-200 px-4 py-3 last:border-b-0">
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center border border-neutral-200 bg-black font-mono text-[10px] font-black text-white">
+    <div className="flex items-center gap-3 border-b border-border px-4 py-3 last:border-b-0 hover:bg-muted/30 transition-colors">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] bg-muted font-mono text-[10px] font-bold text-foreground">
         {rank}
       </span>
       <div className="flex-1 overflow-hidden">
-        <div className="flex items-center gap-1 text-sm font-bold">
-          <MapPin className="h-3 w-3 shrink-0 text-muted-foreground" strokeWidth={2.5} />
+        <div className="flex items-center gap-1 text-sm font-bold text-foreground">
+          <MapPin className="h-3 w-3 shrink-0 text-muted-foreground" strokeWidth={2} />
           <span className="truncate">{match.property}</span>
         </div>
         <div className="font-mono text-[10px] text-muted-foreground">{match.agent}</div>
       </div>
       <div className="text-right">
-        <div className="font-mono text-xs font-black">{percent(match.probability)}</div>
+        <div className="font-mono text-xs font-bold text-foreground">{percent(match.probability)}</div>
         <div className="font-mono text-xs text-muted-foreground">{currency(match.expectedValue)}</div>
       </div>
     </div>
@@ -150,19 +187,19 @@ function ReasoningBox({
 }) {
   if (loading) {
     return (
-      <div className="mt-3 border border-neutral-200 bg-black p-4 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
+      <div className="mt-3 rounded-[10px] border border-border bg-muted/20 p-4 shadow-[var(--shadow-xs)]">
         <div className="flex items-center gap-2">
-          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" strokeWidth={2.5} />
-          <span className="font-mono text-xs font-black uppercase tracking-widest text-white/60">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-foreground" strokeWidth={2.5} />
+          <span className="font-mono text-xs font-semibold uppercase tracking-widest text-muted-foreground">
             Generating analysis…
           </span>
         </div>
         {/* Skeleton lines */}
         <div className="mt-3 flex flex-col gap-2">
-          <div className="h-3 w-full animate-pulse bg-white/10" />
-          <div className="h-3 w-[90%] animate-pulse bg-white/10" />
-          <div className="h-3 w-[75%] animate-pulse bg-white/10" />
-          <div className="h-3 w-[85%] animate-pulse bg-white/10" />
+          <div className="h-3 w-full animate-pulse bg-muted rounded" />
+          <div className="h-3 w-[90%] animate-pulse bg-muted rounded" />
+          <div className="h-3 w-[75%] animate-pulse bg-muted rounded" />
+          <div className="h-3 w-[85%] animate-pulse bg-muted rounded" />
         </div>
       </div>
     )
@@ -170,14 +207,14 @@ function ReasoningBox({
 
   if (error) {
     return (
-      <div className="mt-3 border border-neutral-200 bg-white p-4 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
+      <div className="mt-3 rounded-[10px] border border-border bg-card p-4 shadow-[var(--shadow-xs)]">
         <div className="flex gap-2">
-          <Brain className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={2.5} />
+          <Brain className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={2} />
           <div>
-            <p className="text-sm font-bold leading-relaxed text-muted-foreground">
+            <p className="text-sm font-semibold leading-relaxed text-muted-foreground">
               {error}
             </p>
-            <p className="mt-1 text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
               Close and reopen to retry
             </p>
           </div>
@@ -187,25 +224,308 @@ function ReasoningBox({
   }
 
   return (
-    <div className="mt-3 border border-neutral-200 bg-primary p-4 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
-      <div className="flex gap-2">
-        <Brain className="mt-0.5 h-4 w-4 shrink-0 text-black" strokeWidth={2.5} />
-        <p className="text-sm font-bold leading-relaxed text-black">{text}</p>
+    <div className="mt-3 rounded-[10px] border border-border border-l-4 border-l-primary bg-primary/10 p-4 shadow-[var(--shadow-xs)]">
+      <div className="flex gap-2.5">
+        <Brain className="mt-0.5 h-4 w-4 shrink-0 text-foreground" strokeWidth={2} />
+        <p className="text-sm font-medium leading-relaxed text-foreground">{text}</p>
       </div>
     </div>
   )
 }
 
-// ─── Main modal ───────────────────────────────────────────────────────────────
+// ─── Buyer notes field ────────────────────────────────────────────────────────
+function BuyerNotesField({ clientId, initialNotes }: { clientId: string; initialNotes: string }) {
+  const [notes, setNotes]   = useState(initialNotes)
+  const [saving, setSaving] = useState(false)
+  const [saved,  setSaved]  = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const save = async (value: string) => {
+    setSaving(true)
+    setSaved(false)
+    try {
+      await fetch(`/api/clients/${clientId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_notes: value }),
+      })
+      setSaved(true)
+      timerRef.current = setTimeout(() => setSaved(false), 2500)
+    } catch {
+      // silent
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="relative">
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        onBlur={(e) => save(e.target.value)}
+        placeholder="Add notes about this client (saved on blur)…"
+        rows={3}
+        className="w-full resize-none rounded-[6px] border border-border bg-muted/30 px-3 py-2 text-xs font-medium text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-foreground transition-all"
+      />
+      {(saving || saved) && (
+        <span className={`absolute bottom-2 right-2 text-[9px] font-bold uppercase tracking-wide ${saved ? "text-emerald-600" : "text-muted-foreground"}`}>
+          {saving ? "Saving…" : "Saved ✓"}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// ─── Acquisition track record component ───────────────────────────────────────
+function AcquisitionTrackRecord({
+  clientId,
+  initialPurchases,
+  onPurchasesUpdated,
+}: {
+  clientId: string
+  initialPurchases: PastPurchase[]
+  onPurchasesUpdated: (purchases: PastPurchase[]) => void
+}) {
+  const [purchases, setPurchases] = useState<PastPurchase[]>(initialPurchases)
+  const [isAdding, setIsAdding]   = useState(false)
+  const [loading, setLoading]     = useState(false)
+
+  // Form state
+  const [propertyName, setPropertyName]   = useState("")
+  const [neighborhood, setNeighborhood]   = useState("")
+  const [propertyType, setPropertyType]   = useState("condo")
+  const [purchasePrice, setPurchasePrice] = useState("")
+  const [purchaseYear, setPurchaseYear]   = useState(String(new Date().getFullYear() - 2))
+  const [purpose, setPurpose]             = useState("own_stay")
+
+  useEffect(() => {
+    setPurchases(initialPurchases)
+  }, [initialPurchases])
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const priceNum = Number(purchasePrice.replace(/[^0-9.]/g, ""))
+    if (!propertyName || !neighborhood || !priceNum) return
+
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/clients/${clientId}/purchases`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          property_name: propertyName,
+          neighborhood,
+          property_type: propertyType,
+          purchase_price: priceNum,
+          purchase_year: purchaseYear ? Number(purchaseYear) : null,
+          purpose,
+        }),
+      })
+      if (res.ok) {
+        const json = await res.json()
+        const newRecord: PastPurchase = {
+          id: json.purchase?.id || String(Date.now()),
+          clientId,
+          propertyName,
+          neighborhood,
+          propertyType,
+          purchasePrice: priceNum,
+          purchaseYear: purchaseYear ? Number(purchaseYear) : null,
+          purpose,
+        }
+        const updated = [newRecord, ...purchases]
+        setPurchases(updated)
+        onPurchasesUpdated(updated)
+        setIsAdding(false)
+        setPropertyName("")
+        setNeighborhood("")
+        setPurchasePrice("")
+      }
+    } catch {
+      // silent
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div>
+      <SectionHeading>
+        <History className="inline h-3 w-3 mr-1 text-muted-foreground" strokeWidth={2.5} />
+        Acquisition Track Record ({purchases.length})
+      </SectionHeading>
+      <div className="mt-3 rounded-[8px] border border-border bg-card shadow-[var(--shadow-xs)] overflow-hidden">
+        <div className="flex items-center justify-between border-b border-border bg-muted/20 px-4 py-2.5">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Previous Properties Owned
+          </div>
+          {!isAdding && (
+            <button
+              type="button"
+              onClick={() => setIsAdding(true)}
+              className="flex items-center gap-1 text-[10px] font-bold text-foreground hover:text-primary transition-colors uppercase tracking-wider"
+            >
+              <Plus className="h-3 w-3" />
+              Add Property
+            </button>
+          )}
+        </div>
+
+        {isAdding && (
+          <form onSubmit={handleAdd} className="border-b border-border bg-muted/40 p-4 flex flex-col gap-2.5">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-foreground">Log Previous Acquisition</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input
+                type="text"
+                placeholder="Property Name (e.g. The Troika)"
+                value={propertyName}
+                onChange={(e) => setPropertyName(e.target.value)}
+                required
+                className="rounded-[4px] border border-border bg-card px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-foreground"
+              />
+              <input
+                type="text"
+                placeholder="Neighborhood (e.g. KLCC)"
+                value={neighborhood}
+                onChange={(e) => setNeighborhood(e.target.value)}
+                required
+                className="rounded-[4px] border border-border bg-card px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-foreground"
+              />
+              <input
+                type="text"
+                placeholder="Price (RM, e.g. 2,800,000)"
+                value={purchasePrice}
+                onChange={(e) => setPurchasePrice(e.target.value)}
+                required
+                className="rounded-[4px] border border-border bg-card px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-foreground"
+              />
+              <div className="flex gap-2">
+                <select
+                  value={propertyType}
+                  onChange={(e) => setPropertyType(e.target.value)}
+                  className="flex-1 rounded-[4px] border border-border bg-card px-2 py-1.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-foreground"
+                >
+                  <option value="condo">Condo</option>
+                  <option value="semi-d">Semi-D</option>
+                  <option value="bungalow">Bungalow</option>
+                  <option value="terrace">Terrace</option>
+                  <option value="serviced_apt">Serviced Apt</option>
+                </select>
+                <input
+                  type="number"
+                  placeholder="Year"
+                  value={purchaseYear}
+                  onChange={(e) => setPurchaseYear(e.target.value)}
+                  className="w-20 rounded-[4px] border border-border bg-card px-2 py-1.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-foreground"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between mt-1">
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] font-bold uppercase text-muted-foreground">Purpose:</label>
+                <select
+                  value={purpose}
+                  onChange={(e) => setPurpose(e.target.value)}
+                  className="rounded-[4px] border border-border bg-card px-2 py-1 text-xs text-foreground outline-none"
+                >
+                  <option value="own_stay">Own Stay</option>
+                  <option value="investment">Investment</option>
+                  <option value="holiday_home">Holiday Home</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIsAdding(false)}
+                  className="rounded-[4px] border border-border px-2.5 py-1 text-[10px] font-bold uppercase text-muted-foreground hover:bg-muted"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="rounded-[4px] bg-black text-white px-3 py-1 text-[10px] font-bold uppercase disabled:opacity-50"
+                >
+                  {loading ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+
+        <div className="divide-y divide-border">
+          {purchases.length === 0 ? (
+            <div className="p-4 text-center text-xs text-muted-foreground italic">
+              No previous property purchases recorded for this client.
+            </div>
+          ) : (
+            purchases.map((p) => (
+              <div key={p.id} className="p-3 hover:bg-muted/10 transition-colors flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  {p.imageUrl ? (
+                    <div className="h-10 w-12 rounded-[4px] border border-border bg-muted overflow-hidden shrink-0 mt-0.5">
+                      <img src={p.imageUrl} alt={p.propertyName} className="h-full w-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="flex h-10 w-10 items-center justify-center rounded-[4px] border border-border bg-muted shrink-0 mt-0.5">
+                      <Building2 className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs font-bold text-foreground">{p.propertyName}</span>
+                      {p.purchaseYear && <span className="text-[10px] font-mono text-muted-foreground">({p.purchaseYear})</span>}
+                      {p.propertyId && (
+                        <span className="rounded bg-amber-100 border border-amber-300/80 px-1.5 py-0.2 text-[8px] font-black uppercase tracking-wider text-amber-900">
+                          Closed Listing
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-0.5 text-[10px] font-semibold text-muted-foreground">
+                      <MapPin className="h-3 w-3" />
+                      {p.neighborhood}
+                      <span>·</span>
+                      <span className="capitalize">{p.propertyType}</span>
+                      {p.purpose && (
+                        <>
+                          <span>·</span>
+                          <span className="rounded bg-muted px-1.5 py-0.2 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+                            {p.purpose.replace("_", " ")}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="font-mono text-xs font-bold text-foreground">
+                    {currency(p.purchasePrice)}
+                  </div>
+                  <span className="inline-block text-[8px] font-bold text-emerald-600 uppercase tracking-wider">
+                    Verified
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface ClientDetailModalProps {
   client: DeduplicatedClient | null
   open: boolean
   onClose: () => void
   onGenerateInvite?: (client: DeduplicatedClient) => void
   onOutcomeRecorded?: () => void
+  onStageChanged?: (newStage: string) => void
+  initialScheduleViewing?: boolean
 }
 
-export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onOutcomeRecorded }: ClientDetailModalProps) {
+export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onOutcomeRecorded, onStageChanged, initialScheduleViewing }: ClientDetailModalProps) {
   // ── Reasoning state ──────────────────────────────────────────────────────
   const [reasoning, setReasoning]               = useState<string | null>(null)
   const [reasoningLoading, setReasoningLoading] = useState(false)
@@ -222,9 +542,12 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
   const [localProbability, setLocalProbability]     = useState<number | null>(null)
   const [localExpectedValue, setLocalExpectedValue] = useState<number | null>(null)
   const [localTier, setLocalTier]                   = useState<DeduplicatedClient["tier"] | null>(null)
+  const [localPurchases, setLocalPurchases]         = useState<PastPurchase[] | null>(null)
+  const [localStage, setLocalStage]                 = useState<string | null>(null)
+  const [advancingStage, setAdvancingStage]         = useState(false)
 
   // ── Schedule Viewing (future) state ──────────────────────────────────────
-  const [schedFormOpen, setSchedFormOpen]     = useState(false)
+  const [schedFormOpen, setSchedFormOpen]     = useState(Boolean(initialScheduleViewing))
   const [schedDate, setSchedDate]             = useState("")
   const [schedTime, setSchedTime]             = useState("")
   const [schedLoading, setSchedLoading]       = useState(false)
@@ -247,11 +570,14 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
       setLocalProbability(null)
       setLocalExpectedValue(null)
       setLocalTier(null)
+      setLocalPurchases(null)
+      setLocalStage(null)
+      setAdvancingStage(false)
       setViewingResult(null)
       setViewingError(null)
       setOutcomeResult(null)
       setOutcomeError(null)
-      setSchedFormOpen(false)
+      setSchedFormOpen(Boolean(initialScheduleViewing))
       setSchedDate("")
       setSchedTime("")
       setSchedError(null)
@@ -259,7 +585,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
       if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current)
       if (schedSuccessTimer.current) clearTimeout(schedSuccessTimer.current)
     }
-  }, [client?.clientId])
+  }, [client?.clientId, initialScheduleViewing])
 
   const handleLogViewing = async () => {
     if (!client || viewingLoading) return
@@ -276,7 +602,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
       // Auto-dismiss confirmation banner after 7 seconds
       confirmTimerRef.current = setTimeout(() => setViewingResult(null), 7000)
     } catch (err) {
-      setViewingError(err instanceof Error ? err.message : "Failed to log viewing")
+      setViewingError(err instanceof Error ? err.message : "Failed to log demo")
     } finally {
       setViewingLoading(false)
     }
@@ -295,7 +621,9 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
       const displayDate = localDateObj.toLocaleString("en-MY", {
         dateStyle: "medium", timeStyle: "short",
       })
-      setSchedSuccess(`Viewing scheduled for ${displayDate}`)
+      setSchedSuccess(`Demo scheduled for ${displayDate}`)
+      setLocalStage("viewing")
+      onStageChanged?.("viewing")
       setSchedFormOpen(false)
       setSchedDate("")
       setSchedTime("")
@@ -326,6 +654,9 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
         throw new Error(err.detail ?? "Failed to record outcome")
       }
       setOutcomeResult(outcome)
+      const nextStage = outcome === "won" ? "closed_won" : "closed_lost"
+      setLocalStage(nextStage)
+      onStageChanged?.(nextStage)
       if (outcomeTimer.current) clearTimeout(outcomeTimer.current)
       // Call parent so the Prediction Accuracy card refreshes immediately
       onOutcomeRecorded?.()
@@ -333,6 +664,26 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
       setOutcomeError(err instanceof Error ? err.message : "Failed to record outcome")
     } finally {
       setOutcomeLoading(false)
+    }
+  }
+
+  const handleMoveToNegotiation = async () => {
+    if (!client || advancingStage) return
+    setAdvancingStage(true)
+    try {
+      const res = await fetch(`/api/clients/${client.clientId}/advance_stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage: "negotiation" }),
+      })
+      if (res.ok) {
+        setLocalStage("negotiation")
+        onStageChanged?.("negotiation")
+      }
+    } catch {
+      // silent
+    } finally {
+      setAdvancingStage(false)
     }
   }
 
@@ -386,12 +737,22 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
   const effectiveProbability   = localProbability   ?? client.bestMatch.probability
   const effectiveExpectedValue = localExpectedValue ?? client.bestMatch.expectedValue
   const effectiveTier          = localTier          ?? client.tier
+  const effectivePurchases     = localPurchases     ?? (client.pastPurchases ?? [])
 
-  // Rebuild score rows with live pastViewings so bars animate in place
-  const effectiveClient: DeduplicatedClient = localPastViewings !== null
-    ? { ...client, pastViewings: localPastViewings, tier: effectiveTier,
-        bestMatch: { ...client.bestMatch, probability: effectiveProbability, expectedValue: effectiveExpectedValue } }
-    : client
+  // Rebuild score rows with live pastViewings & pastPurchases so bars animate in place
+  const effectiveStage = localStage ?? client.relationshipStage ?? "new"
+  const effectiveClient: DeduplicatedClient = {
+    ...client,
+    pastViewings: effectivePastViewings,
+    tier: effectiveTier,
+    pastPurchases: effectivePurchases,
+    relationshipStage: effectiveStage,
+    bestMatch: {
+      ...client.bestMatch,
+      probability: effectiveProbability,
+      expectedValue: effectiveExpectedValue,
+    },
+  }
 
   const scoreRows  = buildScoreRows(effectiveClient)
   const totalProb  = Math.round(effectiveProbability * 100)
@@ -407,38 +768,45 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
     /* Backdrop */
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 lg:p-10"
-      style={{ backgroundColor: "rgba(0,0,0,0.75)" }}
+      style={{ backgroundColor: "rgba(0,0,0,0.65)" }}
       onClick={onClose}
     >
       {/* Modal panel — stop click from closing when inside */}
       <div
-        className="relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden border border-neutral-200 bg-white shadow-[0px_8px_32px_rgba(0,0,0,0.14)]"
+        className="relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-[12px] border border-border bg-card shadow-[var(--shadow-xl)]"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label={`Client Detail — ${client.name}`}
       >
         {/* ── Header ── */}
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-neutral-200 bg-black p-5 sm:p-6">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border bg-transparent p-5 sm:p-6">
           <div className="flex items-center gap-4">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center border-4 border-primary bg-primary text-2xl font-black text-black">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[8px] bg-primary text-xl font-bold text-black shadow-[var(--shadow-xs)]">
               {client.initials}
             </div>
             <div>
-              <div className="text-xl font-black leading-tight text-white sm:text-2xl">{client.name}</div>
-              <div className="mt-1 font-mono text-[11px] text-white/60">{client.bestMatch.neighborhood}</div>
-              <div className="mt-2 flex items-center gap-2">
+              <div className="text-xl font-bold leading-tight text-foreground sm:text-2xl">{client.name}</div>
+              <div className="mt-1 font-mono text-xs text-muted-foreground">{client.bestMatch.neighborhood}</div>
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
                 <TierBadge tier={effectiveTier} />
-                {effectiveOutcome === "won" && (
-                  <span className="inline-flex items-center gap-1 border-2 border-primary bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black">
-                    <Trophy className="h-3 w-3" strokeWidth={2.5} />
-                    Won
-                  </span>
+                <StageBadge stage={effectiveStage} />
+                {effectiveStage === "viewing" && (
+                  <button
+                    type="button"
+                    onClick={handleMoveToNegotiation}
+                    disabled={advancingStage}
+                    className="inline-flex items-center gap-1 rounded-[6px] border border-black bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-black shadow-xs hover:bg-neutral-100 transition-all disabled:opacity-50"
+                  >
+                    {advancingStage ? "Updating…" : "Move to Negotiation →"}
+                  </button>
                 )}
-                {effectiveOutcome === "lost" && (
-                  <span className="inline-flex items-center gap-1 border-2 border-white/40 bg-white/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white">
-                    <ThumbsDown className="h-3 w-3" strokeWidth={2.5} />
-                    Lost
+                {effectivePurchases.length > 0 && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-gradient-to-r from-amber-500/10 via-amber-400/20 to-amber-500/10 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-900 shadow-sm">
+                    <ShieldCheck className="h-3.5 w-3.5 text-amber-700 shrink-0" strokeWidth={2.5} />
+                    <span>Proven Adopter</span>
+                    <span className="text-amber-400">·</span>
+                    <span>{effectivePurchases.length} {effectivePurchases.length === 1 ? "Unit" : "Units"} Deployed</span>
                   </span>
                 )}
               </div>
@@ -447,7 +815,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
           <button
             type="button"
             onClick={onClose}
-            className="shrink-0 border-2 border-white/40 p-2 text-white transition-colors hover:border-white hover:bg-white hover:text-black"
+            className="rounded-[var(--radius-sm)] border border-border p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             aria-label="Close"
           >
             <X className="h-5 w-5" strokeWidth={2.5} />
@@ -458,61 +826,68 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
         <div className="overflow-y-auto">
           <div className="grid grid-cols-1 gap-0 lg:grid-cols-2">
             {/* ── Left column ── */}
-            <div className="flex flex-col gap-6 border-b border-neutral-200 p-5 lg:border-b-0 lg:border-r-4 sm:p-6">
+            <div className="flex flex-col gap-6 border-b border-border p-5 lg:border-b-0 lg:border-r sm:p-6">
               {/* Financial overview */}
               <div>
                 <SectionHeading>
-                  <Wallet className="inline h-3 w-3 mr-1" strokeWidth={2.5} />
+                  <Wallet className="inline h-3 w-3 mr-1 text-muted-foreground" strokeWidth={2.5} />
                   Financial &amp; Preference Overview
                 </SectionHeading>
-                <div className="mt-3 border border-neutral-200 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
+                <div className="mt-3 rounded-[8px] border border-border bg-card shadow-[var(--shadow-xs)] overflow-hidden">
                   <div className="px-4">
-                    <StatRow label="Highest Value Match"  value={client.bestMatch.property} />
-                    <StatRow label="Property Value"       value={currency(client.bestMatch.propertyValue)} />
-                    <StatRow label="Pref. Neighbourhood"  value={client.bestMatch.neighborhood} />
-                    <StatRow label="E(x) on Highest Value Match" value={currency(effectiveExpectedValue)} />
-                    <StatRow label="Past Viewings"        value={String(effectivePastViewings)} />
-                    <StatRow label="Total Listings"       value={String(client.allMatches.length)} />
+                    <StatRow label="Best-Fit Match"       value={client.bestMatch.property} />
+                    <StatRow label="Unit Cost"            value={currency(client.bestMatch.propertyValue)} />
+                    <StatRow label="Target Environment"   value={client.bestMatch.neighborhood} />
+                    <StatRow label="E(x) on Best-Fit Match" value={currency(effectiveExpectedValue)} />
+                    <StatRow label="Demo Sessions"        value={String(effectivePastViewings)} />
+                    <StatRow label="Total Robot Matches"  value={String(client.allMatches.length)} />
                   </div>
                   {highestLikelihoodMatch && (
-                    <div className="border-t-2 border-black bg-secondary px-4 py-2.5 text-xs font-bold">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                    <div className="border-t border-border bg-muted/30 px-4 py-2.5 text-xs font-semibold">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                         Highest Likelihood:
                       </span>{" "}
-                      <span className="font-mono font-black text-black">{highestLikelihoodMatch.property}</span>
+                      <span className="font-mono font-bold text-foreground">{highestLikelihoodMatch.property}</span>
                       {" — "}
-                      <span className="font-mono font-black text-black">{percent(highestLikelihoodMatch.probability)}</span>
+                      <span className="font-mono font-bold text-foreground">{percent(highestLikelihoodMatch.probability)}</span>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* AI score decomposition — UNCHANGED */}
+              {/* AI score decomposition */}
               <div>
                 <SectionHeading>
-                  <Brain className="inline h-3 w-3 mr-1" strokeWidth={2.5} />
+                  <Brain className="inline h-3 w-3 mr-1 text-muted-foreground" strokeWidth={2.5} />
                   AI Score Decomposition
                 </SectionHeading>
-                <div className="mt-3 border border-neutral-200 p-4 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
+                <div className="mt-3 rounded-[8px] border border-border bg-card p-4 shadow-[var(--shadow-xs)]">
                   <div className="flex flex-col gap-4">
                     {scoreRows.map((row) => <ScoreBar key={row.label} row={row} />)}
                   </div>
-                  <div className="mt-5 border-t border-neutral-200 pt-4">
+                  <div className="mt-5 border-t border-border pt-4">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-black uppercase tracking-wider">Total P(Buy)</span>
-                      <span className="font-mono text-2xl font-black transition-all duration-300">{percent(effectiveProbability)}</span>
+                      <span className="text-xs font-bold uppercase tracking-wider text-foreground">Total P(Adopt)</span>
+                      <span className="font-mono text-2xl font-bold transition-all duration-300 text-foreground">{percent(effectiveProbability)}</span>
                     </div>
-                    <div className="mt-2 h-5 w-full border border-neutral-200 bg-white">
-                      <div className="h-full bg-black transition-all duration-500" style={{ width: `${totalProb}%` }} />
+                    <div className="mt-2 h-4 w-full rounded-[4px] border border-border bg-muted overflow-hidden">
+                      <div className="h-full rounded-[4px] bg-black transition-all duration-500" style={{ width: `${totalProb}%` }} />
                     </div>
-                    <div className="mt-1 flex justify-between text-[10px] font-bold text-muted-foreground">
+                    <div className="mt-1.5 flex justify-between text-[10px] font-semibold text-muted-foreground">
                       <span>0%</span>
-                      <span className="font-black text-primary">VIP ≥ 65%</span>
+                      <span className="font-bold text-primary">High-Fit Prospect ≥ 65%</span>
                       <span>100%</span>
                     </div>
+                    {client.bestMatch.mlProbability != null && (
+                      <div style={{ marginTop: "10px", fontSize: "12px", color: "#666" }}>
+                        Model-calibrated estimate:{" "}
+                        <strong style={{ color: "#000" }}>{(client.bestMatch.mlProbability * 100).toFixed(0)}%</strong>{" "}
+                        <span style={{ color: "#999" }}>(formula: {(effectiveProbability * 100).toFixed(0)}%)</span>
+                      </div>
+                    )}
                     {localPastViewings !== null && (
-                      <div className="mt-2 font-mono text-[10px] font-black uppercase tracking-wider text-muted-foreground">
-                        {effectivePastViewings} past viewing{effectivePastViewings !== 1 ? "s" : ""} recorded
+                      <div className="mt-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        {effectivePastViewings} demo session{effectivePastViewings !== 1 ? "s" : ""} recorded
                       </div>
                     )}
                   </div>
@@ -525,7 +900,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
               {/* AI reasoning — LIVE GENERATED */}
               <div>
                 <SectionHeading>
-                  <Sparkles className="inline h-3 w-3 mr-1" strokeWidth={2.5} />
+                  <Sparkles className="inline h-3 w-3 mr-1 text-muted-foreground" strokeWidth={2.5} />
                   AI Reasoning Breakdown
                 </SectionHeading>
                 <ReasoningBox
@@ -535,17 +910,54 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                 />
               </div>
 
+              {/* Company Profile (rich profile fields) */}
+              {(client.financingStatus || client.moveInTimeline || client.propertyTypePreference || client.secondaryNeighborhood || client.agentNotes !== undefined) && (
+                <div>
+                  <SectionHeading>
+                    <Wallet className="inline h-3 w-3 mr-1 text-muted-foreground" strokeWidth={2.5} />
+                    Company Profile
+                  </SectionHeading>
+                  <div className="mt-3 rounded-[8px] border border-border bg-card shadow-[var(--shadow-xs)] overflow-hidden">
+                    <div className="px-4">
+                      {client.financingStatus && (
+                        <StatRow label="Procurement / Financing" value={client.financingStatus.replace("-", " ").replace(/\b\w/g, (c) => c.toUpperCase())} />
+                      )}
+                      {client.moveInTimeline && (
+                        <StatRow label="Deployment Timeline" value={client.moveInTimeline} />
+                      )}
+                      {client.propertyTypePreference && (
+                        <StatRow label="Robot Type Preference" value={client.propertyTypePreference} />
+                      )}
+                      {client.secondaryNeighborhood && (
+                        <StatRow label="Secondary Environment" value={client.secondaryNeighborhood} />
+                      )}
+                    </div>
+                    <div className="border-t border-border px-4 py-3">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Sales Rep Notes</div>
+                      <BuyerNotesField clientId={client.clientId} initialNotes={client.agentNotes ?? ""} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Acquisition Track Record */}
+              <AcquisitionTrackRecord
+                clientId={client.clientId}
+                initialPurchases={effectivePurchases}
+                onPurchasesUpdated={(updated) => setLocalPurchases(updated)}
+              />
+
               {/* Other property matches */}
               {otherProps.length > 0 && (
                 <div>
                   <SectionHeading>
-                    <Layers className="inline h-3 w-3 mr-1" strokeWidth={2.5} />
+                    <Layers className="inline h-3 w-3 mr-1 text-muted-foreground" strokeWidth={2.5} />
                     Other Listing Matches ({otherProps.length})
                   </SectionHeading>
-                  <div className="mt-3 border border-neutral-200 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
-                    <div className="flex items-center gap-3 border-b border-neutral-200 bg-black px-4 py-2">
-                      <span className="flex-1 text-[10px] font-black uppercase tracking-wider text-white">Property</span>
-                      <span className="text-[10px] font-black uppercase tracking-wider text-white">P / E(x)</span>
+                  <div className="mt-3 rounded-[8px] border border-border bg-card shadow-[var(--shadow-xs)] overflow-hidden">
+                    <div className="flex items-center gap-3 border-b border-border bg-muted/40 px-4 py-2.5">
+                      <span className="flex-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Property</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">P / E(x)</span>
                     </div>
                     {otherProps.map((m, i) => (
                       <OtherMatchRow key={m.id} match={m} rank={i + 2} />
@@ -558,24 +970,24 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
               {otherProps.length === 0 && (
                 <div>
                   <SectionHeading>
-                    <Building2 className="inline h-3 w-3 mr-1" strokeWidth={2.5} />
+                    <Building2 className="inline h-3 w-3 mr-1 text-muted-foreground" strokeWidth={2.5} />
                     Target Listing Snapshot
                   </SectionHeading>
-                  <div className="mt-3 border border-neutral-200 p-4 shadow-[0px_2px_8px_rgba(0,0,0,0.08)]">
+                  <div className="mt-3 rounded-[8px] border border-border bg-card p-4 shadow-[var(--shadow-xs)]">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center border border-neutral-200 bg-black">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[8px] bg-black">
                         <Building2 className="h-5 w-5 text-primary" strokeWidth={2.5} />
                       </div>
                       <div>
-                        <div className="text-sm font-black leading-tight">{client.bestMatch.property}</div>
-                        <div className="flex items-center gap-1 mt-1 text-xs font-bold text-muted-foreground">
-                          <MapPin className="h-3 w-3" strokeWidth={2.5} />
+                        <div className="text-sm font-bold leading-tight text-foreground">{client.bestMatch.property}</div>
+                        <div className="flex items-center gap-1 mt-1 text-xs font-semibold text-muted-foreground">
+                          <MapPin className="h-3 w-3 text-muted-foreground" strokeWidth={2.5} />
                           {client.bestMatch.neighborhood}
                         </div>
                       </div>
                       <div className="ml-auto text-right">
-                        <div className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Value</div>
-                        <div className="font-mono text-base font-black">{currency(client.bestMatch.propertyValue)}</div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Value</div>
+                        <div className="font-mono text-base font-bold text-foreground">{currency(client.bestMatch.propertyValue)}</div>
                       </div>
                     </div>
                   </div>
@@ -586,22 +998,22 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
         </div>
 
         {/* ── Footer ── */}
-        <div className="shrink-0 border-t border-neutral-200 bg-card">
+        <div className="shrink-0 border-t border-border bg-card">
 
           {/* Log Viewing confirmation banner */}
           {viewingResult && (
-            <div className="flex items-center gap-3 border-b border-neutral-200 bg-primary px-5 py-3">
+            <div className="flex items-center gap-3 border-b border-primary/40 bg-primary/15 px-5 py-3">
               <CheckCircle2 className="h-5 w-5 shrink-0 text-black" strokeWidth={2.5} />
-              <p className="flex-1 text-sm font-black text-black">
-                Viewing logged.{" "}
-                <span className="font-mono">{viewingResult.clientName}&apos;s</span> P(Buy) updated to{" "}
-                <span className="font-mono">{Math.round(viewingResult.probability * 100)}%</span>
+              <p className="flex-1 text-sm font-bold text-foreground">
+                Demo session logged.{" "}
+                <span className="font-mono">{viewingResult.clientName}&apos;s</span> P(Adopt) updated to{" "}
+                <span className="font-mono font-bold">{Math.round(viewingResult.probability * 100)}%</span>
                 {" — "}{viewingResult.tier.replace("_", " ")}
               </p>
               <button
                 type="button"
                 onClick={() => setViewingResult(null)}
-                className="shrink-0 border border-neutral-200 p-1 text-black hover:bg-black hover:text-primary"
+                className="shrink-0 rounded-[var(--radius-sm)] border border-border p-1 text-foreground hover:bg-muted"
                 aria-label="Dismiss log confirmation"
               >
                 <X className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -609,29 +1021,29 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
             </div>
           )}
           {viewingError && (
-            <div className="border-b border-neutral-200 bg-white px-5 py-3">
-              <span className="text-xs font-black uppercase tracking-wider text-red-600">Error: {viewingError}</span>
+            <div className="border-b border-border bg-muted/30 px-5 py-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Error: {viewingError}</span>
             </div>
           )}
 
           {/* Outcome confirmation banner */}
           {outcomeResult && (
-            <div className={`flex items-center gap-3 border-b border-neutral-200 px-5 py-3 ${
-              outcomeResult === "won" ? "bg-primary" : "bg-white"
+            <div className={`flex items-center gap-3 border-b border-border px-5 py-3 ${
+              outcomeResult === "won" ? "border-l-4 border-l-primary bg-primary/10 text-foreground" : "bg-muted/40 text-muted-foreground"
             }`}>
               {outcomeResult === "won" ? (
-                <Trophy className="h-5 w-5 shrink-0 text-black" strokeWidth={2.5} />
+                <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-700" strokeWidth={2.5} />
               ) : (
-                <ThumbsDown className="h-5 w-5 shrink-0 text-black" strokeWidth={2.5} />
+                <X className="h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={2.5} />
               )}
-              <p className="flex-1 text-sm font-black text-black">
-                {client?.name} marked as <span className="uppercase">{outcomeResult}</span>.
-                {" "}Outcome recorded for prediction accuracy tracking.
+              <p className="flex-1 text-sm font-bold text-foreground">
+                {outcomeResult === "won" ? `Deployment contract recorded for ${client?.name}.` : `Deal marked inactive/passed for ${client?.name}.`}
+                {" "}Outcome recorded for prediction model retraining.
               </p>
               <button
                 type="button"
                 onClick={() => setOutcomeResult(null)}
-                className="shrink-0 border border-neutral-200 p-1 text-black hover:bg-black hover:text-primary"
+                className="shrink-0 rounded-[var(--radius-sm)] border border-border p-1 text-foreground hover:bg-muted"
                 aria-label="Dismiss outcome confirmation"
               >
                 <X className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -639,20 +1051,20 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
             </div>
           )}
           {outcomeError && (
-            <div className="border-b border-neutral-200 bg-white px-5 py-3">
-              <span className="text-xs font-black uppercase tracking-wider text-red-600">Error: {outcomeError}</span>
+            <div className="border-b border-border bg-muted/30 px-5 py-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Error: {outcomeError}</span>
             </div>
           )}
 
           {/* Schedule Viewing confirmation banner */}
           {schedSuccess && (
-            <div className="flex items-center gap-3 border-b border-neutral-200 bg-black px-5 py-3">
+            <div className="flex items-center gap-3 border-b border-border bg-card px-5 py-3 shadow-[var(--shadow-xs)]">
               <Calendar className="h-5 w-5 shrink-0 text-primary" strokeWidth={2.5} />
-              <p className="flex-1 text-sm font-black text-white">{schedSuccess}</p>
+              <p className="flex-1 text-sm font-bold text-foreground">{schedSuccess}</p>
               <button
                 type="button"
                 onClick={() => setSchedSuccess(null)}
-                className="shrink-0 border-2 border-white/40 p-1 text-white hover:border-white hover:bg-white hover:text-black"
+                className="shrink-0 rounded-[var(--radius-sm)] border border-border p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
                 aria-label="Dismiss schedule confirmation"
               >
                 <X className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -660,8 +1072,8 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
             </div>
           )}
           {schedError && (
-            <div className="border-b border-neutral-200 bg-white px-5 py-3">
-              <span className="text-xs font-black uppercase tracking-wider text-red-600">Error: {schedError}</span>
+            <div className="border-b border-border bg-muted/30 px-5 py-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Error: {schedError}</span>
             </div>
           )}
 
@@ -669,14 +1081,14 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
           {schedFormOpen && (
             <form
               onSubmit={handleScheduleViewingSubmit}
-              className="border-b border-neutral-200 bg-white px-5 py-4"
+              className="border-b border-border bg-card px-5 py-4"
             >
-              <div className="mb-3 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                Set viewing date &amp; time
+              <div className="mb-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                Set demo date &amp; time
               </div>
               <div className="flex flex-col gap-3 sm:flex-row">
                 <div className="flex flex-1 flex-col gap-1">
-                  <label htmlFor="sched-date" className="text-[10px] font-black uppercase tracking-wider">Date</label>
+                  <label htmlFor="sched-date" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Date</label>
                   <input
                     id="sched-date"
                     type="date"
@@ -684,28 +1096,28 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                     value={schedDate}
                     onChange={(e) => setSchedDate(e.target.value)}
                     min={new Date().toISOString().split("T")[0]}
-                    className="border border-neutral-200 bg-white px-3 py-2 font-mono text-sm font-bold outline-none focus:border-black focus:ring-2 focus:ring-primary"
+                    className="rounded-[6px] border border-border bg-card px-3 py-2 font-mono text-sm font-bold text-foreground outline-none focus:border-foreground"
                   />
                 </div>
                 <div className="flex flex-1 flex-col gap-1">
-                  <label htmlFor="sched-time" className="text-[10px] font-black uppercase tracking-wider">Time</label>
+                  <label htmlFor="sched-time" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Time</label>
                   <input
                     id="sched-time"
                     type="time"
                     required
                     value={schedTime}
                     onChange={(e) => setSchedTime(e.target.value)}
-                    className="border border-neutral-200 bg-white px-3 py-2 font-mono text-sm font-bold outline-none focus:border-black focus:ring-2 focus:ring-primary"
+                    className="rounded-[6px] border border-border bg-card px-3 py-2 font-mono text-sm font-bold text-foreground outline-none focus:border-foreground"
                   />
                 </div>
                 <div className="flex items-end gap-2">
                   <button
                     type="submit"
                     disabled={schedLoading || !schedDate || !schedTime}
-                    className="flex items-center gap-2 border border-neutral-200 bg-black px-4 py-2 text-xs font-black uppercase tracking-wider text-white shadow-[0px_1px_4px_rgba(0,0,0,0.07)] transition-all hover:shadow-[0px_2px_8px_rgba(0,0,0,0.08)] disabled:opacity-50"
+                    className="flex items-center gap-2 rounded-[6px] border border-border bg-black px-4 py-2 text-xs font-bold uppercase tracking-wider text-white shadow-[var(--shadow-xs)] transition-all hover:bg-neutral-800 hover:shadow-[var(--shadow-sm)] disabled:opacity-50"
                   >
                     {schedLoading ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" strokeWidth={2.5} />
                     ) : (
                       <CalendarCheck className="h-3.5 w-3.5 text-primary" strokeWidth={2.5} />
                     )}
@@ -714,7 +1126,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                   <button
                     type="button"
                     onClick={() => { setSchedFormOpen(false); setSchedError(null) }}
-                    className="border border-neutral-200 bg-white px-4 py-2 text-xs font-black uppercase tracking-wider text-black shadow-[0px_1px_4px_rgba(0,0,0,0.07)] transition-all"
+                    className="rounded-[6px] border border-border bg-card px-4 py-2 text-xs font-bold uppercase tracking-wider text-foreground shadow-[var(--shadow-xs)] transition-all hover:bg-muted"
                   >
                     Cancel
                   </button>
@@ -722,6 +1134,11 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
               </div>
             </form>
           )}
+
+          {/* Portal Access Panel (Rep Console) */}
+          <div className="px-5 pb-2 sm:px-6">
+            <PortalAccessPanel clientId={client.clientId} clientName={client.name} />
+          </div>
 
           {/* Action buttons row */}
           <div className="flex flex-col gap-3 p-5 sm:flex-row sm:p-6">
@@ -731,19 +1148,19 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                 onClick={() => {
                   if (onGenerateInvite) onGenerateInvite(client)
                 }}
-                className="flex flex-1 items-center justify-center gap-2 border border-neutral-200 bg-black py-3.5 text-sm font-black uppercase tracking-wider text-white shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-all hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)]"
+                className="flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-border bg-black py-3.5 text-xs sm:text-sm font-bold uppercase tracking-wider text-white shadow-[var(--shadow-xs)] transition-all hover:bg-neutral-800 hover:shadow-[var(--shadow-sm)]"
               >
                 <Send className="h-4 w-4 text-primary" strokeWidth={2.5} />
-                Generate Invite
+                Send Pitch
               </button>
             ) : (
               <button
                 type="button"
                 disabled
-                className="flex flex-1 cursor-not-allowed items-center justify-center gap-2 border border-neutral-200/40 bg-muted py-3.5 text-sm font-black uppercase tracking-wider text-muted-foreground"
+                className="flex flex-1 cursor-not-allowed items-center justify-center gap-2 rounded-[8px] border border-border bg-muted py-3.5 text-xs sm:text-sm font-bold uppercase tracking-wider text-muted-foreground"
               >
                 <Send className="h-4 w-4 text-muted-foreground" strokeWidth={2.5} />
-                Generate Invite (VIP/Warm Only)
+                Send Pitch (High/Possible-Fit Only)
               </button>
             )}
 
@@ -751,12 +1168,12 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
             <button
               type="button"
               onClick={() => { setSchedFormOpen((o) => !o); setSchedError(null) }}
-              className={`flex flex-1 items-center justify-center gap-2 border border-neutral-200 py-3.5 text-sm font-black uppercase tracking-wider shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-all hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)] ${
-                schedFormOpen ? "bg-black text-white" : "bg-white text-black"
+              className={`flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-border py-3.5 text-xs sm:text-sm font-bold uppercase tracking-wider shadow-[var(--shadow-xs)] transition-all hover:shadow-[var(--shadow-sm)] ${
+                schedFormOpen ? "bg-black text-white" : "bg-card text-foreground hover:bg-muted"
               }`}
             >
               <Calendar className="h-4 w-4" strokeWidth={2.5} />
-              Schedule Viewing
+              Schedule Demo
             </button>
 
             {/* Log Viewing — records a past/completed viewing */}
@@ -764,73 +1181,73 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
               type="button"
               onClick={handleLogViewing}
               disabled={viewingLoading}
-              className="flex flex-1 items-center justify-center gap-2 border border-neutral-200 bg-white py-3.5 text-sm font-black uppercase tracking-wider text-black shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-all hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-border bg-card py-3.5 text-xs sm:text-sm font-bold uppercase tracking-wider text-foreground shadow-[var(--shadow-xs)] transition-all hover:bg-muted hover:shadow-[var(--shadow-sm)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {viewingLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
               ) : (
                 <CalendarCheck className="h-4 w-4" strokeWidth={2.5} />
               )}
-              {viewingLoading ? "Logging…" : "Log Viewing"}
+              {viewingLoading ? "Logging…" : "Log Demo"}
             </button>
           </div>
 
           {/* Won / Lost outcome row */}
-          <div className="flex gap-3 border-t-2 border-black/20 px-5 pb-5 pt-3 sm:px-6">
+          <div className="flex gap-3 border-t border-border px-5 pb-5 pt-3 sm:px-6">
             {effectiveOutcome === "pending" ? (
               <>
                 <button
                   type="button"
                   disabled={outcomeLoading}
                   onClick={() => handleRecordOutcome("won")}
-                  className="flex flex-1 items-center justify-center gap-2 border border-neutral-200 bg-primary py-3 text-sm font-black uppercase tracking-wider text-black shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-all hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-emerald-600 bg-emerald-600 py-3 text-xs sm:text-sm font-bold uppercase tracking-wider text-white shadow-[var(--shadow-xs)] transition-all hover:bg-emerald-700 hover:shadow-[var(--shadow-sm)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {outcomeLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
+                    <Loader2 className="h-4 w-4 animate-spin text-white" strokeWidth={2.5} />
                   ) : (
-                    <ThumbsUp className="h-4 w-4" strokeWidth={2.5} />
+                    <CheckCircle2 className="h-4 w-4" strokeWidth={2.5} />
                   )}
-                  Mark as Won
+                  Record Deployment (Closed Won)
                 </button>
                 <button
                   type="button"
                   disabled={outcomeLoading}
                   onClick={() => handleRecordOutcome("lost")}
-                  className="flex flex-1 items-center justify-center gap-2 border border-neutral-200 bg-white py-3 text-sm font-black uppercase tracking-wider text-black shadow-[0px_2px_8px_rgba(0,0,0,0.08)] transition-all hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-border bg-card py-3 text-xs sm:text-sm font-bold uppercase tracking-wider text-muted-foreground shadow-[var(--shadow-xs)] transition-all hover:bg-muted hover:text-foreground hover:shadow-[var(--shadow-sm)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {outcomeLoading ? (
                     <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
                   ) : (
-                    <ThumbsDown className="h-4 w-4" strokeWidth={2.5} />
+                    <X className="h-4 w-4" strokeWidth={2.5} />
                   )}
-                  Mark as Lost
+                  Mark Inactive / Passed
                 </button>
               </>
             ) : (
               <>
-                {/* Already decided — show a compact change option */}
-                <div className={`flex flex-1 items-center gap-3 border border-neutral-200 px-4 py-3 ${
-                  effectiveOutcome === "won" ? "bg-primary" : "bg-white"
+                {/* Already recorded — show clean status summary */}
+                <div className={`flex flex-1 items-center gap-3 rounded-[8px] border border-border px-4 py-3 ${
+                  effectiveOutcome === "won" ? "border-l-4 border-l-emerald-600 bg-emerald-50/50 text-foreground" : "bg-muted/40 text-muted-foreground"
                 }`}>
                   {effectiveOutcome === "won" ? (
-                    <Trophy className="h-5 w-5 shrink-0 text-black" strokeWidth={2.5} />
+                    <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-700" strokeWidth={2.5} />
                   ) : (
-                    <ThumbsDown className="h-5 w-5 shrink-0 text-black" strokeWidth={2.5} />
+                    <X className="h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={2.5} />
                   )}
                   <div className="flex-1">
-                    <div className="text-xs font-black uppercase tracking-wider text-black">
-                      Outcome recorded: {effectiveOutcome?.toUpperCase()}
+                    <div className="text-xs font-bold uppercase tracking-wider text-foreground">
+                      {effectiveOutcome === "won" ? "Deal Status: Sale Completed (Closed)" : "Deal Status: Passed / Inactive"}
                     </div>
-                    <div className="text-[10px] font-bold text-black/70">Tracked in Prediction Accuracy</div>
+                    <div className="text-[10px] font-semibold text-muted-foreground">Tracked in Pipeline Model Calibration</div>
                   </div>
                 </div>
                 <button
                   type="button"
                   disabled={outcomeLoading}
                   onClick={() => handleRecordOutcome(effectiveOutcome === "won" ? "lost" : "won")}
-                  className="flex shrink-0 items-center justify-center gap-2 border border-neutral-200 bg-white px-4 py-3 text-xs font-black uppercase tracking-wider text-black shadow-[0px_1px_4px_rgba(0,0,0,0.07)] transition-all hover:shadow-[0px_1px_3px_rgba(0,0,0,0.06)] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex shrink-0 items-center justify-center gap-2 rounded-[8px] border border-border bg-card px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground shadow-[var(--shadow-xs)] transition-all hover:bg-muted hover:shadow-[var(--shadow-sm)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Change to {effectiveOutcome === "won" ? "Lost" : "Won"}
+                  Change Status
                 </button>
               </>
             )}

@@ -49,7 +49,22 @@
 }
 
 .rect-tab.is-active {
-  background: var(--primary, #ffd400); /* acid yellow fill — kept exactly as-is */
+  background: var(--primary, #ffd400) !important; /* acid yellow fill — kept exactly as-is */
+  color: #000 !important;
+}
+
+.rect-tab.is-active .hover-block {
+  display: none !important;
+}
+
+.rect-tab.is-active .tab-label-hover {
+  display: none !important;
+}
+
+.rect-tab.is-active .tab-label {
+  opacity: 1 !important;
+  transform: none !important;
+  color: #000 !important;
 }
 
 .rect-tab .hover-block {

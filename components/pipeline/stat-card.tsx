@@ -1,6 +1,5 @@
-﻿import type { ReactNode } from "react"
+import type { ReactNode } from "react"
 import { CountUp } from "@/components/animation/count-up"
-import { GlitchLabel } from "@/components/animation/glitch-label"
 import { AnimatedContent } from "@/components/animation/animated-content"
 
 interface StatCardProps {
@@ -9,6 +8,7 @@ interface StatCardProps {
   formatNumber?: (n: number) => string
   detail?: string
   icon?: ReactNode
+  accent?: "yellow" | "gray" | "none"
   emphasis?: boolean
   index?: number
   triggerKey?: string | number
@@ -20,25 +20,37 @@ export function StatCard({
   formatNumber,
   detail,
   icon,
+  accent,
   emphasis,
   index = 0,
   triggerKey,
 }: StatCardProps) {
+  const resolvedAccent = accent ?? (emphasis ? "yellow" : "gray")
+
+  const accentBorderClass =
+    resolvedAccent === "yellow"
+      ? "border-l-[3px] border-l-primary"
+      : resolvedAccent === "gray"
+      ? "border-l-[3px] border-l-neutral-300 dark:border-l-neutral-600"
+      : ""
+
   return (
     <AnimatedContent delay={index * 0.04} className="h-full">
       <div
-        className={`group flex h-full flex-col justify-between gap-4 rounded-[var(--radius)] border p-5 sm:p-6 transition-shadow duration-200 ${
-          emphasis
-            ? "border-l-[3px] border-l-primary border-border bg-card shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-sm-hover)]"
-            : "border-border bg-card shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-sm-hover)]"
-        }`}
+        className={`group flex h-full flex-col justify-between gap-4 rounded-[var(--radius)] border border-border bg-card p-5 sm:p-6 shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-sm-hover)] transition-shadow duration-200 ${accentBorderClass}`}
       >
         <div className="flex items-start justify-between gap-3">
-          <span className={`text-xs sm:text-sm font-semibold uppercase tracking-wider pb-1 ${emphasis ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
-            <GlitchLabel text={label} triggerKey={triggerKey} />
+          <span className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-1">
+            {label}
           </span>
           {icon ? (
-            <span className={`shrink-0 rounded-[calc(var(--radius)-2px)] p-1.5 ${emphasis ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"}`}>
+            <span
+              className={`shrink-0 rounded-[8px] p-1.5 ${
+                resolvedAccent === "yellow"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-black text-white"
+              }`}
+            >
               {icon}
             </span>
           ) : null}

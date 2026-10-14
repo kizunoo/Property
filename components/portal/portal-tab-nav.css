@@ -1,0 +1,123 @@
+/*
+ * portal-tab-nav.css
+ * Same visual tokens as tab-nav.css (rect-tab, hover-block, label-stack,
+ * tab-label, tab-label-hover, is-active) — the CSS classes are shared so
+ * the tab bar looks identical to the agent console.
+ *
+ * Portal-specific additions:
+ *   - .portal-tab-nav wraps the scrollable container
+ *   - .portal-tab-list allows horizontal scroll on narrow viewports
+ *   - Tabs have a min-width so 6 labels don't squeeze below readability
+ */
+
+.portal-tab-nav {
+  display: block;
+  width: 100%;
+  /* No rounded corners — it sits flush in a bordered strip */
+}
+
+.portal-tab-list {
+  list-style: none;
+  display: flex;
+  margin: 0;
+  padding: 0;
+  /* Scroll horizontally on mobile without wrapping */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.portal-tab-list::-webkit-scrollbar {
+  display: none;
+}
+
+.portal-tab-list > li {
+  display: flex;
+  flex: 1 1 0;           /* equal-width tabs across the full strip */
+  min-width: 96px;       /* scroll gracefully if viewport is narrow */
+  border-right: 1px solid #e5e5e5;
+}
+
+.portal-tab-list > li:last-child {
+  border-right: none;
+}
+
+/* ── Shared rect-tab styles (identical to tab-nav.css) ─────────────────────── */
+/* These class names are already defined in tab-nav.css which is imported by
+   the agent TabNav. We redefine them here so the portal works independently
+   without needing to import tab-nav.css into a component that doesn't use it.
+   Values are kept byte-for-byte identical to tab-nav.css. */
+
+.portal-tab-nav .rect-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  padding: 0 20px;
+  width: 100%;
+  min-width: 96px;       /* ← portal-only: prevents labels squeezing below readable size */
+  background: var(--background, #fff);
+  color: var(--foreground, #000);
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.portal-tab-nav .rect-tab.is-active {
+  background: var(--primary, #ffd400) !important;
+  color: #000 !important;
+}
+
+.portal-tab-nav .rect-tab.is-active .hover-block {
+  display: none !important;
+}
+
+.portal-tab-nav .rect-tab.is-active .tab-label-hover {
+  display: none !important;
+}
+
+.portal-tab-nav .rect-tab.is-active .tab-label {
+  opacity: 1 !important;
+  transform: none !important;
+  color: #000 !important;
+}
+
+.portal-tab-nav .rect-tab .hover-block {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--foreground, #000);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.portal-tab-nav .rect-tab .label-stack {
+  position: relative;
+  z-index: 2;
+  display: inline-block;
+}
+
+.portal-tab-nav .rect-tab .tab-label {
+  position: relative;
+  z-index: 2;
+  display: inline-block;
+}
+
+.portal-tab-nav .rect-tab .tab-label-hover {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: #fff;
+  z-index: 3;
+  display: inline-block;
+}

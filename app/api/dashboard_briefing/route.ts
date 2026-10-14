@@ -1,12 +1,14 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 
 const FASTAPI_URL = process.env.FASTAPI_URL ?? process.env.BACKEND_URL ?? "http://localhost:8000"
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const res = await fetch(`${FASTAPI_URL}/api/dashboard_briefing`, {
-      cache: "no-store",
-    })
+    const agentId = req.nextUrl.searchParams.get("agent_id")
+    const url = new URL(`${FASTAPI_URL}/api/dashboard_briefing`)
+    if (agentId) url.searchParams.set("agent_id", agentId)
+
+    const res = await fetch(url.toString(), { cache: "no-store" })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
       return NextResponse.json(
@@ -23,3 +25,4 @@ export async function GET() {
     )
   }
 }
+

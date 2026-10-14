@@ -3,3 +3,8 @@ uvicorn
 supabase
 python-dotenv
 groq
+apscheduler
+scikit-learn
+joblib
+pandas
+numpy

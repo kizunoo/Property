@@ -1,31 +1,34 @@
-﻿"use client"
+"use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Building2, Flame, Home, Loader2, RefreshCw, Snowflake, Star, Target, Trophy, Wallet } from "lucide-react"
-import { currency, percent, getDashboardSummary, type Client, type DeduplicatedClient, type Property, type Tier } from "@/lib/pipeline-data"
+import { Building2, Check, Flame, Home, Loader2, RefreshCw, Snowflake, Star, Target, Trophy, Wallet, X } from "lucide-react"
+import { currency, percent, getDashboardSummary, type Agent, type Client, type DeduplicatedClient, type Property, type Tier } from "@/lib/pipeline-data"
 import { fetchDeduplicatedClients, fetchPipelineClients, fetchProperties } from "@/lib/fetch-pipeline-data"
 import { StatCard } from "./stat-card"
 import { CountUp } from "@/components/animation/count-up"
-import { GlitchLabel } from "@/components/animation/glitch-label"
 import { SegmentPills, type SegmentFilter } from "./segment-pills"
 import { ClientTable } from "./client-table"
 import { ClientDetailModal } from "./client-detail-drawer"
 import { PropertyDetailModal } from "./property-detail-drawer"
 import { TierValueChart } from "./tier-value-chart"
 import { PriorityMatrixChart } from "./priority-matrix-chart"
-import { ClusterInsightsPanel } from "./cluster-insights-panel"
 import { NeighborhoodTierHeatmap } from "./neighborhood-tier-heatmap"
 import { AnalyticsInsightPanel } from "./analytics-insight-panel"
 import { AnalyticsFilters, type AnalyticsTierFilter, type NeighborhoodFilter } from "./analytics-filters"
 import { TabNav, type DashboardTab } from "./tab-nav"
-import { AgentMenu } from "./agent-menu"
+import { AgentMenu, AgentSelector } from "./agent-menu"
 import { PropertyCards } from "./property-cards"
 import { ShortlistModal } from "./shortlist-modal"
 import { InviteModal } from "./invite-modal"
 import { ViewingsBoard } from "./viewings-board"
 import { RecentSignalsPanel } from "./recent-signals-panel"
+import { DailyWorklistPanel } from "./daily-worklist-panel"
 import { AIBriefingHero } from "./ai-briefing-hero"
 import { AnimatedContent } from "@/components/animation/animated-content"
+import { MarketMovementsPanel } from "./market-movements-panel"
+import { ModelTrainingPanel } from "./model-training-panel"
+import { PipelineProjectionCard } from "./pipeline-projection-card"
+import { WhatsAppFloatingPanel } from "./whatsapp-floating-panel"
 
 interface PipelineDashboardProps {
   onLogout?: () => void
@@ -35,23 +38,22 @@ interface PipelineDashboardProps {
 function HeroStatCard({ totalPipelineValue, dedupCount, syncTimestamp }: { totalPipelineValue: number; dedupCount: number; syncTimestamp: number }) {
   return (
     <AnimatedContent delay={0} className="sm:col-span-2">
-      <div className="relative flex flex-col justify-between overflow-hidden border border-neutral-200 bg-white p-5 sm:p-7 shadow-[0px_4px_16px_rgba(0,0,0,0.10)]">
-        <div className="stripes-diagonal absolute inset-0" />
-        <div className="relative z-10">
+      <div className="relative flex h-full flex-col justify-between rounded-[var(--radius)] border border-l-[3px] border-l-neutral-300 border-border bg-card p-5 sm:p-7 shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-sm-hover)] transition-shadow duration-200">
+        <div>
           <div className="flex items-start justify-between gap-3">
-            <span className="inline-block border border-neutral-200 bg-white px-3 py-1 text-xs font-black uppercase tracking-wider sm:text-sm">
-              <GlitchLabel text="Total Pipeline Value" triggerKey={syncTimestamp} />
+            <span className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-1">
+              Total Pipeline Value
             </span>
-            <span className="shrink-0 border border-neutral-200 bg-black p-1.5 text-primary">
+            <span className="shrink-0 rounded-[8px] bg-black p-1.5 text-primary">
               <Wallet className="h-4 w-4" strokeWidth={2.5} />
             </span>
           </div>
-          <div className="mt-4 font-sans text-5xl font-bold leading-[0.9] tracking-tight sm:text-6xl lg:text-7xl">
+          <div className="mt-4 font-display text-4xl font-bold leading-none tracking-tight sm:text-5xl lg:text-6xl">
             <CountUp value={totalPipelineValue} formatNumber={currency} triggerKey={syncTimestamp} />
           </div>
-          <div className="mt-4 inline-block border border-neutral-200 bg-primary px-4 py-2 text-xs font-black uppercase tracking-wider shadow-[0px_2px_8px_rgba(0,0,0,0.08)] sm:text-sm">
-            Sum of E(x) across {dedupCount} unique clients
-          </div>
+        </div>
+        <div className="mt-4 inline-flex w-fit items-center rounded-[var(--radius-sm)] border border-border bg-secondary/80 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Sum of E(x) across {dedupCount} unique clients
         </div>
       </div>
     </AnimatedContent>
@@ -63,6 +65,10 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
   const [filter, setFilter]       = useState<SegmentFilter>("ALL")
   const [lastInvite, setLastInvite] = useState<string | null>(null)
   const [syncTimestamp, setSyncTimestamp] = useState<number>(() => Date.now())
+
+  // ── Agent selector state ──
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+  const [selectedAgent,   setSelectedAgent]   = useState<Agent | null>(null)
 
   // Raw Client[] for analytics charts (full rows, may include duplicates)
   const [rawClients, setRawClients]       = useState<Client[]>([])
@@ -78,6 +84,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
 
   // ── Modal selection state ──
   const [selectedClient,    setSelectedClient]    = useState<DeduplicatedClient | null>(null)
+  const [openClientSchedule, setOpenClientSchedule] = useState(false)
   const [selectedProperty,  setSelectedProperty]  = useState<Property | null>(null)
   const [shortlistProperty, setShortlistProperty] = useState<Property | null>(null)
   const [inviteTarget,      setInviteTarget]      = useState<{
@@ -85,6 +92,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
     propertyId: string
     clientName: string
     propertyName: string
+    whatsappNumber?: string | null
   } | null>(null)
 
   const [syncing, setSyncing] = useState(false)
@@ -115,14 +123,15 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
     return () => window.removeEventListener("focus", refreshAccuracy)
   }, [])
 
-  async function loadData() {
+  async function loadData(agentId?: string | null) {
     setLoading(true)
     setError(null)
     try {
+      const id = agentId !== undefined ? agentId : selectedAgentId
       const [dedup, raw, propertyRows] = await Promise.all([
-        fetchDeduplicatedClients(),
-        fetchPipelineClients(),
-        fetchProperties(),
+        fetchDeduplicatedClients(id),
+        fetchPipelineClients(id),
+        fetchProperties(id),
       ])
       setDedupClients(dedup)
       setRawClients(raw)
@@ -135,15 +144,22 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
   }
 
   useEffect(() => {
-    loadData()
+    loadData(null)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Refetch whenever the agent selection changes
+  useEffect(() => {
+    loadData(selectedAgentId)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAgentId])
 
   async function handleSync() {
     setSyncing(true)
     setSyncMsg(null)
     try {
       await fetch("/api/re-evaluate", { method: "POST" })
-      await loadData()
+      await loadData(selectedAgentId)
       setSyncTimestamp(Date.now())
       setSyncMsg("Evaluations & DB synced successfully")
       setTimeout(() => setSyncMsg(null), 4000)
@@ -192,13 +208,45 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
     })
   }, [deduplicatedRawClients, analyticsTier, analyticsNeighborhood])
 
+  // ── Select property by ID (from Analytics charts or Market Movements) ──
+  const handleSelectPropertyById = (
+    propertyId: string,
+    fallbackInfo?: { address?: string; neighborhood?: string; value?: number }
+  ) => {
+    let prop = properties.find((p) => p.id === propertyId)
+    if (!prop) {
+      const match = rawClients.find((c) => c.propertyDbId === propertyId)
+      if (match) {
+        prop = {
+          id: propertyId,
+          name: match.property,
+          address: match.property,
+          neighborhood: match.agent,
+          value: match.propertyValue,
+          status: "LISTED",
+        }
+      } else if (fallbackInfo) {
+        prop = {
+          id: propertyId,
+          name: fallbackInfo.address || "Property",
+          address: fallbackInfo.address || "Property",
+          neighborhood: fallbackInfo.neighborhood || "",
+          value: fallbackInfo.value || 0,
+          status: "LISTED",
+        }
+      }
+    }
+    if (prop) {
+      setSelectedProperty(prop)
+    }
+  }
+
   return (
     <main className="min-h-screen bg-transparent px-4 py-6 sm:px-6 sm:py-10 lg:px-10">
       <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 sm:gap-8">
-        {/* Header */}
         <header className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center border border-neutral-200 bg-black">
+            <div className="flex h-11 w-11 items-center justify-center rounded-[8px] bg-black">
               <Building2 className="h-5 w-5 text-primary" strokeWidth={2.5} />
             </div>
             <div>
@@ -206,7 +254,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                 PIPELINE<span className="text-muted-foreground">.EV</span>
               </div>
               <div className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">
-                Client Priority Console
+                Adoption Priority Console
               </div>
             </div>
           </div>
@@ -227,7 +275,18 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
               <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin text-black" : "text-black"}`} strokeWidth={2.5} />
               {syncing ? "Syncing..." : "Sync & Re-evaluate"}
             </button>
-            <AgentMenu onLogout={onLogout} />
+            <AgentSelector
+              selectedAgentId={selectedAgentId}
+              onChange={(id) => {
+                setSelectedAgentId(id)
+                // selectedAgent will be resolved by AgentSelector internally;
+                // mirror it here for the profile drawer via a quick agents lookup.
+                if (id === null) {
+                  setSelectedAgent(null)
+                }
+              }}
+            />
+            <AgentMenu onLogout={onLogout} selectedAgent={selectedAgent} />
           </div>
         </header>
 
@@ -244,9 +303,28 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
         ) : null}
 
         {!loading && error ? (
-          <div className="rounded-[var(--radius)] border border-border bg-white p-6 shadow-[var(--shadow-sm)]">
-            <p className="text-xs font-semibold uppercase tracking-wider text-foreground">Data Error</p>
-            <p className="mt-2 text-sm text-muted-foreground">{error}</p>
+          <div className="rounded-[var(--radius)] border border-border bg-card p-6 shadow-[var(--shadow-sm)]">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-foreground">
+                  Database Connection Error
+                </p>
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  {error}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Unable to reach Supabase database. If you are connected to a campus or public Wi-Fi hotspot, please log in to the Wi-Fi portal first, then retry.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => loadData(selectedAgentId)}
+                className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[8px] border border-border bg-black px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-white shadow-[var(--shadow-xs)] transition-all hover:bg-neutral-800 hover:shadow-[var(--shadow-sm)]"
+              >
+                <RefreshCw className="h-3.5 w-3.5" strokeWidth={2.5} />
+                Retry Connection
+              </button>
+            </div>
           </div>
         ) : null}
 
@@ -255,18 +333,49 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
             {/* Dashboard tab */}
             {tab === "DASHBOARD" ? (
               <>
-                <AIBriefingHero onOpenClient={(clientId) => {
-                  const found = dedupClients.find((c) => c.clientId === clientId)
-                  if (found) {
-                    setSelectedClient(found)
-                  }
-                }} />
-                <RecentSignalsPanel onOpenClient={(clientId) => {
-                  const found = dedupClients.find((c) => c.clientId === clientId)
-                  if (found) {
-                    setSelectedClient(found)
-                  }
-                }} />
+                <PipelineProjectionCard
+                  agentId={selectedAgentId}
+                  agentName={selectedAgent?.name}
+                  syncTimestamp={syncTimestamp}
+                />
+                <DailyWorklistPanel
+                  agentId={selectedAgentId}
+                  onGenerateInvite={(clientId, propertyId) => {
+                    const client = dedupClients.find((c) => c.clientId === clientId)
+                    const prop = properties.find((p) => p.id === propertyId)
+                    const clientName = client?.name || "Client"
+                    const propName = prop?.address || prop?.name || "Property"
+                    setLastInvite(clientName)
+                    setInviteTarget({
+                      clientId,
+                      propertyId,
+                      clientName,
+                      propertyName: propName,
+                      whatsappNumber: client?.whatsappNumber ?? null,
+                    })
+                  }}
+                  onScheduleViewing={(clientId, propertyId) => {
+                    const client = dedupClients.find((c) => c.clientId === clientId)
+                    if (client) {
+                      setOpenClientSchedule(true)
+                      setSelectedClient(client)
+                    }
+                  }}
+                />
+                <RecentSignalsPanel
+                  onOpenClient={(clientId) => {
+                    const found = dedupClients.find((c) => c.clientId === clientId)
+                    if (found) {
+                      setSelectedClient(found)
+                    }
+                  }}
+                  onOpenProperty={(propertyId) => {
+                    const found = properties.find((p) => p.id === propertyId)
+                    if (found) {
+                      setSelectedProperty(found)
+                    }
+                  }}
+                />
                 <section className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2 lg:grid-cols-4">
 
                   <HeroStatCard
@@ -276,22 +385,23 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                   />
 
                   <StatCard
-                    label="Total VIPs"
+                    label="High-Fit Prospects"
                     numericValue={totals.byTier.TIER_1}
                     formatNumber={(n) => String(Math.round(n))}
-                    detail="Tier 1 clients ready for invite"
+                    detail="Ready for outreach."
                     icon={<Star className="h-4 w-4" strokeWidth={2.5} />}
-                    emphasis
+                    accent="yellow"
                     index={1}
                     triggerKey={syncTimestamp}
                   />
 
                   <StatCard
-                    label="Avg. Buy Probability"
+                    label="Avg. Adoption Probability"
                     numericValue={totals.avgProbability}
                     formatNumber={percent}
                     detail="Across full active pipeline"
                     icon={<Target className="h-4 w-4" strokeWidth={2.5} />}
+                    accent="gray"
                     index={2}
                     triggerKey={syncTimestamp}
                   />
@@ -299,29 +409,32 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
 
                 <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                   <StatCard
-                    label="Tier 2 · Warm"
+                    label="Tier 2 · Possible-Fit"
                     numericValue={totals.byTier.TIER_2}
                     formatNumber={(n) => String(Math.round(n))}
-                    detail="Needs nurture sequence"
+                    detail="Needs demo sequence"
                     icon={<Flame className="h-4 w-4" strokeWidth={2.5} />}
+                    accent="gray"
                     index={3}
                     triggerKey={syncTimestamp}
                   />
                   <StatCard
-                    label="Tier 3 · Cold"
+                    label="Tier 3 · Low-Fit"
                     numericValue={totals.byTier.TIER_3}
                     formatNumber={(n) => String(Math.round(n))}
-                    detail="Low near-term conversion"
+                    detail="Low near-term adoption"
                     icon={<Snowflake className="h-4 w-4" strokeWidth={2.5} />}
+                    accent="gray"
                     index={4}
                     triggerKey={syncTimestamp}
                   />
                   <StatCard
-                    label="Total Property Value"
+                    label="Total Fleet Value"
                     numericValue={totals.totalPropertyValue}
                     formatNumber={currency}
-                    detail="Combined target listings"
+                    detail="Combined robot units"
                     icon={<Home className="h-4 w-4" strokeWidth={2.5} />}
+                    accent="gray"
                     index={5}
                     triggerKey={syncTimestamp}
                   />
@@ -333,7 +446,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                     <div className="relative flex flex-col gap-3 rounded-[var(--radius)] border border-border bg-white p-5 shadow-[var(--shadow-sm)] sm:p-6">
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
-                          <span className="rounded-[calc(var(--radius)-2px)] bg-foreground p-1.5 text-primary">
+                          <span className="rounded-[8px] bg-foreground p-1.5 text-primary">
                             <Trophy className="h-4 w-4" strokeWidth={2} />
                           </span>
                           <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground sm:text-xs">
@@ -353,9 +466,14 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                           <div className="rounded-[var(--radius-sm)] border border-border p-3">
-                             <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Deals Won</div>
-                             <div className="mt-1 font-display text-2xl font-bold">{accuracy.won_count ?? 0}</div>
+                           <div className="rounded-[var(--radius-sm)] border border-l-[3px] border-l-primary border-border bg-card p-3.5 shadow-[var(--shadow-xs)]">
+                             <div className="flex items-center justify-between gap-2">
+                               <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Deals Won</span>
+                               <span className="flex h-5 w-5 items-center justify-center rounded-[6px] bg-primary text-black">
+                                 <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                               </span>
+                             </div>
+                             <div className="mt-1.5 font-display text-2xl font-bold">{accuracy.won_count ?? 0}</div>
                              {accuracy.avg_predicted_probability_when_won !== undefined && (
                                <div className="mt-1 text-[11px] text-muted-foreground">
                                  Avg predicted{" "}
@@ -363,9 +481,14 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                                </div>
                              )}
                            </div>
-                           <div className="rounded-[var(--radius-sm)] border border-border p-3">
-                             <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Deals Lost</div>
-                             <div className="mt-1 font-display text-2xl font-bold">{accuracy.lost_count ?? 0}</div>
+                           <div className="rounded-[var(--radius-sm)] border border-l-[3px] border-l-neutral-300 border-border bg-card p-3.5 shadow-[var(--shadow-xs)]">
+                             <div className="flex items-center justify-between gap-2">
+                               <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Deals Lost</span>
+                               <span className="flex h-5 w-5 items-center justify-center rounded-[6px] border border-neutral-300 bg-transparent text-muted-foreground">
+                                 <X className="h-3.5 w-3.5" strokeWidth={2.5} />
+                               </span>
+                             </div>
+                             <div className="mt-1.5 font-display text-2xl font-bold">{accuracy.lost_count ?? 0}</div>
                              {accuracy.avg_predicted_probability_when_lost !== undefined && (
                                <div className="mt-1 text-[11px] text-muted-foreground">
                                  Avg predicted{" "}
@@ -373,9 +496,9 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                                </div>
                              )}
                            </div>
-                           <div className="rounded-[var(--radius-sm)] border border-l-[3px] border-l-primary border-border bg-card p-3">
+                           <div className="rounded-[var(--radius-sm)] border border-l-[3px] border-l-primary border-border bg-card p-3.5 shadow-[var(--shadow-xs)]">
                              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Model Signal</div>
-                             <div className="mt-1 font-mono text-sm font-semibold leading-tight text-foreground">
+                             <div className="mt-1.5 font-mono text-sm font-semibold leading-tight text-foreground">
                                {accuracy.avg_predicted_probability_when_won !== undefined && accuracy.avg_predicted_probability_when_lost !== undefined ? (
                                  <>Won @ {accuracy.avg_predicted_probability_when_won}% &middot; Lost @ {accuracy.avg_predicted_probability_when_lost}%</>
                                ) : "—"}
@@ -390,19 +513,24 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                       )}
                     </div>
                   </AnimatedContent>
+
+                  <AnimatedContent delay={0}>
+                    <ModelTrainingPanel />
+                  </AnimatedContent>
                 </section>
               </>
             ) : null}
 
             {/* Analytics tab */}
             {tab === "ANALYTICS" ? (
-              <section className="flex flex-col gap-6">
-                {/* AI Insight panel — auto-refreshes on filter change */}
+              <section className="flex flex-col gap-8">
+                {/* AI Insight panel — auto-refreshes on filter change (Anchor: signature black header) */}
                 <AnalyticsInsightPanel
                   clients={analyticsClients}
                   activeFilters={{ tier: analyticsTier, neighborhood: analyticsNeighborhood }}
                 />
 
+                {/* Filter controls — Lighter panel */}
                 <AnalyticsFilters
                   allClients={deduplicatedRawClients}
                   tierFilter={analyticsTier}
@@ -412,17 +540,24 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                   filteredCount={analyticsClients.length}
                 />
 
-                {/* Treemap with inline AI analysis */}
+                {/* Treemap with inline AI analysis — Lighter panel */}
                 <TierValueChart clients={analyticsClients} />
 
-                {/* Priority Matrix with inline AI analysis */}
-                <PriorityMatrixChart clients={analyticsClients} />
+                {/* Priority Matrix with inline AI analysis — Lighter panel */}
+                <PriorityMatrixChart
+                  clients={analyticsClients}
+                  properties={properties}
+                  onSelectProperty={handleSelectPropertyById}
+                />
 
-                {/* Heatmap with inline AI analysis */}
+                {/* Heatmap with inline AI analysis — Lighter panel */}
                 <NeighborhoodTierHeatmap clients={analyticsClients} />
 
-                {/* Neighborhood Cluster Intelligence */}
-                <ClusterInsightsPanel clients={analyticsClients} />
+                {/* Market Movements — price volatility across all listings */}
+                <MarketMovementsPanel
+                  onSimulateComplete={loadData}
+                  onSelectProperty={handleSelectPropertyById}
+                />
               </section>
             ) : null}
 
@@ -459,6 +594,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                         propertyId: client.bestMatch.propertyId,
                         clientName: client.name,
                         propertyName: client.bestMatch.property,
+                        whatsappNumber: client.whatsappNumber ?? null,
                       })
                     }}
                     onSelect={setSelectedClient}
@@ -480,7 +616,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
         ) : null}
 
         <footer className="border-t border-border pt-5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          E(x) = P(Buy) × Property Value — Segmentation: Tier 1 E(x) &gt; RM50K &amp; prob ≥ 65% · Tier 2 prob ≥
+          E(x) = P(Adopt) × Unit Cost — Segmentation: Tier 1 E(x) &gt; RM50K &amp; prob ≥ 65% · Tier 2 prob ≥
           35% · Tier 3 &lt; 35%
         </footer>
       </div>
@@ -489,7 +625,11 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
       <ClientDetailModal
         client={selectedClient}
         open={selectedClient !== null}
-        onClose={() => setSelectedClient(null)}
+        onClose={() => {
+          setSelectedClient(null)
+          setOpenClientSchedule(false)
+        }}
+        initialScheduleViewing={openClientSchedule}
         onGenerateInvite={(client) => {
           setLastInvite(client.name)
           setInviteTarget({
@@ -497,9 +637,16 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
             propertyId: client.bestMatch.propertyId,
             clientName: client.name,
             propertyName: client.bestMatch.property,
+            whatsappNumber: client.whatsappNumber ?? null,
           })
         }}
-        onOutcomeRecorded={refreshAccuracy}
+        onOutcomeRecorded={() => {
+          refreshAccuracy()
+          loadData(selectedAgentId)
+        }}
+        onStageChanged={() => {
+          loadData(selectedAgentId)
+        }}
       />
       <PropertyDetailModal
         property={selectedProperty}
@@ -509,19 +656,51 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
           setShortlistProperty(selectedProperty)
           setSelectedProperty(null)
         }}
+        onPriceChanged={(propertyId, newVal) => {
+          setProperties((prev) =>
+            prev.map((p) =>
+              p.id === propertyId
+                ? {
+                    ...p,
+                    value: newVal,
+                    lastPriceChangeAt: new Date().toISOString(),
+                    lastPriceChangePct: p.value ? (newVal - p.value) / p.value : undefined,
+                  }
+                : p
+            )
+          )
+          if (selectedProperty && selectedProperty.id === propertyId) {
+            setSelectedProperty((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    value: newVal,
+                    lastPriceChangeAt: new Date().toISOString(),
+                    lastPriceChangePct: prev.value ? (newVal - prev.value) / prev.value : undefined,
+                  }
+                : null
+            )
+          }
+          // Refresh client probabilities and pipeline data in the background
+          loadData()
+        }}
       />
+
       <ShortlistModal
         property={shortlistProperty}
         open={shortlistProperty !== null}
         onClose={() => setShortlistProperty(null)}
+        agentId={selectedAgentId}
         onGenerateInvite={(entry) => {
           if (!shortlistProperty) return
+          const client = dedupClients.find((c) => c.clientId === entry.clientId)
           setLastInvite(entry.name)
           setInviteTarget({
             clientId: entry.clientId,
             propertyId: shortlistProperty.id,
             clientName: entry.name,
             propertyName: shortlistProperty.address,
+            whatsappNumber: client?.whatsappNumber ?? null,
           })
         }}
       />
@@ -530,9 +709,15 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
         propertyId={inviteTarget?.propertyId ?? null}
         clientName={inviteTarget?.clientName ?? null}
         propertyName={inviteTarget?.propertyName ?? null}
+        whatsappNumber={inviteTarget?.whatsappNumber ?? null}
+        agentId={selectedAgentId}
         open={inviteTarget !== null}
         onClose={() => setInviteTarget(null)}
+        onMarkSent={() => loadData(selectedAgentId)}
       />
+
+      {/* Floating draggable WhatsApp outreach & live messaging panel */}
+      <WhatsAppFloatingPanel clients={dedupClients} agentId={selectedAgentId} />
     </main>
   )
 }

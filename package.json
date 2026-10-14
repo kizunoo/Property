@@ -4,9 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "tunnel": "node scripts/tunnel-service.js",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "db:check": "node scripts/db-check.js",
+    "db:dry-run": "node scripts/db-check.js && npx supabase db push --dry-run",
+    "db:push": "node scripts/db-push.js",
+    "db:verify": "backend\\venv\\Scripts\\python.exe scripts/db_verify.py"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
@@ -64,10 +69,12 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@ngrok/ngrok": "^1.7.0",
     "@tailwindcss/postcss": "^4.2.0",
     "@types/node": "^22",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "localtunnel": "^2.0.2",
     "postcss": "^8.5",
     "tailwindcss": "^4.2.0",
     "tw-animate-css": "1.3.3",

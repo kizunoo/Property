@@ -18,3 +18,19 @@ venv/
 __pycache__/
 *.py[cod]
 *$py.class
+*.sqlite3*
+backend/.rate_limits.sqlite3*
+
+# Environment and secrets
+.env*
+backend/.env
+backend/.env*
+
+# Logs and runtime caches
+backend/*.log
+backend/whatsapp_messages.json
+backend/whatsapp_slot_offers.json
+backend/daily_worklist_cache.json
+scripts/active-tunnel.txt
+scripts/scenario_results.json
+supabase/.temp/

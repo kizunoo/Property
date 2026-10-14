@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useEffect, useRef, useState } from "react"
 import { Sparkles, RefreshCw, AlertCircle } from "lucide-react"
@@ -101,18 +101,18 @@ export function AnalyticsInsightPanel({ clients, activeFilters }: AnalyticsInsig
 
   return (
     <ScrollConnect>
-      <div className="border border-neutral-200 bg-white shadow-[0px_4px_16px_rgba(0,0,0,0.10)]">
+      <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card shadow-[var(--shadow-sm)]">
 
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 border-b border-neutral-200 bg-black px-5 py-3.5 sm:px-6">
+      {/* Header — Anchor with signature black header */}
+      <div className="flex items-center justify-between gap-3 border-b border-neutral-800 bg-black px-5 py-3.5 sm:px-6">
         <div className="flex items-center gap-2 text-white">
-          <Sparkles className="h-4 w-4" strokeWidth={2.5} />
-          <span className="text-xs font-black uppercase tracking-wider sm:text-sm">
+          <Sparkles className="h-4 w-4 text-primary" strokeWidth={2.5} />
+          <span className="text-xs font-bold uppercase tracking-wider text-white sm:text-sm">
             AI Pipeline Insight
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="border border-neutral-200 bg-primary px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black sm:text-xs">
+          <span className="rounded-[var(--radius-sm)] bg-primary px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-black sm:text-xs">
             Groq · GPT-OSS 120B
           </span>
           <button
@@ -121,10 +121,10 @@ export function AnalyticsInsightPanel({ clients, activeFilters }: AnalyticsInsig
             disabled={status === "loading"}
             onClick={handleRefresh}
             title="Re-generate (bypasses cache)"
-            className="flex items-center justify-center border border-neutral-200 bg-white p-1.5 text-black transition-transform hover:shadow-[0px_1px_4px_rgba(0,0,0,0.07)] disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center justify-center rounded-[var(--radius-sm)] border border-neutral-700 bg-neutral-900 p-1.5 text-white transition-colors hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <RefreshCw
-              className={`h-3.5 w-3.5 ${status === "loading" ? "animate-spin" : ""}`}
+              className={`h-3.5 w-3.5 ${status === "loading" ? "animate-spin text-primary" : "text-white"}`}
               strokeWidth={2.5}
             />
           </button>
