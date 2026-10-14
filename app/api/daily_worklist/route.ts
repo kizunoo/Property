@@ -1,3 +1,4 @@
+import { buildAgentUpstreamHeaders } from "@/lib/agent-bff-auth"
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +15,7 @@ export async function GET(req: Request) {
     if (forceRefresh) backendUrl.searchParams.set("force_refresh", "true");
     if (agentId) backendUrl.searchParams.set("agent_id", agentId);
 
-    const res = await fetch(backendUrl.toString(), { cache: "no-store" });
+    const res = await fetch(backendUrl.toString(), { cache: "no-store", headers: buildAgentUpstreamHeaders(req) });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
       return NextResponse.json(err, { status: res.status });

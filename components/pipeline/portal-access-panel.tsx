@@ -27,6 +27,8 @@ interface Contact {
   status: "active" | "deactivated" | "invited"
   failed_login_attempts?: number
   locked_until?: string | null
+  rep_code_expires_at?: string | null
+  invite_token_expires_at?: string | null
   last_login_at?: string | null
   created_at: string
 }
@@ -285,16 +287,29 @@ export function PortalAccessPanel({ clientId, clientName }: { clientId: string; 
           {issuedInviteUrl && (
             <div className="flex items-center justify-between gap-2 border-t border-emerald-200/60 pt-1 text-[11px] text-emerald-900">
               <span className="truncate font-mono">{issuedInviteUrl}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(issuedInviteUrl)
-                  setSuccessMsg("Copied one-time invite link to clipboard!")
-                }}
-                className="shrink-0 flex items-center gap-1 rounded bg-emerald-700 text-white px-2 py-0.5 text-[10px] font-black uppercase tracking-wider"
-              >
-                <Copy className="h-3 w-3" /> Copy One-Time Invite Link
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(issuedInviteUrl)
+                    setSuccessMsg("Copied one-time invite link to clipboard!")
+                  }}
+                  className="flex items-center gap-1 rounded bg-emerald-700 text-white px-2 py-0.5 text-[10px] font-black uppercase tracking-wider"
+                >
+                  <Copy className="h-3 w-3" /> Copy One-Time Invite Link
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIssuedInviteUrl(null)
+                    setCopiedCode(null)
+                  }}
+                  className="rounded border border-emerald-300 bg-white px-1.5 py-0.5 text-[10px] font-bold text-emerald-800 hover:bg-emerald-100"
+                  title="Dismiss (link cannot be viewed again)"
+                >
+                  Dismiss
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -401,7 +416,7 @@ export function PortalAccessPanel({ clientId, clientName }: { clientId: string; 
               }`}
             >
               <div className="flex flex-col">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-xs font-bold text-foreground">{c.name}</span>
                   {c.is_primary && (
                     <span className="rounded bg-primary/20 px-1.5 py-0.2 text-[9px] font-black uppercase text-foreground">
@@ -411,6 +426,26 @@ export function PortalAccessPanel({ clientId, clientName }: { clientId: string; 
                   <span className="rounded border border-border bg-secondary px-1.5 py-0.2 text-[9px] font-black uppercase text-muted-foreground">
                     {c.portal_role.replace("_", " ")}
                   </span>
+                  {c.rep_code_expires_at && new Date(c.rep_code_expires_at) > new Date() && (
+                    <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.2 text-[9px] font-bold text-amber-700" title="Active rep-issued login code pending use">
+                      Pending Code
+                    </span>
+                  )}
+                  {c.invite_token_expires_at && new Date(c.invite_token_expires_at) > new Date() && (
+                    <span className="rounded border border-blue-300 bg-blue-50 px-1.5 py-0.2 text-[9px] font-bold text-blue-700" title="Active 24h one-time invite link">
+                      Invite Active
+                    </span>
+                  )}
+                  {c.locked_until && new Date(c.locked_until) > new Date() && (
+                    <span className="flex items-center gap-0.5 rounded border border-rose-300 bg-rose-50 px-1.5 py-0.2 text-[9px] font-bold text-rose-700">
+                      <AlertTriangle className="h-2.5 w-2.5 text-rose-600" /> Locked ({c.failed_login_attempts ?? 5} attempts)
+                    </span>
+                  )}
+                  {!c.email && (
+                    <span className="rounded border border-zinc-200 bg-zinc-100 px-1.5 py-0.2 text-[9px] font-medium text-zinc-600" title="Contact has no email; login requires phone or invite link">
+                      No Email
+                    </span>
+                  )}
                   {c.status === "deactivated" && (
                     <span className="rounded bg-destructive/10 px-1.5 py-0.2 text-[9px] font-bold text-destructive">
                       Deactivated

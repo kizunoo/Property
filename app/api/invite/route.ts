@@ -1,3 +1,4 @@
+import { buildAgentUpstreamHeaders } from "@/lib/agent-bff-auth"
 import { NextRequest, NextResponse } from "next/server"
 
 export const maxDuration = 30
@@ -16,7 +17,7 @@ export async function POST(req: NextRequest) {
     try {
       upstream = await fetch(`${FASTAPI_URL}/api/generate_invite`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: buildAgentUpstreamHeaders(req),
         body: JSON.stringify(body),
         signal: controller.signal,
       })

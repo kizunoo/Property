@@ -1,3 +1,4 @@
+import { buildAgentUpstreamHeaders } from "@/lib/agent-bff-auth"
 import { NextRequest, NextResponse } from "next/server"
 
 export const maxDuration = 15

@@ -167,6 +167,15 @@ CONTACT_WINDOW_SECONDS = 900
 CONTACT_LOCKOUT_SECONDS = 900
 
 
+def hash_rate_limit_key(prefix: str, identifier: str) -> str:
+    """Compute HMAC-SHA256 for rate limit keys so raw IPs and contact IDs are never stored plaintext."""
+    if not identifier:
+        return "unknown"
+    pepper = get_code_pepper()
+    raw = f"{prefix}:{identifier.strip().lower()}"
+    return hmac.new(pepper.encode("utf-8"), raw.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
 class PersistentRateLimitStore:
     """
     Persistent store for rate limits that survives restarts.
@@ -237,6 +246,15 @@ class PersistentRateLimitStore:
                 locked_until = datetime.fromisoformat(locked_until_str)
                 if now < locked_until:
                     return False, locked_until, attempt_count
+                else:
+                    # Lockout expired: reset bucket for new cycle
+                    cursor.execute("""
+                        UPDATE rate_limits
+                        SET attempt_count = 1, window_start = ?, locked_until = NULL
+                        WHERE key_hash = ?
+                    """, (now_iso, key_hash))
+                    conn.commit()
+                    return True, None, 1
 
             window_start = datetime.fromisoformat(window_start_str)
             if now > window_start + timedelta(seconds=window_seconds):
@@ -276,27 +294,98 @@ class PersistentRateLimitStore:
             conn.commit()
 
 
-# Global rate limit store
+# Global rate limit store (used in test suite)
 rate_limit_store = PersistentRateLimitStore()
+
+
+def is_sqlite_rate_limiting_enabled() -> bool:
+    """
+    SQLite persistent rate limiting exists solely for local testing environments.
+    Production strictly relies on PostgreSQL RPC functions and fails closed (503) if unreachable.
+    """
+    env = os.getenv("ENVIRONMENT", "").lower()
+    explicit = os.getenv("USE_SQLITE_RATE_LIMITS", "").lower() in ("true", "1")
+    return env in ("test", "testing") or explicit
+
+
+def execute_rpc_rate_limit(key: str, window_seconds: int = 900) -> Tuple[int, datetime]:
+    """
+    Executes PostgreSQL atomic stored function portal_increment_rate_limit via RPC.
+    FAILS CLOSED: If RPC fails or is unavailable, raises 503.
+    """
+    import main
+    supabase = main.supabase
+    try:
+        res = supabase.rpc("portal_increment_rate_limit", {
+            "p_key": key,
+            "p_window_seconds": window_seconds
+        }).execute()
+        if not res.data or len(res.data) == 0:
+            raise RuntimeError("Empty response from portal_increment_rate_limit RPC")
+        row = res.data[0]
+        attempts = row.get("out_attempts", row.get("attempts", 1))
+        reset_at_str = row.get("out_reset_at", row.get("reset_at"))
+        reset_at = datetime.fromisoformat(reset_at_str.replace("Z", "+00:00")) if reset_at_str else datetime.now(timezone.utc)
+        return attempts, reset_at
+    except Exception as exc:
+        print(f"[SECURITY_CRITICAL] portal_increment_rate_limit RPC failed: {exc}")
+        # FAIL CLOSED
+        raise HTTPException(
+            status_code=503,
+            detail="Rate limit service temporarily unavailable. Please retry shortly."
+        )
 
 
 def check_and_record_ip_attempt(ip: str, success: bool = False):
     """
     Persistent IP rate limit check.
     Max 30 attempts per 15 min. Locks out for 15 min on exceeding.
+    FAILS CLOSED: Any storage exception blocks access rather than bypassing security.
     """
-    ip_key = hash_ip(ip)
-    if success:
-        rate_limit_store.clear(ip_key)
+    ip_key = hash_rate_limit_key("ip", ip)
+
+    # 1. Production Path: Database RPC (Fails closed on DB error)
+    if not is_sqlite_rate_limiting_enabled():
+        if success:
+            try:
+                import main
+                main.supabase.table("portal_rate_limits").delete().eq("key", ip_key).execute()
+            except Exception:
+                pass
+            return
+
+        attempts, reset_at = execute_rpc_rate_limit(ip_key, IP_WINDOW_SECONDS)
+        if attempts > IP_MAX_ATTEMPTS:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many failed attempts. IP temporarily locked out. Please try again later."
+            )
         return
 
-    allowed, locked_until, count = rate_limit_store.increment_and_check(
-        key_hash=ip_key,
-        bucket_type="ip",
-        window_seconds=IP_WINDOW_SECONDS,
-        max_attempts=IP_MAX_ATTEMPTS,
-        lockout_seconds=IP_LOCKOUT_SECONDS,
-    )
+    # 2. Test Path: Local SQLite store
+    if success:
+        try:
+            rate_limit_store.clear(ip_key)
+        except Exception as exc:
+            print(f"[PORTAL_AUTH] Warning clearing IP limit: {exc}")
+        return
+
+    try:
+        allowed, locked_until, count = rate_limit_store.increment_and_check(
+            key_hash=ip_key,
+            bucket_type="ip",
+            window_seconds=IP_WINDOW_SECONDS,
+            max_attempts=IP_MAX_ATTEMPTS,
+            lockout_seconds=IP_LOCKOUT_SECONDS,
+        )
+    except Exception as exc:
+        print(f"[PORTAL_AUTH] Rate limit store error: {exc}")
+        # Fail-closed
+        raise HTTPException(
+            status_code=503,
+            detail="Rate limit service temporarily unavailable. Please retry shortly."
+        )
+
     if not allowed:
         raise HTTPException(
             status_code=429,
@@ -308,19 +397,70 @@ def check_and_record_contact_attempt(contact_id: str, success: bool = False):
     """
     Persistent contact rate limit check.
     Max 5 attempts per 15 min. Locks out contact for 15 min on exceeding.
+    FAILS CLOSED: Any storage exception blocks access.
     """
-    contact_key = f"contact_{contact_id}"
-    if success:
-        rate_limit_store.clear(contact_key)
+    contact_key = hash_rate_limit_key("contact", contact_id)
+
+    # 1. Production Path: Database RPC
+    if not is_sqlite_rate_limiting_enabled():
+        import main
+        supabase = main.supabase
+        if success:
+            try:
+                supabase.rpc("portal_reset_contact_lockout", {"p_contact_id": contact_id}).execute()
+            except Exception:
+                pass
+            return
+
+        try:
+            res = supabase.rpc("portal_record_failed_contact_attempt", {
+                "p_contact_id": contact_id,
+                "p_max_attempts": CONTACT_MAX_ATTEMPTS,
+                "p_lockout_seconds": CONTACT_LOCKOUT_SECONDS
+            }).execute()
+            if not res.data:
+                raise RuntimeError("Empty response from portal_record_failed_contact_attempt")
+            row = res.data[0]
+            is_locked = row.get("out_is_locked", row.get("is_locked", False))
+            if is_locked:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Contact account is temporarily locked out due to multiple failed attempts. Please contact your PIPELINE.EV representative to unlock."
+                )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            print(f"[SECURITY_CRITICAL] portal_record_failed_contact_attempt failed: {exc}")
+            raise HTTPException(
+                status_code=503,
+                detail="Security verification service temporarily unavailable. Please retry shortly."
+            )
         return
 
-    allowed, locked_until, count = rate_limit_store.increment_and_check(
-        key_hash=contact_key,
-        bucket_type="contact",
-        window_seconds=CONTACT_WINDOW_SECONDS,
-        max_attempts=CONTACT_MAX_ATTEMPTS,
-        lockout_seconds=CONTACT_LOCKOUT_SECONDS,
-    )
+    # 2. Test Path: Local SQLite store
+    if success:
+        try:
+            rate_limit_store.clear(contact_key)
+        except Exception as exc:
+            print(f"[PORTAL_AUTH] Warning clearing contact limit: {exc}")
+        return
+
+    try:
+        allowed, locked_until, count = rate_limit_store.increment_and_check(
+            key_hash=contact_key,
+            bucket_type="contact",
+            window_seconds=CONTACT_WINDOW_SECONDS,
+            max_attempts=CONTACT_MAX_ATTEMPTS,
+            lockout_seconds=CONTACT_LOCKOUT_SECONDS,
+        )
+    except Exception as exc:
+        print(f"[PORTAL_AUTH] Rate limit store error: {exc}")
+        # Fail-closed
+        raise HTTPException(
+            status_code=503,
+            detail="Security verification service temporarily unavailable. Please retry shortly."
+        )
+
     if not allowed:
         raise HTTPException(
             status_code=403,
@@ -433,6 +573,10 @@ def get_current_portal_session(
     """
     # 1. CSRF / Origin Check
     verify_origin(request)
+
+    # Cross-auth isolation: Reject agent_session cookies on portal routes
+    if "agent_session" in request.cookies and not portal_session and not (authorization and authorization.startswith("Bearer ")):
+        raise HTTPException(status_code=401, detail="Agent session tokens cannot be used to authenticate client portal endpoints.")
 
     # 2. Extract Token
     token = None

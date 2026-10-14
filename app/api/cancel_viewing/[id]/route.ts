@@ -1,3 +1,4 @@
+import { buildAgentUpstreamHeaders } from "@/lib/agent-bff-auth"
 import { NextRequest, NextResponse } from "next/server"
 
 export const maxDuration = 15
@@ -13,7 +14,7 @@ export async function PATCH(
     const body = await req.json().catch(() => ({}))
     const upstream = await fetch(`${FASTAPI_URL}/api/cancel_viewing/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: buildAgentUpstreamHeaders(req),
       body: JSON.stringify(body),
     })
     const data = await upstream.json()

@@ -1,12 +1,13 @@
+import { buildAgentUpstreamHeaders } from "@/lib/agent-bff-auth"
 import { NextResponse } from "next/server"
 
 const BACKEND = process.env.BACKEND_URL ?? "http://localhost:8000"
 
-export async function POST() {
+export async function POST(req: Request) {
   try {
     const res = await fetch(`${BACKEND}/api/run_evaluations`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildAgentUpstreamHeaders(req),
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }))

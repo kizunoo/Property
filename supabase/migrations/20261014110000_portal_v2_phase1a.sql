@@ -21,7 +21,7 @@ ALTER TABLE clients
 -- - self_code_hash & self_code_expires_at (self-service 6-char code)
 -- - invite_token_hash & invite_token_expires_at (32-byte single-use URL token)
 -- - atomic failed attempts counter and lockout
-CREATE TABLE portal_contacts (
+CREATE TABLE IF NOT EXISTS portal_contacts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
@@ -47,212 +47,191 @@ CREATE TABLE portal_contacts (
 );
 
 -- Partial UNIQUE index: Email is unique per contact across companies when provided
-CREATE UNIQUE INDEX idx_portal_contacts_email_unique
+CREATE UNIQUE INDEX IF NOT EXISTS uq_portal_contacts_lower_email
     ON portal_contacts (lower(email))
     WHERE email IS NOT NULL;
 
 -- Partial UNIQUE index: Exactly one primary contact per client company
-CREATE UNIQUE INDEX idx_portal_contacts_client_primary_unique
+CREATE UNIQUE INDEX IF NOT EXISTS uq_portal_contacts_client_primary
     ON portal_contacts (client_id)
     WHERE is_primary = TRUE;
 
-CREATE INDEX idx_portal_contacts_client_id ON portal_contacts (client_id);
-CREATE INDEX idx_portal_contacts_whatsapp ON portal_contacts (whatsapp_number);
-CREATE INDEX idx_portal_contacts_invite_hash ON portal_contacts (invite_token_hash)
-    WHERE invite_token_hash IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_portal_contacts_client_id ON portal_contacts (client_id);
+CREATE INDEX IF NOT EXISTS idx_portal_contacts_whatsapp ON portal_contacts (whatsapp_number);
 
--- 4. Create portal_sessions table (SHA-256 hashed token, idle & absolute expiry)
-CREATE TABLE portal_sessions (
+-- 4. Idempotent Primary Contact Backfill for existing clients
+INSERT INTO portal_contacts (client_id, name, whatsapp_number, title, is_primary, portal_role, status)
+SELECT c.id, c.name, c.whatsapp_number, 'Primary Contact', TRUE, 'admin', 'active'
+FROM clients c
+WHERE NOT EXISTS (
+    SELECT 1 FROM portal_contacts pc WHERE pc.client_id = c.id AND pc.is_primary = TRUE
+)
+ON CONFLICT (client_id) WHERE is_primary = TRUE DO NOTHING;
+
+-- 5. Create portal_sessions table (opaque 32-byte session tokens stored hashed)
+CREATE TABLE IF NOT EXISTS portal_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
     contact_id UUID REFERENCES portal_contacts(id) ON DELETE CASCADE,
     token_hash TEXT NOT NULL UNIQUE,
-    portal_role TEXT NOT NULL,
+    portal_role TEXT NOT NULL DEFAULT 'evaluator',
     idle_expires_at TIMESTAMPTZ NOT NULL,
     absolute_expires_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_active_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     revoked_at TIMESTAMPTZ,
     ip_hash TEXT,
-    user_agent TEXT
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_portal_sessions_token_hash ON portal_sessions (token_hash);
-CREATE INDEX idx_portal_sessions_client_id ON portal_sessions (client_id);
+CREATE INDEX IF NOT EXISTS idx_portal_sessions_token_hash ON portal_sessions (token_hash);
+CREATE INDEX IF NOT EXISTS idx_portal_sessions_client_id ON portal_sessions (client_id);
+CREATE INDEX IF NOT EXISTS idx_portal_sessions_contact_id ON portal_sessions (contact_id);
 
--- 5. Create portal_audit_log table (tamper-evident audit trail)
-CREATE TABLE portal_audit_log (
+-- 6. Create portal_audit_log table
+CREATE TABLE IF NOT EXISTS portal_audit_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
     contact_id UUID REFERENCES portal_contacts(id) ON DELETE SET NULL,
     action TEXT NOT NULL,
     object_type TEXT NOT NULL,
     object_id TEXT,
-    details JSONB NOT NULL DEFAULT '{}'::jsonb,
+    details JSONB,
     ip_hash TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_portal_audit_log_client_id ON portal_audit_log (client_id);
-CREATE INDEX idx_portal_audit_log_created_at ON portal_audit_log (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_portal_audit_client ON portal_audit_log (client_id);
+CREATE INDEX IF NOT EXISTS idx_portal_audit_contact ON portal_audit_log (contact_id);
+CREATE INDEX IF NOT EXISTS idx_portal_audit_created ON portal_audit_log (created_at DESC);
 
--- 6. Create persistent rate limits table
-CREATE TABLE portal_rate_limits (
-    key_hash TEXT PRIMARY KEY,
-    bucket_type TEXT NOT NULL,
-    attempt_count INT NOT NULL DEFAULT 1,
+-- 7. Create portal_rate_limits table (supports key column for atomic increments)
+CREATE TABLE IF NOT EXISTS portal_rate_limits (
+    key TEXT PRIMARY KEY,
+    attempts INT NOT NULL DEFAULT 1,
     window_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    reset_at TIMESTAMPTZ NOT NULL,
     locked_until TIMESTAMPTZ
 );
 
--- 7. Atomic Rate Limiting & Lockout RPC Functions (SECURITY DEFINER)
-
+-- 8. Atomic SQL function: portal_increment_rate_limit
 CREATE OR REPLACE FUNCTION portal_increment_rate_limit(
-    p_key_hash TEXT,
-    p_bucket_type TEXT,
-    p_window_seconds INT,
-    p_max_attempts INT,
-    p_lockout_seconds INT
+    p_key TEXT,
+    p_window_seconds INT DEFAULT 900
 )
-RETURNS TABLE (
-    allowed BOOLEAN,
-    locked_until TIMESTAMPTZ,
-    current_count INT
-)
+RETURNS TABLE(out_attempts INT, out_reset_at TIMESTAMPTZ)
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
-    v_now TIMESTAMPTZ := NOW();
-    v_row portal_rate_limits%ROWTYPE;
-    v_lock_until TIMESTAMPTZ := NULL;
+    v_now TIMESTAMPTZ := clock_timestamp();
+    v_reset_at TIMESTAMPTZ := v_now + (p_window_seconds || ' seconds')::INTERVAL;
+    v_attempts INT;
 BEGIN
-    SELECT * INTO v_row FROM portal_rate_limits WHERE key_hash = p_key_hash FOR UPDATE;
-    IF NOT FOUND THEN
-        INSERT INTO portal_rate_limits (key_hash, bucket_type, attempt_count, window_start, locked_until)
-        VALUES (p_key_hash, p_bucket_type, 1, v_now, NULL)
-        RETURNING * INTO v_row;
-        RETURN QUERY SELECT TRUE, NULL::TIMESTAMPTZ, 1;
-        RETURN;
-    END IF;
+    INSERT INTO portal_rate_limits (key, attempts, window_start, reset_at)
+    VALUES (p_key, 1, v_now, v_reset_at)
+    ON CONFLICT (key) DO UPDATE
+    SET attempts = CASE 
+            WHEN portal_rate_limits.reset_at <= v_now THEN 1 
+            ELSE portal_rate_limits.attempts + 1 
+        END,
+        window_start = CASE 
+            WHEN portal_rate_limits.reset_at <= v_now THEN v_now 
+            ELSE portal_rate_limits.window_start 
+        END,
+        reset_at = CASE 
+            WHEN portal_rate_limits.reset_at <= v_now THEN v_reset_at 
+            ELSE portal_rate_limits.reset_at 
+        END
+    RETURNING portal_rate_limits.attempts, portal_rate_limits.reset_at INTO v_attempts, v_reset_at;
 
-    -- Check active lockout
-    IF v_row.locked_until IS NOT NULL AND v_now < v_row.locked_until THEN
-        RETURN QUERY SELECT FALSE, v_row.locked_until, v_row.attempt_count;
-        RETURN;
-    END IF;
-
-    -- Check window expiration
-    IF v_now > v_row.window_start + (p_window_seconds || ' seconds')::INTERVAL THEN
-        UPDATE portal_rate_limits
-        SET attempt_count = 1, window_start = v_now, locked_until = NULL
-        WHERE key_hash = p_key_hash;
-        RETURN QUERY SELECT TRUE, NULL::TIMESTAMPTZ, 1;
-        RETURN;
-    END IF;
-
-    -- Increment attempt within window
-    IF v_row.attempt_count + 1 >= p_max_attempts THEN
-        v_lock_until := v_now + (p_lockout_seconds || ' seconds')::INTERVAL;
-        UPDATE portal_rate_limits
-        SET attempt_count = attempt_count + 1, locked_until = v_lock_until
-        WHERE key_hash = p_key_hash;
-        RETURN QUERY SELECT FALSE, v_lock_until, v_row.attempt_count + 1;
-        RETURN;
-    ELSE
-        UPDATE portal_rate_limits
-        SET attempt_count = attempt_count + 1
-        WHERE key_hash = p_key_hash;
-        RETURN QUERY SELECT TRUE, NULL::TIMESTAMPTZ, v_row.attempt_count + 1;
-        RETURN;
-    END IF;
+    RETURN QUERY SELECT v_attempts, v_reset_at;
 END;
 $$;
 
+-- 9. Atomic SQL function: portal_record_failed_contact_attempt
 CREATE OR REPLACE FUNCTION portal_record_failed_contact_attempt(
     p_contact_id UUID,
     p_max_attempts INT DEFAULT 5,
     p_lockout_seconds INT DEFAULT 900
 )
-RETURNS TABLE (
-    failed_attempts INT,
-    locked_until TIMESTAMPTZ
-)
+RETURNS TABLE(out_failed_attempts INT, out_is_locked BOOLEAN, out_locked_until TIMESTAMPTZ)
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
-    v_now TIMESTAMPTZ := NOW();
-    v_failed INT;
-    v_lock TIMESTAMPTZ := NULL;
+    v_now TIMESTAMPTZ := clock_timestamp();
+    v_contact portal_contacts%ROWTYPE;
+    v_attempts INT;
+    v_locked_until TIMESTAMPTZ := NULL;
 BEGIN
-    UPDATE portal_contacts
-    SET failed_login_attempts = failed_login_attempts + 1
-    WHERE id = p_contact_id
-    RETURNING failed_login_attempts INTO v_failed;
-
-    IF v_failed >= p_max_attempts THEN
-        v_lock := v_now + (p_lockout_seconds || ' seconds')::INTERVAL;
-        UPDATE portal_contacts
-        SET locked_until = v_lock
-        WHERE id = p_contact_id;
+    SELECT * INTO v_contact FROM portal_contacts WHERE portal_contacts.id = p_contact_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RETURN;
     END IF;
 
-    RETURN QUERY SELECT v_failed, v_lock;
+    -- If existing lockout expired, reset attempts counter for new window
+    IF v_contact.locked_until IS NOT NULL AND v_now >= v_contact.locked_until THEN
+        v_attempts := 1;
+        v_locked_until := NULL;
+    ELSE
+        v_attempts := COALESCE(v_contact.failed_login_attempts, 0) + 1;
+        IF v_attempts >= p_max_attempts THEN
+            v_locked_until := v_now + (p_lockout_seconds || ' seconds')::INTERVAL;
+        ELSE
+            v_locked_until := v_contact.locked_until;
+        END IF;
+    END IF;
+
+    UPDATE portal_contacts
+    SET failed_login_attempts = v_attempts,
+        locked_until = v_locked_until
+    WHERE portal_contacts.id = p_contact_id;
+
+    RETURN QUERY SELECT v_attempts, (v_locked_until IS NOT NULL AND v_locked_until > v_now), v_locked_until;
 END;
 $$;
 
+-- 10. Atomic SQL function: portal_reset_contact_lockout
 CREATE OR REPLACE FUNCTION portal_reset_contact_lockout(p_contact_id UUID)
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 BEGIN
     UPDATE portal_contacts
-    SET failed_login_attempts = 0, locked_until = NULL
-    WHERE id = p_contact_id;
+    SET failed_login_attempts = 0,
+        locked_until = NULL
+    WHERE portal_contacts.id = p_contact_id;
 END;
 $$;
 
--- Secure function execution grants
-REVOKE ALL ON FUNCTION portal_increment_rate_limit FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION portal_record_failed_contact_attempt FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION portal_reset_contact_lockout FROM PUBLIC, anon, authenticated;
+-- 11. Security Grants on Functions
+REVOKE ALL ON FUNCTION portal_increment_rate_limit(TEXT, INT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION portal_increment_rate_limit(TEXT, INT) TO service_role;
 
-GRANT EXECUTE ON FUNCTION portal_increment_rate_limit TO service_role;
-GRANT EXECUTE ON FUNCTION portal_record_failed_contact_attempt TO service_role;
-GRANT EXECUTE ON FUNCTION portal_reset_contact_lockout TO service_role;
+REVOKE ALL ON FUNCTION portal_record_failed_contact_attempt(UUID, INT, INT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION portal_record_failed_contact_attempt(UUID, INT, INT) TO service_role;
 
--- 8. Idempotent Backfill: Create primary contact only for clients that do not already have one
-INSERT INTO portal_contacts (client_id, name, whatsapp_number, portal_role, is_primary)
-SELECT
-    c.id,
-    COALESCE(c.name, 'Primary Contact') || ' Admin',
-    c.whatsapp_number,
-    'admin',
-    TRUE
-FROM clients c
-WHERE NOT EXISTS (
-    SELECT 1 FROM portal_contacts pc WHERE pc.client_id = c.id AND pc.is_primary = TRUE
-);
+REVOKE ALL ON FUNCTION portal_reset_contact_lockout(UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION portal_reset_contact_lockout(UUID) TO service_role;
 
--- 9. Lockdown: Enable RLS and revoke anon/authenticated (service_role only)
+-- 12. Enable RLS and Lock Down Public Grants
 ALTER TABLE portal_contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE portal_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE portal_audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE portal_rate_limits ENABLE ROW LEVEL SECURITY;
 
-REVOKE ALL ON portal_contacts FROM anon, authenticated;
-REVOKE ALL ON portal_sessions FROM anon, authenticated;
-REVOKE ALL ON portal_audit_log FROM anon, authenticated;
-REVOKE ALL ON portal_rate_limits FROM anon, authenticated;
+REVOKE ALL ON TABLE portal_contacts FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE portal_sessions FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE portal_audit_log FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE portal_rate_limits FROM PUBLIC, anon, authenticated;
 
-GRANT ALL ON portal_contacts TO service_role;
-GRANT ALL ON portal_sessions TO service_role;
-GRANT ALL ON portal_audit_log TO service_role;
-GRANT ALL ON portal_rate_limits TO service_role;
+GRANT ALL ON TABLE portal_contacts TO service_role;
+GRANT ALL ON TABLE portal_sessions TO service_role;
+GRANT ALL ON TABLE portal_audit_log TO service_role;
+GRANT ALL ON TABLE portal_rate_limits TO service_role;
 
 COMMIT;

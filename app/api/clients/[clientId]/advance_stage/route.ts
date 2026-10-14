@@ -1,3 +1,4 @@
+import { buildAgentUpstreamHeaders } from "@/lib/agent-bff-auth"
 import { NextRequest, NextResponse } from "next/server"
 
 export const maxDuration = 15
@@ -14,7 +15,7 @@ export async function POST(
   try {
     const upstream = await fetch(`${FASTAPI_URL}/api/clients/${clientId}/advance_stage`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildAgentUpstreamHeaders(req),
       body: JSON.stringify(body),
     })
 

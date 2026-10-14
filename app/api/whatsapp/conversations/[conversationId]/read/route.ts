@@ -1,3 +1,4 @@
+import { buildAgentUpstreamHeaders } from "@/lib/agent-bff-auth"
 import { NextRequest, NextResponse } from "next/server"
 
 export const maxDuration = 15
@@ -13,7 +14,7 @@ export async function POST(
       `${FASTAPI_URL}/api/whatsapp/conversations/${encodeURIComponent(conversationId)}/read`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: buildAgentUpstreamHeaders(req),
       }
     )
     const data = await upstream.json().catch(() => ({ success: false }))

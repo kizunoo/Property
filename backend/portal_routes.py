@@ -45,6 +45,7 @@ from portal_auth import (
     PortalSession,
     delivery_provider,
     rate_limit_store,
+    hash_rate_limit_key,
 )
 
 router = APIRouter()
@@ -593,13 +594,19 @@ def portal_auth_me(session: PortalSession = Depends(get_current_portal_session))
     }
 
 
+from agent_auth import require_client_access
+
+
 # ─── 2. Rep Console Portal Access Endpoints ──────────────────────────────────
 
 @router.get("/api/console/clients/{client_id}/portal/contacts")
-def rep_list_portal_contacts(client_id: str):
-    """Rep console: list all portal contacts for a client company."""
+def rep_list_portal_contacts(client_id: str, request: Request):
+    """Rep console: list all portal contacts for a client company (scoped to agent)."""
     import main
     supabase = main.supabase
+
+    if hasattr(request.state, "agent"):
+        require_client_access(request.state.agent, client_id, supabase)
 
     try:
         res = (
@@ -616,10 +623,13 @@ def rep_list_portal_contacts(client_id: str):
 
 
 @router.post("/api/console/clients/{client_id}/portal/contacts")
-def rep_create_portal_contact(client_id: str, body: dict):
+def rep_create_portal_contact(client_id: str, body: dict, request: Request):
     """Rep console: invite/create a new contact for a client company."""
     import main
     supabase = main.supabase
+
+    if hasattr(request.state, "agent"):
+        require_client_access(request.state.agent, client_id, supabase)
 
     name = (body.get("name") or "").strip()
     email = (body.get("email") or "").strip().lower() or None
@@ -662,12 +672,15 @@ def rep_create_portal_contact(client_id: str, body: dict):
 
 
 @router.post("/api/console/clients/{client_id}/portal/contacts/{contact_id}/issue-code")
-def rep_issue_login_code(client_id: str, contact_id: str):
+def rep_issue_login_code(client_id: str, contact_id: str, request: Request):
     """
     Rep console: issue a single-use 24h login code AND a 32-byte one-time invite link.
     """
     import main
     supabase = main.supabase
+
+    if hasattr(request.state, "agent"):
+        require_client_access(request.state.agent, client_id, supabase)
 
     try:
         res = supabase.table("portal_contacts").select("id, client_id, name, email, whatsapp_number").eq("id", contact_id).eq("client_id", client_id).single().execute()
@@ -707,7 +720,7 @@ def rep_issue_login_code(client_id: str, contact_id: str):
             details={"issued_by": "rep"},
         )
 
-        invite_url = f"/portal/invite?token={invite_token}"
+        invite_url = f"/portal/invite#token={invite_token}"
 
         return {
             "success": True,
@@ -724,7 +737,7 @@ def rep_issue_login_code(client_id: str, contact_id: str):
 
 
 @router.post("/api/console/clients/{client_id}/portal/contacts/{contact_id}/unlock")
-def rep_unlock_contact(client_id: str, contact_id: str):
+def rep_unlock_contact(client_id: str, contact_id: str, request: Request):
     """
     Rep console: unlock a contact who was locked out due to failed attempts.
     Resets failed_login_attempts to 0 and clears locked_until.
@@ -732,14 +745,17 @@ def rep_unlock_contact(client_id: str, contact_id: str):
     import main
     supabase = main.supabase
 
+    if hasattr(request.state, "agent"):
+        require_client_access(request.state.agent, client_id, supabase)
+
     try:
         supabase.table("portal_contacts").update({
             "failed_login_attempts": 0,
             "locked_until": None,
         }).eq("id", contact_id).eq("client_id", client_id).execute()
 
-        # Clear persistent rate limiter bucket
-        rate_limit_store.clear(f"contact_{contact_id}")
+        # Clear persistent rate limiter bucket using hashed key
+        rate_limit_store.clear(hash_rate_limit_key("contact", contact_id))
 
         log_audit_event(
             supabase,
@@ -754,10 +770,13 @@ def rep_unlock_contact(client_id: str, contact_id: str):
 
 
 @router.post("/api/console/clients/{client_id}/portal/contacts/{contact_id}/revoke-code")
-def rep_revoke_login_code(client_id: str, contact_id: str):
+def rep_revoke_login_code(client_id: str, contact_id: str, request: Request):
     """Rep console: revoke a pending login code and invite link."""
     import main
     supabase = main.supabase
+
+    if hasattr(request.state, "agent"):
+        require_client_access(request.state.agent, client_id, supabase)
 
     try:
         supabase.table("portal_contacts").update({
@@ -782,10 +801,13 @@ def rep_revoke_login_code(client_id: str, contact_id: str):
 
 
 @router.patch("/api/console/clients/{client_id}/portal/contacts/{contact_id}/deactivate")
-def rep_deactivate_contact(client_id: str, contact_id: str):
+def rep_deactivate_contact(client_id: str, contact_id: str, request: Request):
     """Rep console: deactivate a contact and revoke their active sessions."""
     import main
     supabase = main.supabase
+
+    if hasattr(request.state, "agent"):
+        require_client_access(request.state.agent, client_id, supabase)
 
     try:
         supabase.table("portal_contacts").update({
@@ -816,10 +838,13 @@ def rep_deactivate_contact(client_id: str, contact_id: str):
 
 
 @router.post("/api/console/clients/{client_id}/portal/revoke-all-sessions")
-def rep_revoke_all_sessions(client_id: str):
+def rep_revoke_all_sessions(client_id: str, request: Request):
     """Rep console: kill switch to revoke all active portal sessions for a company."""
     import main
     supabase = main.supabase
+
+    if hasattr(request.state, "agent"):
+        require_client_access(request.state.agent, client_id, supabase)
 
     now = datetime.now(timezone.utc)
     try:
@@ -840,10 +865,13 @@ def rep_revoke_all_sessions(client_id: str):
 
 
 @router.post("/api/console/clients/{client_id}/portal/rotate-legacy-code")
-def rep_rotate_legacy_code(client_id: str):
+def rep_rotate_legacy_code(client_id: str, request: Request):
     """Rep console: generate a new legacy company code, hash it into portal_access_code_hash, null plaintext."""
     import main
     supabase = main.supabase
+
+    if hasattr(request.state, "agent"):
+        require_client_access(request.state.agent, client_id, supabase)
 
     new_code = generate_secure_code(8)
     new_hash = hash_code(new_code)
@@ -871,10 +899,13 @@ def rep_rotate_legacy_code(client_id: str):
 
 
 @router.get("/api/console/clients/{client_id}/portal/audit-log")
-def rep_get_portal_audit_log(client_id: str, limit: int = 50):
+def rep_get_portal_audit_log(client_id: str, request: Request, limit: int = 50):
     """Rep console: fetch audit trail for client portal access."""
     import main
     supabase = main.supabase
+
+    if hasattr(request.state, "agent"):
+        require_client_access(request.state.agent, client_id, supabase)
 
     try:
         res = (
@@ -888,3 +919,4 @@ def rep_get_portal_audit_log(client_id: str, limit: int = 50):
         return {"audit_log": res.data or []}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to fetch audit log: {exc}")
+

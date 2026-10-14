@@ -178,14 +178,111 @@ from portal_auth import get_current_portal_session, require_company_access, Port
 import portal_routes
 app.include_router(portal_routes.router)
 
+from agent_auth import get_current_agent, require_admin, AgentIdentity
+import agent_routes
+app.include_router(agent_routes.router)
+
+import re
+from fastapi.responses import JSONResponse
+
+AGENT_AUTH_ALLOWLIST = [
+    re.compile(r"^/api/whatsapp/webhook(/.*)?$"),
+    re.compile(r"^/api/health$"),
+    re.compile(r"^/api/calendar/[^/]+\.ics$"),
+    re.compile(r"^/api/portal(/.*)?$"),
+    re.compile(r"^/api/agent/login$"),
+    re.compile(r"^/api/agent/enroll$"),
+    re.compile(r"^/api/agent/reset-password$"),
+]
+
+
+@app.middleware("http")
+async def enforce_agent_default_deny(request: Request, call_next):
+    path = request.url.path
+
+    # Only inspect /api/ routes
+    if not path.startswith("/api/"):
+        return await call_next(request)
+
+    # 1. Simulate endpoints guard (Item 7):
+    # In production -> 404
+    # Otherwise -> require admin session
+    if "simulate_" in path:
+        is_prod = os.getenv("ENVIRONMENT", "").lower() in ("production", "prod")
+        if is_prod:
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
+    # 2. Check allowlist
+    is_allowlisted = any(pattern.match(path) for pattern in AGENT_AUTH_ALLOWLIST)
+    if is_allowlisted:
+        return await call_next(request)
+
+    # 3. State-changing Origin / CSRF check (Item 3)
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        origin = request.headers.get("origin")
+        auth_hdr = request.headers.get("authorization", "")
+        has_bearer = auth_hdr.lower().startswith("bearer ")
+        is_prod = os.getenv("ENVIRONMENT", "").lower() in ("production", "prod")
+
+        # If request arrives with ambient cookie but without Bearer header, Origin is mandatory
+        if not has_bearer and "agent_session" in request.cookies and not origin:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "CSRF verification failed: Missing Origin on cookie-authenticated request."}
+            )
+
+        if origin:
+            allowed_hosts = []
+            if not is_prod:
+                allowed_hosts.extend(["localhost:3000", "127.0.0.1:3000", "localhost:8000", "127.0.0.1:8000"])
+            custom_origins = os.getenv("ALLOWED_ORIGINS", "")
+            if custom_origins:
+                allowed_hosts.extend([o.strip() for o in custom_origins.split(",") if o.strip()])
+            
+            origin_host = origin.split("://")[-1].rstrip("/")
+            req_host = request.headers.get("host", "")
+            if not any(origin_host == h or origin_host.endswith("." + h) for h in allowed_hosts) and origin_host != req_host:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": f"CSRF verification failed: Untrusted Origin '{origin_host}'."}
+                )
+
+    # 4. Require valid agent session (Item 4)
+    try:
+        agent = get_current_agent(request)
+        request.state.agent = agent
+
+        # If simulate endpoint in non-prod, verify admin role
+        if "simulate_" in path and agent.role != "admin":
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Administrator privileges required for simulation endpoints."}
+            )
+
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"detail": f"Agent authentication check error: {exc}"})
+
+    return await call_next(request)
+
+
+@app.get("/api/health")
+def api_health():
+    return {"status": "ok", "service": "PIPELINE.EV Logic Engine"}
+
 
 
 @app.post("/api/invite/mark_sent")
-def mark_invite_sent(body: dict):
+def mark_invite_sent(body: dict, request: Request):
     client_id = body.get("client_id")
     property_id = body.get("property_id")
     if not client_id:
         raise HTTPException(status_code=400, detail="client_id is required")
+
+    if hasattr(request.state, "agent"):
+        from agent_auth import require_client_access
+        require_client_access(request.state.agent, client_id, supabase)
 
     try:
         supabase.table("invite_drafts").update({
@@ -2220,6 +2317,7 @@ def suggest_ai_reply(phone_number: str, prompt_context: str | None = None, clien
 
 @app.get("/api/whatsapp/messages")
 def get_whatsapp_messages(
+    request: Request,
     to_number: str = None,
     client_id: str = None,
     agent_id: str = None,
@@ -2228,6 +2326,13 @@ def get_whatsapp_messages(
     Return message history for a given phone number filtered by agent.
     Tries Supabase first; falls back to the in-memory / disk list.
     """
+    agent = getattr(request.state, "agent", None) if request else None
+    scoping_mode = os.getenv("AGENT_PIPELINE_SCOPING", "assigned").lower()
+    if agent and agent.role != "admin" and scoping_mode == "assigned":
+        agent_id = str(agent.agent_id) if agent.agent_id else "no_agent"
+        if client_id:
+            from agent_auth import require_client_access
+            require_client_access(agent, client_id, supabase)
     # Supabase path (preferred)
     db_msgs = _fetch_messages_from_supabase(to_number, agent_id, client_id)
     if db_msgs is not None:
@@ -4133,11 +4238,16 @@ async def receive_whatsapp_webhook(request: Request):
 
 
 @app.post("/api/whatsapp/send_message")
-def send_custom_whatsapp_message(body: dict):
+def send_custom_whatsapp_message(body: dict, request: Request = None):
     to_number = body.get("to_number")
     message_text = body.get("message") or body.get("message_text")
     if not to_number or not message_text:
         raise HTTPException(status_code=400, detail="to_number and message are required")
+
+    client_id = body.get("client_id")
+    if client_id and request and hasattr(request.state, "agent"):
+        from agent_auth import require_client_access
+        require_client_access(request.state.agent, client_id, supabase)
 
     agent_id = body.get("agent_id") or None
     clean_digits = "".join(filter(str.isdigit, to_number))
@@ -4149,7 +4259,6 @@ def send_custom_whatsapp_message(body: dict):
     else:
         result = send_whatsapp_message(clean_digits, message_text, manual_override=manual_override)
 
-    client_id = body.get("client_id")
     client_name = body.get("client_name") or "Contact"
     if client_id:
         try:
@@ -4180,15 +4289,19 @@ def send_custom_whatsapp_message(body: dict):
 
 
 @app.post("/api/whatsapp/send")
-def send_whatsapp_alias_endpoint(body: dict):
-    return send_custom_whatsapp_message(body)
+def send_whatsapp_alias_endpoint(body: dict, request: Request = None):
+    return send_custom_whatsapp_message(body, request=request)
 
 
 @app.post("/api/whatsapp/nudge")
-def trigger_nudge_endpoint(body: dict):
+def trigger_nudge_endpoint(body: dict, request: Request = None):
     phone = body.get("phone_number") or body.get("to_number")
     if not phone:
         raise HTTPException(status_code=400, detail="phone_number is required")
+    client_id = body.get("client_id")
+    if client_id and request and hasattr(request.state, "agent"):
+        from agent_auth import require_client_access
+        require_client_access(request.state.agent, client_id, supabase)
     client_name = body.get("client_name") or "Client"
     unit_name = body.get("unit_name") or "property"
     return dispatch_followup_nudge(phone, client_name=client_name, unit_name=unit_name)
@@ -4203,7 +4316,16 @@ def suggest_reply_endpoint(body: dict, request: Request):
 
 
 @app.post("/api/whatsapp/conversations/{conversation_id}/read")
-def mark_conversation_read_endpoint(conversation_id: str):
+def mark_conversation_read_endpoint(conversation_id: str, request: Request):
+    cur_agent = getattr(request.state, "agent", None)
+    if cur_agent and cur_agent.role != "admin" and os.getenv("AGENT_PIPELINE_SCOPING", "assigned").lower() == "assigned":
+        if not WHATSAPP_USE_MEMORY_STORE and supabase:
+            res = supabase.table("whatsapp_conversations").select("agent_id, client_id").eq("id", conversation_id).limit(1).execute()
+            if res.data:
+                conv = res.data[0]
+                if not conv.get("client_id") or (conv.get("agent_id") and str(conv.get("agent_id")) != str(cur_agent.agent_id)):
+                    raise HTTPException(status_code=403, detail="Access denied to this conversation thread.")
+
     now_iso = datetime.now(timezone.utc).isoformat()
     if not WHATSAPP_USE_MEMORY_STORE and supabase:
         try:
@@ -4217,7 +4339,14 @@ def mark_conversation_read_endpoint(conversation_id: str):
 
 
 @app.get("/api/whatsapp/conversations")
-def get_whatsapp_conversations_endpoint(agent_id: str | None = None):
+def get_whatsapp_conversations_endpoint(request: Request, agent_id: str | None = None):
+    # Scoping check (Item 8)
+    cur_agent = getattr(request.state, "agent", None)
+    scoping_mode = os.getenv("AGENT_PIPELINE_SCOPING", "assigned").lower()
+
+    if cur_agent and cur_agent.role != "admin" and scoping_mode == "assigned":
+        agent_id = cur_agent.agent_id
+
     threads = []
     if not WHATSAPP_USE_MEMORY_STORE and supabase:
         try:
@@ -4254,6 +4383,10 @@ def get_whatsapp_conversations_endpoint(agent_id: str | None = None):
 
     if agent_id and threads:
         threads = [t for t in threads if not t.get("agent_id") or t.get("agent_id") == agent_id]
+
+    if cur_agent and cur_agent.role != "admin" and scoping_mode == "assigned":
+        # Unmatched conversations without an assigned company are admin-only (Item 8)
+        threads = [t for t in threads if t.get("client_id") is not None]
 
     now_utc = datetime.now(timezone.utc)
     enriched = []
@@ -4392,11 +4525,15 @@ def resume_automation_endpoint(body: dict):
 
 
 @app.post("/api/whatsapp/send_pitch")
-def send_pitch_via_whatsapp(body: dict):
+def send_pitch_via_whatsapp(body: dict, request: Request = None):
     client_id = body.get("client_id")
     property_id = body.get("property_id")
     if not client_id or not property_id:
         raise HTTPException(status_code=400, detail="client_id and property_id are required")
+
+    if request and hasattr(request.state, "agent"):
+        from agent_auth import require_client_access
+        require_client_access(request.state.agent, client_id, supabase)
 
     # ── Agent attribution ────────────────────────────────────────────────────
     # Priority: explicit sender_agent_id > agent_id field > client.assigned_agent_id
@@ -4818,9 +4955,13 @@ def resume_automation_endpoint(body: dict):
 
 
 @app.post("/api/clients/{client_id}/advance_stage")
-def manually_advance_stage(client_id: str, body: dict):
+def manually_advance_stage(client_id: str, body: dict, request: Request):
     """Manual-only transitions — currently just 'negotiation', since nothing
     else in the app auto-signals that a deal has entered negotiation."""
+    if hasattr(request.state, "agent"):
+        from agent_auth import require_client_access
+        require_client_access(request.state.agent, client_id, supabase)
+
     target_stage = body.get("stage")
     if target_stage not in STAGE_ORDER:
         raise HTTPException(status_code=400, detail="Invalid stage")
@@ -4868,6 +5009,54 @@ _scheduler.add_job(process_due_whatsapp_reminders, "interval", minutes=1, id="pr
 
 @app.on_event("startup")
 def start_scheduler():
+    is_prod = os.getenv("ENVIRONMENT", "").lower() in ("production", "prod")
+    is_tunnel_or_proxy = (
+        os.getenv("BEHIND_PROXY", "").lower() in ("true", "1") or
+        os.getenv("NGROK_ACTIVE", "").lower() in ("true", "1") or
+        os.getenv("NGROK_TUNNEL", "").lower() in ("true", "1")
+    )
+
+    # 1. Require ENVIRONMENT=production when deployed behind ngrok tunnel or proxy (Item 9)
+    if is_tunnel_or_proxy and not is_prod:
+        raise RuntimeError("FATAL: App is running behind ngrok/proxy but ENVIRONMENT is not explicitly set to 'production'.")
+
+    # 2. Production security check (Item 9)
+    if is_prod:
+        missing_vars = []
+        if not os.getenv("BFF_INTERNAL_SECRET"):
+            missing_vars.append("BFF_INTERNAL_SECRET")
+        if not os.getenv("PORTAL_CODE_PEPPER"):
+            missing_vars.append("PORTAL_CODE_PEPPER")
+        if not os.getenv("CALENDAR_SIGNING_SECRET"):
+            missing_vars.append("CALENDAR_SIGNING_SECRET")
+        wa_secret = os.getenv("WHATSAPP_APP_SECRET")
+        if not wa_secret or len(wa_secret) < 16:
+            missing_vars.append("WHATSAPP_APP_SECRET (must be >= 16 chars)")
+        sb_service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+        if not sb_service_key:
+            missing_vars.append("SUPABASE_SERVICE_ROLE_KEY")
+
+        if missing_vars:
+            raise RuntimeError(f"FATAL: Production security check failed. Missing or invalid required environment variables: {', '.join(missing_vars)}")
+
+        enforce_wa = os.getenv("ENFORCE_WA_SIGNATURE", "true").lower()
+        if enforce_wa in ("false", "0", "no"):
+            raise RuntimeError("FATAL: Webhook signature verification (ENFORCE_WA_SIGNATURE) cannot be disabled in production.")
+
+    # 3. Print clean security posture summary (names and on/off status only, never secret values)
+    print("=" * 64)
+    print("PIPELINE.EV LOGIC ENGINE - SECURITY POSTURE SUMMARY")
+    print(f"  ENVIRONMENT:                 {os.getenv('ENVIRONMENT', 'development')}")
+    print(f"  PRODUCTION HARDENING:        {'ENABLED' if is_prod else 'DISABLED (dev mode)'}")
+    print(f"  BFF_INTERNAL_SECRET:         {'CONFIGURED' if os.getenv('BFF_INTERNAL_SECRET') else 'MISSING'}")
+    print(f"  PORTAL_CODE_PEPPER:          {'CONFIGURED' if os.getenv('PORTAL_CODE_PEPPER') else 'MISSING'}")
+    print(f"  CALENDAR_SIGNING_SECRET:     {'CONFIGURED' if os.getenv('CALENDAR_SIGNING_SECRET') else 'MISSING'}")
+    print(f"  WHATSAPP_APP_SECRET:         {'CONFIGURED' if os.getenv('WHATSAPP_APP_SECRET') else 'MISSING'}")
+    print(f"  SUPABASE_SERVICE_KEY:        {'CONFIGURED' if (os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_KEY')) else 'MISSING'}")
+    print(f"  ENFORCE_WA_SIGNATURE:        {'ENABLED' if os.getenv('ENFORCE_WA_SIGNATURE', 'true').lower() not in ('false', '0', 'no') else 'DISABLED'}")
+    print(f"  SIMULATION ENDPOINTS:        {'BLOCKED (404)' if is_prod else 'ADMIN ONLY'}")
+    print("=" * 64)
+
     if not _scheduler.running:
         _scheduler.start()
         print("[scheduler] background price ticker started (every 12 min)")
@@ -5154,7 +5343,11 @@ def generate_reasoning_text(client_id: str, property_id: str) -> str:
 
 
 @app.post("/api/generate_reasoning")
-def generate_reasoning(body: ReasoningRequest):
+def generate_reasoning(body: ReasoningRequest, request: Request):
+    if hasattr(request.state, "agent"):
+        from agent_auth import require_client_access
+        require_client_access(request.state.agent, body.client_id, supabase)
+
     # Check cache first for cached flag
     try:
         cache_res = (
@@ -5195,8 +5388,14 @@ def generate_briefing_line(client_name: str, property_name: str, expected_value:
 
 
 @app.get("/api/dashboard_briefing")
-def get_dashboard_briefing(agent_id: str | None = None):
-    # Pull top 3 VIP clients by best-match expected_value (optionally filtered by agent)
+def get_dashboard_briefing(request: Request, agent_id: str | None = None):
+    # Pull top 3 VIP clients by best-match expected_value (scoping enforced)
+    agent = getattr(request.state, "agent", None) if request else None
+    scoping_mode = os.getenv("AGENT_PIPELINE_SCOPING", "assigned").lower()
+    effective_agent_id = agent_id
+    if agent and agent.role != "admin" and scoping_mode == "assigned":
+        effective_agent_id = str(agent.agent_id) if agent.agent_id else "unassigned_no_access"
+
     try:
         evals_query = (
             supabase.table("pipeline_evaluations")
@@ -5206,10 +5405,10 @@ def get_dashboard_briefing(agent_id: str | None = None):
         )
         all_tier1 = evals_query.execute().data or []
         # Filter by agent in Python (nested FK filter not supported directly)
-        if agent_id:
+        if effective_agent_id:
             all_tier1 = [
                 row for row in all_tier1
-                if (row.get("clients") or {}).get("assigned_agent_id") == agent_id
+                if str((row.get("clients") or {}).get("assigned_agent_id")) == str(effective_agent_id)
             ]
         evals = all_tier1[:3]
     except Exception as exc:
@@ -5287,13 +5486,16 @@ class LogViewingRequest(BaseModel):
 
 
 @app.post("/api/log_viewing")
-def log_viewing(body: LogViewingRequest):
+def log_viewing(body: LogViewingRequest, request: Request):
     """
     1. Increment `past_viewings` on the client record by 1.
     2. Re-score just this client-property pair using score_pair().
     3. Upsert the updated evaluation row in pipeline_evaluations.
     4. Return the updated probability, expected_value, and tier.
     """
+    if hasattr(request.state, "agent"):
+        from agent_auth import require_client_access
+        require_client_access(request.state.agent, body.client_id, supabase)
     # ── 1. Fetch client & property ───────────────────────────────────────────
     try:
         client_res = (
@@ -5388,11 +5590,15 @@ class ScheduleViewingRequest(BaseModel):
 
 
 @app.post("/api/schedule_viewing")
-def schedule_viewing(body: ScheduleViewingRequest):
+def schedule_viewing(body: ScheduleViewingRequest, request: Request):
     """
     Insert a new row into scheduled_viewings (status='upcoming').
     Does NOT touch past_viewings or re-score — that only happens when completed.
     """
+    if hasattr(request.state, "agent"):
+        from agent_auth import require_client_access
+        require_client_access(request.state.agent, body.client_id, supabase)
+
     try:
         res = supabase.table("scheduled_viewings").insert({
             "client_id":    body.client_id,
@@ -5413,7 +5619,7 @@ def schedule_viewing(body: ScheduleViewingRequest):
 
 
 @app.patch("/api/complete_viewing/{viewing_id}")
-def complete_viewing(viewing_id: str):
+def complete_viewing(viewing_id: str, request: Request):
     """
     Mark a scheduled viewing as completed, then trigger the Log Viewing flow:
     increment past_viewings, re-score, upsert pipeline_evaluations.
@@ -5436,6 +5642,10 @@ def complete_viewing(viewing_id: str):
     sv = view_res.data[0]
     client_id = sv["client_id"]
     property_id = sv["property_id"]
+
+    if hasattr(request.state, "agent"):
+        from agent_auth import require_client_access
+        require_client_access(request.state.agent, client_id, supabase)
 
     # ── 2. Mark scheduled_viewings row as completed ──────────────────────────
     try:
@@ -5525,12 +5735,17 @@ class CancelViewingRequest(BaseModel):
 
 
 @app.patch("/api/cancel_viewing/{viewing_id}")
-def cancel_viewing(viewing_id: str, body: CancelViewingRequest | None = None):
+def cancel_viewing(viewing_id: str, request: Request, body: CancelViewingRequest | None = None):
     """
     Cancel a scheduled viewing. Sets status='cancelled' and records reason if column exists.
     """
-    reason = body.reason if (body and body.reason) else "agent"
     db = get_supabase()
+    sv_res = db.table("scheduled_viewings").select("client_id").eq("id", viewing_id).limit(1).execute()
+    if sv_res.data and sv_res.data[0].get("client_id") and hasattr(request.state, "agent"):
+        from agent_auth import require_client_access
+        require_client_access(request.state.agent, sv_res.data[0]["client_id"], db)
+
+    reason = body.reason if (body and body.reason) else "agent"
     cancel_viewing_reminders(viewing_id, reason=reason)
     try:
         db.table("scheduled_viewings").update({
@@ -5550,10 +5765,11 @@ def cancel_viewing(viewing_id: str, body: CancelViewingRequest | None = None):
 
 
 @app.get("/api/scheduled_viewings")
-def list_scheduled_viewings():
+def list_scheduled_viewings(request: Request):
     """
     Fetch all scheduled_viewings rows joined with client + property names.
     Auto-cancels any 'upcoming' viewing scheduled >24 hours in the past.
+    Scoped to assigned agent if non-admin agent is logged in.
     """
     db = get_supabase()
     # ── Auto-cancel stale upcoming viewings (> 24 hours past due) ──────────────
@@ -5594,24 +5810,42 @@ def list_scheduled_viewings():
     try:
         res = (
             db.table("scheduled_viewings")
-            .select("*, clients(id, name, preferred_neighborhood), properties(id, address, neighborhood)")
+            .select("*, clients(id, name, preferred_neighborhood, assigned_agent_id), properties(id, address, neighborhood)")
             .order("scheduled_at", desc=False)
             .execute()
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to fetch scheduled viewings: {exc}") from exc
 
-    return {"viewings": res.data or []}
+    viewings = res.data or []
+    agent = getattr(request.state, "agent", None) if request else None
+    scoping_mode = os.getenv("AGENT_PIPELINE_SCOPING", "assigned").lower()
+    if agent and agent.role != "admin" and scoping_mode == "assigned":
+        eff_id = str(agent.agent_id) if agent.agent_id else "no_agent"
+        viewings = [v for v in viewings if str((v.get("clients") or {}).get("assigned_agent_id")) == eff_id]
+
+    return {"viewings": viewings}
 
 
 @app.get("/api/signals")
-def get_signals():
-    result = supabase.table("signals").select("*").eq("dismissed", False).order("created_at", desc=True).limit(30).execute()
-    return result.data
+def get_signals(request: Request):
+    agent = getattr(request.state, "agent", None) if request else None
+    scoping_mode = os.getenv("AGENT_PIPELINE_SCOPING", "assigned").lower()
+    result = supabase.table("signals").select("*, clients(assigned_agent_id)").eq("dismissed", False).order("created_at", desc=True).limit(50).execute()
+    signals = result.data or []
+    if agent and agent.role != "admin" and scoping_mode == "assigned":
+        eff_id = str(agent.agent_id) if agent.agent_id else "no_agent"
+        signals = [s for s in signals if str((s.get("clients") or {}).get("assigned_agent_id")) == eff_id]
+    return signals
 
 
 @app.post("/api/signals/{signal_id}/dismiss")
-def dismiss_signal(signal_id: str):
+def dismiss_signal(signal_id: str, request: Request):
+    sig = supabase.table("signals").select("client_id").eq("id", signal_id).limit(1).execute()
+    if sig.data and sig.data[0].get("client_id") and hasattr(request.state, "agent"):
+        from agent_auth import require_client_access
+        require_client_access(request.state.agent, sig.data[0]["client_id"], supabase)
+
     supabase.table("signals").update({"dismissed": True}).eq("id", signal_id).execute()
     return {"success": True}
 
@@ -5634,7 +5868,7 @@ def compute_blended_probability(formula_prob: float, ml_prob: float | None) -> f
 
 
 @app.get("/api/shortlist/{property_id}")
-def get_shortlist(property_id: str, limit: int = 25, agent_id: str | None = None):
+def get_shortlist(property_id: str, request: Request, limit: int = 25, agent_id: str | None = None):
     """
     Shortlist v2 — Score every client against a specific property.
 
@@ -5647,6 +5881,11 @@ def get_shortlist(property_id: str, limit: int = 25, agent_id: str | None = None
     UI can display per-row 'Pick / Skip' reasoning without any LLM call.
     """
     from scoring_engine import build_pick_skip_reasons
+
+    cur_agent = getattr(request.state, "agent", None) if request else None
+    scoping_mode = os.getenv("AGENT_PIPELINE_SCOPING", "assigned").lower()
+    if cur_agent and cur_agent.role != "admin" and scoping_mode == "assigned":
+        agent_id = str(cur_agent.agent_id) if cur_agent.agent_id else "no_agent"
 
     # ── 1. Fetch property ────────────────────────────────────────────────────
     try:
@@ -5770,11 +6009,15 @@ class ClientPatchRequest(BaseModel):
 
 
 @app.patch("/api/clients/{client_id}")
-def patch_client(client_id: str, body: ClientPatchRequest):
+def patch_client(client_id: str, body: ClientPatchRequest, request: Request):
     """
     Update rich profile fields on a client row (partial update).
     Re-scores the client's best-match evaluation row after update.
     """
+    if hasattr(request.state, "agent"):
+        from agent_auth import require_client_access
+        require_client_access(request.state.agent, client_id, supabase)
+
     updates = {k: v for k, v in body.dict().items() if v is not None}
     if not updates:
         return {"updated": False, "message": "No fields to update"}
@@ -5862,8 +6105,11 @@ class ClientPastPurchaseCreate(BaseModel):
 
 
 @app.get("/api/clients/{client_id}/purchases")
-def get_client_purchases(client_id: str):
+def get_client_purchases(client_id: str, request: Request):
     """Fetch all recorded past property purchases for a client."""
+    if hasattr(request.state, "agent"):
+        from agent_auth import require_client_access
+        require_client_access(request.state.agent, client_id, supabase)
     try:
         res = (
             supabase.table("client_past_purchases")
@@ -5878,8 +6124,11 @@ def get_client_purchases(client_id: str):
 
 
 @app.post("/api/clients/{client_id}/purchases")
-def add_client_purchase(client_id: str, body: ClientPastPurchaseCreate):
+def add_client_purchase(client_id: str, body: ClientPastPurchaseCreate, request: Request):
     """Record a past property acquisition for a client."""
+    if hasattr(request.state, "agent"):
+        from agent_auth import require_client_access
+        require_client_access(request.state.agent, client_id, supabase)
     data = {
         "client_id":      client_id,
         "property_name":  body.property_name,
@@ -5953,7 +6202,11 @@ Requirements:
 
 
 @app.post("/api/generate_invite")
-def generate_invite(body: InviteRequest):
+def generate_invite(body: InviteRequest, request: Request):
+    if hasattr(request.state, "agent"):
+        from agent_auth import require_client_access
+        require_client_access(request.state.agent, body.client_id, supabase)
+
     agent_name = body.agent_name or "R. Delgado"
     agent_id = body.agent_id or None
 
@@ -6820,7 +7073,12 @@ def get_market_movements(limit: int = 10):
 # ─── Daily Worklist: Top 5 to Contact Today ───────────────────────────────────
 
 @app.get("/api/daily_worklist")
-def get_daily_worklist(force_refresh: bool = False, agent_id: str | None = None):
+def get_daily_worklist(request: Request = None, force_refresh: bool = False, agent_id: str | None = None):
+    cur_agent = getattr(request.state, "agent", None) if request else None
+    scoping_mode = os.getenv("AGENT_PIPELINE_SCOPING", "assigned").lower()
+    if cur_agent and cur_agent.role != "admin" and scoping_mode == "assigned":
+        agent_id = str(cur_agent.agent_id) if cur_agent.agent_id else "no_agent"
+
     today = date.today().isoformat()
     local_cache_file = os.path.join(os.path.dirname(__file__), "daily_worklist_cache.json")
 

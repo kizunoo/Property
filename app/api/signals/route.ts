@@ -1,6 +1,7 @@
+import { buildAgentUpstreamHeaders } from "@/lib/agent-bff-auth"
 import { NextResponse } from "next/server";
 
-export async function GET() {
+export async function GET(req: Request) {
   const backendUrl = process.env.BACKEND_URL || process.env.FASTAPI_URL || "http://127.0.0.1:8000";
   try {
     const res = await fetch(`${backendUrl}/api/signals`);

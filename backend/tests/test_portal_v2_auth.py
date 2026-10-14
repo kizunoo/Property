@@ -9,7 +9,7 @@ from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from fastapi import Request
+from fastapi import Request, HTTPException
 from fastapi.testclient import TestClient
 
 # Set required test env
@@ -493,7 +493,9 @@ class TestPortalV2Auth(unittest.TestCase):
 
     def test_rep_unlock_contact(self):
         """Rep unlock endpoint resets failed attempts and clears lockout."""
-        with patch.object(main.supabase, "table") as mock_table:
+        mock_agent = MagicMock(agent_id="rep-1", role="admin")
+        with patch("main.get_current_agent", return_value=mock_agent), \
+             patch.object(main.supabase, "table") as mock_table:
             mock_query = MagicMock()
             mock_update = MagicMock()
             mock_query.update.return_value = mock_update
@@ -550,6 +552,18 @@ class TestPortalV2Auth(unittest.TestCase):
         req_untrusted.client = MagicMock(host="127.0.0.1")
         ip_fallback = get_trusted_client_ip(req_untrusted)
         self.assertEqual(ip_fallback, "127.0.0.1")
+
+    def test_rate_limiter_fails_closed(self):
+        """When rate limit store raises an exception, the system fails closed (503) rather than allowing bypass."""
+        with patch.object(portal_auth.rate_limit_store, "increment_and_check", side_effect=Exception("Database disk error")):
+            with self.assertRaises(HTTPException) as ctx:
+                portal_auth.check_and_record_ip_attempt("192.0.2.1")
+            self.assertEqual(ctx.exception.status_code, 503)
+            self.assertIn("unavailable", ctx.exception.detail.lower())
+
+            with self.assertRaises(HTTPException) as ctx2:
+                portal_auth.check_and_record_contact_attempt("contact-123")
+            self.assertEqual(ctx2.exception.status_code, 503)
 
     def test_docs_disabled_in_production(self):
         """When ENVIRONMENT=production, FastAPI docs, redoc, and openapi are disabled."""

@@ -1,3 +1,4 @@
+import { buildAgentUpstreamHeaders } from "@/lib/agent-bff-auth"
 import { NextRequest, NextResponse } from "next/server"
 
 const FASTAPI_URL = process.env.FASTAPI_URL ?? process.env.BACKEND_URL ?? "http://localhost:8000"
@@ -8,7 +9,7 @@ export async function GET(req: NextRequest) {
     const url = new URL(`${FASTAPI_URL}/api/dashboard_briefing`)
     if (agentId) url.searchParams.set("agent_id", agentId)
 
-    const res = await fetch(url.toString(), { cache: "no-store" })
+    const res = await fetch(url.toString(), { cache: "no-store", headers: buildAgentUpstreamHeaders(req) })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
       return NextResponse.json(

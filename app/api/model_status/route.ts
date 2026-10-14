@@ -1,12 +1,13 @@
+import { buildAgentUpstreamHeaders } from "@/lib/agent-bff-auth"
 import { NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000"
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/model_status`, { cache: "no-store" })
+    const res = await fetch(`${BACKEND_URL}/api/model_status`, { cache: "no-store", headers: buildAgentUpstreamHeaders(req) })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }))
       return NextResponse.json(err, { status: res.status })
