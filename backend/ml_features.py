@@ -6,14 +6,14 @@ and verified past property purchase track record).
 """
 
 def extract_features(client: dict, prop: dict) -> dict:
-    budget = client.get("budget") or 0
+    budget = client.get("budget")
     prop_value = prop.get("property_value") or 1  # avoid div by zero
     preferred_neighborhood = client.get("preferred_neighborhood")
     neighborhood = prop.get("neighborhood")
     engagement_history = client.get("engagement_history") or 0
     past_purchases = client.get("past_purchases") or []
 
-    budget_to_price_ratio = budget / prop_value if prop_value else 0
+    budget_to_price_ratio = (budget / prop_value) if (budget is not None and prop_value) else 0.0
     geo_match = 1 if preferred_neighborhood and preferred_neighborhood == neighborhood else 0
     engagement_capped = min(engagement_history, 2)  # matches the formula's cap at 2 viewings
     has_prior_purchase = 1.0 if len(past_purchases) > 0 else 0.0

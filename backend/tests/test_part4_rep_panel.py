@@ -664,6 +664,43 @@ class TestPart4RepPanel(unittest.TestCase):
         self.assertFalse(should_process)
         self.assertEqual(rec.get("id"), wamid)
 
+    def test_24_unopted_in_contact_blocks_automated_outbound(self):
+        """Outbound WhatsApp to a mobile number with no recorded opt-in is default-denied."""
+        from main import send_whatsapp_message, is_contact_opted_in, _send_meta_request
+        from fastapi import HTTPException
+
+        unopted_phone = "60129998877"
+        # Confirm no opt-in is recorded
+        self.assertFalse(is_contact_opted_in(unopted_phone))
+
+        # Automated send raises HTTPException 400
+        with self.assertRaises(HTTPException) as cm:
+            send_whatsapp_message(unopted_phone, "Upcoming demonstration reminder")
+        self.assertEqual(cm.exception.status_code, 400)
+        self.assertIn("opt-in required", cm.exception.detail.lower())
+
+        # Unmocked _send_meta_request also blocks directly
+        self.mock_meta_patch.stop()
+        try:
+            import main
+            with self.assertRaises(HTTPException) as cm_meta:
+                main._send_meta_request({"to": unopted_phone, "type": "text", "text": {"body": "Slot offer"}})
+            self.assertEqual(cm_meta.exception.status_code, 400)
+            self.assertIn("opt-in required", cm_meta.exception.detail.lower())
+        finally:
+            self.mock_meta_patch.start()
+
+    def test_25_opted_in_contact_allows_automated_outbound(self):
+        """Once opt-in is explicitly recorded, automated outbound messaging succeeds."""
+        from main import send_whatsapp_message, is_contact_opted_in, update_contact_state
+
+        opted_phone = "60109722730"
+        update_contact_state(opted_phone, opted_in=True)
+        self.assertTrue(is_contact_opted_in(opted_phone))
+
+        res = send_whatsapp_message(opted_phone, "Slot offer demonstration details")
+        self.assertEqual(res.get("status"), "delivered")
+
 
 if __name__ == "__main__":
     unittest.main()

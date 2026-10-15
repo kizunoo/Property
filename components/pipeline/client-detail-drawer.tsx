@@ -44,7 +44,7 @@ function buildScoreRows(client: DeduplicatedClient): ScoreRow[] {
 
   // 2. Financial Fit: calculated directly using the continuous ratio formula matching scoring_engine.py
   let finFactor = 0
-  if (budget > 0 && propVal > 0) {
+  if (budget != null && budget > 0 && propVal > 0) {
     if (budget >= propVal) {
       const ratio = propVal / budget
       finFactor = 0.5 + 0.5 * Math.min(1.0, ratio)
@@ -837,6 +837,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                   <div className="px-4">
                     <StatRow label="Best-Fit Match"       value={client.bestMatch.property} />
                     <StatRow label="Unit Cost"            value={currency(client.bestMatch.propertyValue)} />
+                    <StatRow label="Stated Budget"        value={client.statedBudget != null && client.statedBudget > 0 ? currency(client.statedBudget) : "Budget not set"} />
                     <StatRow label="Target Environment"   value={client.bestMatch.neighborhood} />
                     <StatRow label="E(x) on Best-Fit Match" value={currency(effectiveExpectedValue)} />
                     <StatRow label="Demo Sessions"        value={String(effectivePastViewings)} />

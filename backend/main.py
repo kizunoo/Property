@@ -523,10 +523,11 @@ WHATSAPP_CONTACT_STATE: dict[str, dict] = {}
 def get_contact_state(phone_number: str) -> dict:
     clean = normalize_whatsapp_number(phone_number)
     if not clean:
-        return {"phone_number": "", "opted_out": False, "automation_paused": False}
+        return {"phone_number": "", "opted_in": False, "opted_out": False, "automation_paused": False}
     if WHATSAPP_USE_MEMORY_STORE or not supabase:
         return WHATSAPP_CONTACT_STATE.get(clean, {
             "phone_number": clean,
+            "opted_in": False,
             "opted_out": False,
             "automation_paused": False,
             "snoozed_until": None,
@@ -541,6 +542,7 @@ def get_contact_state(phone_number: str) -> dict:
         print(f"[get_contact_state] Supabase read warning: {exc}")
     return WHATSAPP_CONTACT_STATE.get(clean, {
         "phone_number": clean,
+        "opted_in": False,
         "opted_out": False,
         "automation_paused": False,
         "snoozed_until": None,
@@ -562,6 +564,11 @@ def update_contact_state(phone_number: str, **fields) -> dict:
         except Exception as exc:
             print(f"[update_contact_state] Supabase write warning: {exc}")
     return curr
+
+
+def is_contact_opted_in(phone_number: str) -> bool:
+    state = get_contact_state(phone_number)
+    return bool(state.get("opted_in"))
 
 
 def is_contact_opted_out(phone_number: str) -> bool:
@@ -598,6 +605,17 @@ def _send_meta_request(payload: dict) -> dict:
             )
         else:
             print(f"[whatsapp_send] AUDIT WARNING: Human rep manual override send to opted-out contact {clean_digits}.")
+
+    # Default-deny WhatsApp outbound: require recorded opt-in for automated messages (reminders, slot offers, broadcasts)
+    if not is_contact_opted_in(clean_digits):
+        if not is_manual:
+            print(f"[whatsapp_send] BLOCKED: Contact {clean_digits} has no recorded WhatsApp opt-in (default deny).")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Contact {clean_digits} has no recorded WhatsApp opt-in (opt-in required).",
+            )
+        else:
+            print(f"[whatsapp_send] AUDIT WARNING: Human rep manual override send to non-opted-in contact {clean_digits}.")
 
     phone_number_id, access_token = get_whatsapp_credentials()
     allowed, guard_reason = check_whatsapp_delivery_guard(clean_digits)
@@ -643,6 +661,11 @@ def send_whatsapp_message(to_number: str, message_text: str, manual_override: bo
         raise HTTPException(
             status_code=400,
             detail=f"Contact {clean_digits} has opted out of WhatsApp messages.",
+        )
+    if not is_contact_opted_in(clean_digits) and not manual_override:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Contact {clean_digits} has no recorded WhatsApp opt-in (opt-in required).",
         )
     payload = {
         "messaging_product": "whatsapp",
@@ -2740,6 +2763,18 @@ def process_due_whatsapp_reminders(limit: int = 15) -> list[dict]:
                 else:
                     r["status"] = "cancelled"
                     r["error"] = "automation_paused_human_handled"
+                continue
+
+            # Check if contact has no recorded opt-in (default deny)
+            if not is_contact_opted_in(phone):
+                if not WHATSAPP_USE_MEMORY_STORE:
+                    supabase.table("whatsapp_reminders").update({
+                        "status": "cancelled",
+                        "error": "no_opt_in_recorded"
+                    }).eq("id", r_id).execute()
+                else:
+                    r["status"] = "cancelled"
+                    r["error"] = "no_opt_in_recorded"
                 continue
 
             c_info = v_row.get("clients") or {}
@@ -5259,18 +5294,20 @@ class ReasoningRequest(BaseModel):
 
 
 def _build_prompt(client: dict, prop: dict) -> str:
-    budget = client["stated_budget"]
-    prop_val = prop["property_value"]
-    financial_fit = budget >= prop_val
-    geo_match = client["preferred_neighborhood"] == prop["neighborhood"]
-    viewings = client["past_viewings"]
+    budget = client.get("stated_budget")
+    prop_val = prop.get("property_value", 0)
+    if budget is not None:
+        financial_fit = budget >= prop_val
+        fin_label = (
+            f"✓ CapEx budget (RM {budget:,.0f}) covers unit cost (RM {prop_val:,.0f})"
+            if financial_fit
+            else f"✗ CapEx budget (RM {budget:,.0f}) is below unit cost (RM {prop_val:,.0f})"
+        )
+    else:
+        fin_label = "CapEx budget not set (financial fit unassessed)"
+    geo_match = client.get("preferred_neighborhood") == prop.get("neighborhood")
+    viewings = client.get("past_viewings", 0)
     past_purchases = client.get("past_purchases") or []
-
-    fin_label = (
-        f"✓ CapEx budget (RM {budget:,.0f}) covers unit cost (RM {prop_val:,.0f})"
-        if financial_fit
-        else f"✗ CapEx budget (RM {budget:,.0f}) is below unit cost (RM {prop_val:,.0f})"
-    )
     geo_label = (
         f"✓ target environment ({client['preferred_neighborhood']}) matches robot unit design"
         if geo_match
@@ -7254,7 +7291,7 @@ def get_daily_worklist(request: Request = None, force_refresh: bool = False, age
                 "tier": row.get("segment_tier") or "TIER_2",
                 "blended_probability": blended_prob,
                 "blended_ev": blended_ev,
-                "budget": client_data.get("stated_budget") or 0,
+                "budget": client_data.get("stated_budget"),
                 "engagement": client_data.get("past_viewings") or 0,
                 "geo_match": (
                     client_data.get("preferred_neighborhood") == prop_data.get("neighborhood")
@@ -7268,8 +7305,10 @@ def get_daily_worklist(request: Request = None, force_refresh: bool = False, age
     # 4. Generate one short number-locked "why contact today" line per entry
     entries = []
     for c in top5:
+        b_val = c.get("budget")
+        b_str = f"CapEx budget RM{b_val:,.0f}" if b_val is not None and b_val > 0 else "CapEx budget not set"
         prompt = (
-            f"Company: {c['client_name']}, CapEx budget RM{c['budget']:,.0f}, "
+            f"Company: {c['client_name']}, {b_str}, "
             f"{'environment match verified' if c['geo_match'] else 'environment differs from target'}, "
             f"{c['engagement']} logged demo sessions. Robot Unit: {c['property_name']} in {c['neighborhood']} "
             f"(unit cost RM{c['property_value']:,.0f}), procurement pipeline expected value RM{c['blended_ev']:,.0f}, "
@@ -7336,7 +7375,8 @@ def _build_client_facing_prompt(client: dict, prop: dict) -> str:
     competitor comparisons, and internal "why we should chase this" framing.
     This is the OPPOSITE of the agent-internal prompt.
     """
-    budget = client.get("stated_budget", 0) or 0
+    budget = client.get("stated_budget")
+    budget_ctx = f"The customer's deployment budget is RM{budget:,.0f}." if budget is not None and budget > 0 else "The customer's deployment budget is not yet set."
     neighborhood = client.get("preferred_neighborhood") or "your target operating environment"
     address = prop.get("address") or "this unit"
     cost = prop.get("property_value", 0) or 0
@@ -7349,7 +7389,7 @@ def _build_client_facing_prompt(client: dict, prop: dict) -> str:
         "2. Never compare this company to any other company. "
         "3. Never use phrases like 'high fit', 'likely buyer', 'tier 1', or 'top prospect'. "
         "4. Never reveal why an agent should pursue this deal. "
-        f"Context: The customer's deployment budget is RM{budget:,.0f}. "
+        f"Context: {budget_ctx} "
         f"They prefer operating in {neighborhood}. "
         f"The robot unit is '{address}' in the {sector} zone, priced at RM{cost:,.0f}. "
         "Task: Write exactly 2-3 warm, professional sentences explaining why this unit "
@@ -7372,7 +7412,7 @@ def _build_client_facing_prompt(client: dict, prop: dict) -> str:
     distinct, non-boilerplate output per match.
     """
     client_name   = client.get("name", "your organisation")
-    budget        = client.get("stated_budget") or 0
+    budget        = client.get("stated_budget")
     target_env    = client.get("preferred_neighborhood") or "your operational environment"
     past_viewings = client.get("past_viewings") or 0
 
@@ -7384,7 +7424,7 @@ def _build_client_facing_prompt(client: dict, prop: dict) -> str:
     annual_sav  = prop.get("estimated_annual_savings")  # pre-computed, can be None
 
     # Financial fit note
-    if budget and unit_cost:
+    if budget is not None and budget > 0 and unit_cost:
         if budget >= unit_cost:
             fin_note = f"Your CapEx budget of RM {budget:,.0f} covers this unit comfortably."
         else:

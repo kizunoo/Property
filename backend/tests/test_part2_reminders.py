@@ -49,6 +49,9 @@ def clean_test_state():
     WHATSAPP_REMINDERS_STORE.clear()
     set_automation_paused_for_phone("60123456789", False)
     set_automation_paused_for_phone("60199999999", False)
+    from main import update_contact_state
+    update_contact_state("60123456789", opted_in=True)
+    update_contact_state("60199999999", opted_in=True)
     yield
     WHATSAPP_REMINDERS_STORE.clear()
 

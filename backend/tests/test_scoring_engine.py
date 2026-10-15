@@ -14,7 +14,7 @@ import os
 # Allow running from repo root without installing the package
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from scoring_engine import score
+from scoring_engine import score, build_pick_skip_reasons
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -139,11 +139,31 @@ def test_confidence_low_missing_budget():
     assert result["confidence"] == "LOW", result
 
 
-def test_confidence_low_budget_zero_treated_as_present():
-    """Budget of 0 is a valid (if unlikely) value — should not be treated as missing."""
-    result = score(make_client(budget=0), make_property())
-    # Budget present (0 is not None), engagement present → HIGH
-    assert result["confidence"] == "HIGH", result
+def test_client_with_null_budget():
+    """Client with NULL budget: no crash, non-zero EV, confidence LOW, and pick/skip tags show 'Budget not set'."""
+    client = make_client(budget=None, engagement_history=1)
+    prop = make_property(property_value=1_500_000)
+
+    result = score(client, prop)
+    assert result["confidence"] == "LOW", result
+    assert result["probability"] > 0, "Probability must be non-zero for positive signals"
+    assert result["expected_value"] > 0, "Expected value must not be zero when unit price > 0"
+    assert result["expected_value"] == round(result["probability"] * 1_500_000, 2)
+
+    pick_reason, skip_reason = build_pick_skip_reasons(client, prop)
+    assert "Budget not set" in skip_reason
+    assert "100% below asking" not in skip_reason
+
+
+def test_ml_inference_null_budget():
+    """ml_inference.predict_probability must handle NULL budget without crashing."""
+    from ml_inference import predict_probability
+    client = {"budget": None, "preferred_neighborhood": "Manufacturing", "engagement_history": 1}
+    prop = {"property_value": 750_000, "neighborhood": "Manufacturing"}
+    prob = predict_probability(client, prop)
+    if prob is not None:
+        assert isinstance(prob, float)
+        assert prob > 0
 
 
 # ─── Run standalone ───────────────────────────────────────────────────────────

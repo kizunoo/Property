@@ -56,6 +56,7 @@ class TestPart3RichMessages(unittest.TestCase):
         WHATSAPP_SLOT_OFFERS.clear()
         WHATSAPP_REMINDERS_STORE.clear()
         main.WHATSAPP_AUTOMATION_PAUSED_PHONES.clear()
+        main.update_contact_state("60109722730", opted_in=True)
 
         self.client = TestClient(app)
 

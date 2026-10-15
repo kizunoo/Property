@@ -282,11 +282,11 @@ function ComparePanel({
       </div>
       <div className={`grid gap-0 divide-x divide-border border-t border-border`} style={{ gridTemplateColumns: `repeat(${entries.length}, 1fr)` }}>
         {entries.map((e) => {
-          const budgetVsPrice = e.statedBudget != null
+          const budgetVsPrice = e.statedBudget != null && e.statedBudget > 0
             ? e.statedBudget >= propertyValue
               ? "✓ Covers unit cost"
               : `${Math.round((e.statedBudget / propertyValue) * 100)}% of unit cost`
-            : "—"
+            : "Budget not set"
           return (
             <div key={e.clientId} className="p-4 flex flex-col gap-2.5 relative">
               <button

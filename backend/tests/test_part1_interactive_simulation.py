@@ -27,6 +27,7 @@ class TestPart1InteractiveSimulation(unittest.TestCase):
 
         import main
         main.WHATSAPP_USE_MEMORY_STORE = True
+        main.update_contact_state("60109722730", opted_in=True)
 
         # Mock Meta requests to prevent any outbound network calls
         self.mock_sender_patch = patch("main._send_meta_request", return_value={

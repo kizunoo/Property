@@ -124,14 +124,16 @@ export function OverviewTab({ clientId, data, onNavigate }: OverviewTabProps) {
         </section>
       )}
 
-      {!prefsLoading && prefs?.preferred_neighborhood && prefs?.stated_budget && (
+      {!prefsLoading && (prefs?.preferred_neighborhood || prefs?.stated_budget) && (
         <section className="border border-border bg-card p-4 shadow-[var(--shadow-xs)] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground mr-1">
               Matched using:
             </span>
             <span className="inline-flex items-center gap-1 border border-border bg-secondary px-2.5 py-1 text-xs font-semibold">
-              Budget: RM {prefs.stated_budget.toLocaleString("en-MY")}
+              {prefs.stated_budget != null && prefs.stated_budget > 0
+                ? `Budget: RM ${prefs.stated_budget.toLocaleString("en-MY")}`
+                : "Budget not set"}
             </span>
             <span className="inline-flex items-center gap-1 border border-border bg-secondary px-2.5 py-1 text-xs font-semibold">
               {prefs.preferred_neighborhood}

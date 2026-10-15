@@ -231,7 +231,7 @@ def build_pick_skip_reasons(client: dict, prop: dict) -> tuple[str, str]:
     skip_reason  — negative signals (shown for TIER_3)
     """
     bd             = _score_breakdown(client, prop)
-    budget         = client.get("budget") or 0
+    raw_budget     = client.get("budget")
     prop_v         = prop.get("property_value") or 1
     viewings       = client.get("engagement_history") or 0
     past_purchases = client.get("past_purchases") or []
@@ -240,12 +240,14 @@ def build_pick_skip_reasons(client: dict, prop: dict) -> tuple[str, str]:
     skip_tags: list[str] = []
 
     # Financial fit
-    if budget >= prop_v:
+    if raw_budget is None:
+        skip_tags.append("Budget not set")
+    elif raw_budget >= prop_v:
         pick_tags.append("✓ Budget covers asking")
-    elif budget > 0 and (budget / prop_v) >= 0.8:
+    elif raw_budget > 0 and (raw_budget / prop_v) >= 0.8:
         pick_tags.append("✓ Budget near asking")
     else:
-        ratio_pct = int((budget / prop_v) * 100) if prop_v > 0 else 0
+        ratio_pct = int((raw_budget / prop_v) * 100) if prop_v > 0 else 0
         skip_tags.append(f"✗ Budget {100 - ratio_pct}% below asking")
 
     # Past acquisition track record

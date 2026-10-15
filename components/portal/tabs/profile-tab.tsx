@@ -496,6 +496,11 @@ export function ProfileTab({
                 RM {budgetNum.toLocaleString("en-MY", { maximumFractionDigits: 0 })}
               </p>
             )}
+            {!budget && (
+              <p className="text-[10px] text-muted-foreground">
+                Budget not set
+              </p>
+            )}
           </div>
         </Section>
 
