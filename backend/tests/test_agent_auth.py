@@ -279,6 +279,99 @@ class TestAgentAuthD1(unittest.TestCase):
         except HTTPException:
             self.fail("Valid enterprise password unexpectedly failed complexity check.")
 
+    def test_login_refuses_pending_or_hashless_account(self):
+        """Accounts seeded with NULL password_hash and pending_enrollment must be refused on login."""
+        mock_acc = {
+            "id": "agent-pending-01",
+            "email": "pending@pipeline-ev.internal",
+            "name": "Pending Agent",
+            "role": "agent",
+            "password_hash": None,
+            "status": "pending_enrollment",
+            "failed_login_attempts": 0,
+            "locked_until": None,
+        }
+        with patch.object(main.supabase, "table") as mock_table:
+            mock_query = MagicMock()
+            mock_table.return_value = mock_query
+            mock_query.select.return_value = mock_query
+            mock_query.ilike.return_value = mock_query
+            mock_query.limit.return_value = mock_query
+            mock_query.execute.return_value = MagicMock(data=[mock_acc])
+
+            res = self.client.post("/api/agent/login", json={
+                "email": "pending@pipeline-ev.internal",
+                "password": "ValidPassword123!#",
+            })
+            self.assertEqual(res.status_code, 403)
+            self.assertIn("pending", res.json()["detail"].lower())
+
+    def test_seed_enroll_login_lifecycle(self):
+        """End-to-end seed -> enroll -> login lifecycle test with nullable password_hash."""
+        import sys
+        from pathlib import Path
+        scripts_dir = Path(__file__).resolve().parent.parent.parent / "scripts"
+        sys.path.insert(0, str(scripts_dir))
+        from seed_agent_accounts import provision_agent
+
+        # 1. Seed provision inserts row with password_hash=None and status='pending_enrollment'
+        mock_sb = MagicMock()
+        mock_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value = MagicMock(data=[])
+        mock_sb.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[{"id": "new-acc-uuid"}])
+
+        ok = provision_agent(mock_sb, "newrep@pipeline-ev.internal", "New Rep", role="agent")
+        self.assertTrue(ok)
+
+        insert_calls = mock_sb.table.return_value.insert.call_args_list
+        self.assertTrue(len(insert_calls) > 0)
+        inserted_row = insert_calls[0][0][0]
+        self.assertIsNone(inserted_row["password_hash"])
+        self.assertEqual(inserted_row["status"], "pending_enrollment")
+
+        # 2. Redeem enrollment code via POST /api/agent/enroll
+        with patch.object(main.supabase, "table") as mock_app_sb:
+            mock_q = MagicMock()
+            mock_app_sb.return_value = mock_q
+            mock_q.select.return_value = mock_q
+            mock_q.eq.return_value = mock_q
+            mock_q.limit.return_value = mock_q
+            now = datetime.now(timezone.utc)
+            mock_q.execute.return_value = MagicMock(data=[{
+                "id": "new-acc-uuid",
+                "email": "newrep@pipeline-ev.internal",
+                "name": "New Rep",
+                "role": "agent",
+                "status": "pending_enrollment",
+                "enrollment_code_expires_at": (now + timedelta(hours=24)).isoformat(),
+            }])
+            mock_q.update.return_value = mock_q
+
+            res_enroll = self.client.post("/api/agent/enroll", json={
+                "enrollment_code": "TESTCODE1234",
+                "password": "NewSecretPassword2026!#",
+            })
+            self.assertEqual(res_enroll.status_code, 200)
+            self.assertIn("complete", res_enroll.json()["message"].lower())
+
+            update_call = mock_q.update.call_args[0][0]
+            self.assertIsNotNone(update_call.get("password_hash"))
+            self.assertEqual(update_call.get("status"), "active")
+
+    def test_duplicate_email_case_insensitive(self):
+        """Case-insensitive duplicate emails are rejected at provision time and in SQL index."""
+        import sys
+        from pathlib import Path
+        scripts_dir = Path(__file__).resolve().parent.parent.parent / "scripts"
+        sys.path.insert(0, str(scripts_dir))
+        from seed_agent_accounts import provision_agent
+
+        mock_sb = MagicMock()
+        mock_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value = MagicMock(
+            data=[{"id": "existing-1", "email": "rep@pipeline-ev.internal", "status": "active"}]
+        )
+        ok = provision_agent(mock_sb, "REP@PIPELINE-EV.INTERNAL", "Rep Duplicate")
+        self.assertFalse(ok)
+
     def test_trusted_client_ip_forwarding_rate_limiting(self):
         """
         Confirms agent auth rate limiter respects forwarded client IP only when

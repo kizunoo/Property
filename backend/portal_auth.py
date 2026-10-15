@@ -35,7 +35,9 @@ def get_code_pepper() -> str:
 
 
 def is_legacy_login_enabled() -> bool:
-    """Legacy company access codes are disabled by default."""
+    """Legacy company access codes are disabled in production and disabled by default."""
+    if not is_dev_environment():
+        return False
     val = os.getenv("PORTAL_LEGACY_LOGIN_ENABLED", "false").strip().lower()
     return val in ("true", "1", "yes", "on")
 
@@ -393,6 +395,66 @@ def check_and_record_ip_attempt(ip: str, success: bool = False):
         )
 
 
+def check_and_record_code_ip_attempt(ip: str):
+    """
+    Persistent code request IP rate limit check (5 attempts per 15 min).
+    Counted for all requests to prevent SMS/email bombarding.
+    """
+    key = hash_rate_limit_key("code_ip", ip)
+    if not is_sqlite_rate_limiting_enabled():
+        attempts, _ = execute_rpc_rate_limit(key, 900)
+        if attempts > 5:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many code requests from this IP. Please wait 15 minutes."
+            )
+        return
+
+    try:
+        allowed, _, _ = rate_limit_store.increment_and_check(
+            key_hash=key,
+            bucket_type="code_ip",
+            window_seconds=900,
+            max_attempts=5,
+            lockout_seconds=900,
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many code requests from this IP. Please wait 15 minutes."
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Rate limit service temporarily unavailable.")
+
+
+def check_and_record_code_contact_attempt(contact_id: str) -> bool:
+    """
+    Persistent code request per-contact rate limit check (3 requests per 15 min).
+    Anti-enumeration: returns False if quota exceeded (caller returns generic success without issuing code).
+    """
+    key = hash_rate_limit_key("code_contact", contact_id)
+    if not is_sqlite_rate_limiting_enabled():
+        try:
+            attempts, _ = execute_rpc_rate_limit(key, 900)
+            return attempts <= 3
+        except Exception:
+            return False
+
+    try:
+        allowed, _, _ = rate_limit_store.increment_and_check(
+            key_hash=key,
+            bucket_type="code_contact",
+            window_seconds=900,
+            max_attempts=3,
+            lockout_seconds=900,
+        )
+        return allowed
+    except Exception:
+        return False
+
+
 def check_and_record_contact_attempt(contact_id: str, success: bool = False):
     """
     Persistent contact rate limit check.
@@ -413,13 +475,14 @@ def check_and_record_contact_attempt(contact_id: str, success: bool = False):
             return
 
         try:
-            res = supabase.rpc("portal_record_failed_contact_attempt", {
+            res = supabase.rpc("portal_record_failed_login", {
                 "p_contact_id": contact_id,
                 "p_max_attempts": CONTACT_MAX_ATTEMPTS,
-                "p_lockout_seconds": CONTACT_LOCKOUT_SECONDS
+                "p_lockout_seconds": CONTACT_LOCKOUT_SECONDS,
+                "p_window_seconds": CONTACT_WINDOW_SECONDS
             }).execute()
             if not res.data:
-                raise RuntimeError("Empty response from portal_record_failed_contact_attempt")
+                raise RuntimeError("Empty response from portal_record_failed_login")
             row = res.data[0]
             is_locked = row.get("out_is_locked", row.get("is_locked", False))
             if is_locked:
@@ -466,6 +529,53 @@ def check_and_record_contact_attempt(contact_id: str, success: bool = False):
             status_code=403,
             detail="Contact account is temporarily locked out due to multiple failed attempts. Please contact your PIPELINE.EV representative to unlock."
         )
+
+
+def check_portal_write_rate_limit(
+    request: Request,
+    client_id: str,
+    action: str = "write",
+    max_attempts: int = 20,
+    window_seconds: int = 300,
+):
+    """
+    Rate limits state-changing portal write operations (demos, inquiries, etc.).
+    Defaults to 20 write attempts per 5 minutes per (client_id, ip).
+    """
+    client_ip = get_trusted_client_ip(request)
+    key = hash_rate_limit_key(f"portal_write_{action}", f"{client_id}:{client_ip}")
+
+    if not is_sqlite_rate_limiting_enabled():
+        try:
+            attempts, _ = execute_rpc_rate_limit(key, window_seconds)
+            if attempts > max_attempts:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Too many write requests. Please wait a moment before trying again."
+                )
+            return
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    try:
+        allowed, _, _ = rate_limit_store.increment_and_check(
+            key_hash=key,
+            bucket_type=f"write_{action}",
+            window_seconds=window_seconds,
+            max_attempts=max_attempts,
+            lockout_seconds=window_seconds,
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many write requests. Please wait a moment before trying again."
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"[PORTAL_AUTH] Write rate limit error: {exc}")
 
 
 # ─── Audit Logging Helper ─────────────────────────────────────────────────────

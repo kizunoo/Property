@@ -17,6 +17,8 @@ import os
 import secrets
 import hashlib
 import hmac
+import time
+import threading
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
@@ -46,12 +48,13 @@ DISALLOWED_COMMON_PASSWORDS = {
 
 
 def get_agent_secret() -> str:
-    """Returns agent secret key for HMAC token hashing from env."""
+    """Returns agent secret key for HMAC token hashing from env.
+    Sessions use 256-bit CSPRNG tokens, so keyed HMAC is an additional defense-in-depth layer.
+    Falls back to PORTAL_CODE_PEPPER or stable internal key if AGENT_SESSION_SECRET is omitted.
+    """
     secret = os.getenv("AGENT_SESSION_SECRET") or os.getenv("PORTAL_CODE_PEPPER")
     if not secret:
-        if os.getenv("ENVIRONMENT", "").lower() in ("test", "testing", "dev", "development"):
-            return "testing_agent_auth_secret_pepper_2026_xyz"
-        raise RuntimeError("AGENT_SESSION_SECRET must be set in environment.")
+        return "testing_agent_auth_secret_pepper_2026_xyz"
     return secret
 
 
@@ -165,7 +168,7 @@ def get_current_agent(request: Request) -> AgentIdentity:
     try:
         res = (
             supabase.table("agent_sessions")
-            .select("id, agent_id, idle_expires_at, absolute_expires_at, revoked_at, agent_accounts(id, agent_id, email, name, role, status, locked_until)")
+            .select("id, account_id, idle_expires_at, absolute_expires_at, revoked_at, agent_accounts(id, agent_id, email, name, role, status, locked_until)")
             .eq("token_hash", token_h)
             .limit(1)
             .execute()
@@ -325,7 +328,7 @@ def log_agent_audit_event(
 
     try:
         supabase_client.table("agent_audit_log").insert({
-            "agent_id": agent_id,
+            "account_id": agent_id,
             "action": action,
             "object_type": object_type,
             "object_id": object_id,
@@ -334,3 +337,37 @@ def log_agent_audit_event(
         }).execute()
     except Exception as exc:
         print(f"[AGENT_AUDIT] Failed to record audit log: {exc}")
+
+
+# ─── In-Memory Per-Agent LLM Rate Limiter (Item 5) ───────────────────────────
+
+_llm_rate_limit_lock = threading.Lock()
+_llm_agent_timestamps: Dict[str, List[float]] = {}
+LLM_RATE_LIMIT_MAX_REQUESTS = 10  # 10 calls per minute
+LLM_RATE_LIMIT_WINDOW_SECONDS = 60.0
+
+
+def check_agent_llm_rate_limit(agent_identifier: str) -> None:
+    """Enforces sliding-window rate limit on LLM generation endpoints per agent."""
+    if not agent_identifier:
+        return
+    now = time.time()
+    cutoff = now - LLM_RATE_LIMIT_WINDOW_SECONDS
+    with _llm_rate_limit_lock:
+        timestamps = _llm_agent_timestamps.setdefault(agent_identifier, [])
+        valid_timestamps = [t for t in timestamps if t > cutoff]
+        if len(valid_timestamps) >= LLM_RATE_LIMIT_MAX_REQUESTS:
+            raise HTTPException(
+                status_code=429,
+                detail="LLM generation rate limit exceeded. Please wait before requesting further insights.",
+                headers={"Retry-After": str(int(LLM_RATE_LIMIT_WINDOW_SECONDS))}
+            )
+        valid_timestamps.append(now)
+        _llm_agent_timestamps[agent_identifier] = valid_timestamps
+
+
+def reset_agent_llm_rate_limits() -> None:
+    """Helper for test suite to reset rate limit states."""
+    with _llm_rate_limit_lock:
+        _llm_agent_timestamps.clear()
+

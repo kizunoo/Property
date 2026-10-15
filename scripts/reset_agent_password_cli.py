@@ -68,7 +68,7 @@ def reset_password_cli(email: str, issue_code: bool = False):
         # Revoke existing sessions
         supabase.table("agent_sessions").update({
             "revoked_at": now.isoformat()
-        }).eq("agent_id", agent_id).is_("revoked_at", None).execute()
+        }).eq("account_id", agent_id).is_("revoked_at", None).execute()
 
         log_agent_audit_event(
             supabase,
@@ -121,7 +121,7 @@ def reset_password_cli(email: str, issue_code: bool = False):
         # Revoke existing sessions
         supabase.table("agent_sessions").update({
             "revoked_at": now.isoformat()
-        }).eq("agent_id", agent_id).is_("revoked_at", None).execute()
+        }).eq("account_id", agent_id).is_("revoked_at", None).execute()
 
         log_agent_audit_event(
             supabase,

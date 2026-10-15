@@ -10,6 +10,7 @@ import re
 import zoneinfo
 import uuid
 import urllib.parse
+from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, Response, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -174,11 +175,26 @@ app = FastAPI(
     openapi_url=None if _is_prod else "/openapi.json",
 )
 
-from portal_auth import get_current_portal_session, require_company_access, PortalSession
+from portal_auth import (
+    get_current_portal_session,
+    require_company_access,
+    PortalSession,
+    check_portal_write_rate_limit,
+    log_audit_event,
+    get_trusted_client_ip,
+)
 import portal_routes
 app.include_router(portal_routes.router)
 
-from agent_auth import get_current_agent, require_admin, AgentIdentity
+from agent_auth import (
+    get_current_agent,
+    require_admin,
+    AgentIdentity,
+    check_agent_llm_rate_limit,
+    check_client_access,
+    require_client_access,
+)
+from route_policies import RoutePolicy, match_policy, ROUTE_POLICY_DECLARATIONS
 import agent_routes
 app.include_router(agent_routes.router)
 
@@ -186,13 +202,7 @@ import re
 from fastapi.responses import JSONResponse
 
 AGENT_AUTH_ALLOWLIST = [
-    re.compile(r"^/api/whatsapp/webhook(/.*)?$"),
-    re.compile(r"^/api/health$"),
-    re.compile(r"^/api/calendar/[^/]+\.ics$"),
-    re.compile(r"^/api/portal(/.*)?$"),
-    re.compile(r"^/api/agent/login$"),
-    re.compile(r"^/api/agent/enroll$"),
-    re.compile(r"^/api/agent/reset-password$"),
+    d.regex for d in ROUTE_POLICY_DECLARATIONS if d.policy in (RoutePolicy.PUBLIC, RoutePolicy.PORTAL_SESSION)
 ]
 
 
@@ -204,25 +214,32 @@ async def enforce_agent_default_deny(request: Request, call_next):
     if not path.startswith("/api/"):
         return await call_next(request)
 
-    # 1. Simulate endpoints guard (Item 7):
-    # In production -> 404
-    # Otherwise -> require admin session
-    if "simulate_" in path:
-        is_prod = os.getenv("ENVIRONMENT", "").lower() in ("production", "prod")
-        if is_prod:
-            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    # 1. Lookup declared security policy for (method, path)
+    decl = match_policy(request.method, path)
+    if not decl:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Undeclared security policy for {request.method} {path}. Request blocked by default-deny policy."}
+        )
 
-    # 2. Check allowlist
-    is_allowlisted = any(pattern.match(path) for pattern in AGENT_AUTH_ALLOWLIST)
-    if is_allowlisted:
+    # 2. Public exemption: passes through
+    if decl.policy == RoutePolicy.PUBLIC:
         return await call_next(request)
 
-    # 3. State-changing Origin / CSRF check (Item 3)
+    # 3. Portal session: passes through to portal auth handlers
+    if decl.policy == RoutePolicy.PORTAL_SESSION:
+        return await call_next(request)
+
+    # 4. Simulation endpoints guard: 404 in production
+    is_prod = os.getenv("ENVIRONMENT", "").lower() in ("production", "prod")
+    if "simulate_" in path and is_prod:
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
+    # 5. State-changing Origin / CSRF check
     if request.method in ("POST", "PUT", "PATCH", "DELETE"):
         origin = request.headers.get("origin")
         auth_hdr = request.headers.get("authorization", "")
         has_bearer = auth_hdr.lower().startswith("bearer ")
-        is_prod = os.getenv("ENVIRONMENT", "").lower() in ("production", "prod")
 
         # If request arrives with ambient cookie but without Bearer header, Origin is mandatory
         if not has_bearer and "agent_session" in request.cookies and not origin:
@@ -247,22 +264,30 @@ async def enforce_agent_default_deny(request: Request, call_next):
                     content={"detail": f"CSRF verification failed: Untrusted Origin '{origin_host}'."}
                 )
 
-    # 4. Require valid agent session (Item 4)
+    # 6. Require valid, active agent session
     try:
         agent = get_current_agent(request)
         request.state.agent = agent
-
-        # If simulate endpoint in non-prod, verify admin role
-        if "simulate_" in path and agent.role != "admin":
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "Administrator privileges required for simulation endpoints."}
-            )
-
     except HTTPException as exc:
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
     except Exception as exc:
         return JSONResponse(status_code=500, content={"detail": f"Agent authentication check error: {exc}"})
+
+    # 7. Admin-only policy enforcement
+    if decl.policy == RoutePolicy.ADMIN_ONLY:
+        if agent.role != "admin":
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Administrator privileges required for this endpoint."}
+            )
+
+    # 8. Per-agent LLM route rate limiting
+    if decl.is_llm:
+        try:
+            check_agent_llm_rate_limit(agent.account_id)
+        except HTTPException as exc:
+            headers = dict(exc.headers or {})
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=headers)
 
     return await call_next(request)
 
@@ -1873,18 +1898,33 @@ WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET")
 
 
 def valid_signature(raw_body: bytes, header: str | None) -> bool:
-    if "pytest" not in sys.modules and "PYTEST_CURRENT_TEST" not in os.environ:
-        if _env_path.exists():
-            load_dotenv(_env_path, override=True)
-        enforce = os.getenv("ENFORCE_WA_SIGNATURE", "").lower()
-        if enforce in ("false", "0", "no"):
-            return True
+    is_testing = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
+    if not is_testing and _env_path.exists():
+        load_dotenv(_env_path, override=True)
+    
+    env = os.getenv("ENVIRONMENT", "").strip().lower()
+    raw_enforce = os.getenv("ENFORCE_WA_SIGNATURE", "").strip().lower()
     app_secret = os.getenv("WHATSAPP_APP_SECRET") or WHATSAPP_APP_SECRET
-    if not app_secret:
-        return True
-    if not header or not header.startswith("sha256="):
-        print(f"[valid_signature] Missing or invalid header: {header}")
+
+    # If no signature header is supplied:
+    if not header:
+        if is_testing or env == "development":
+            if raw_enforce in ("false", "0", "no") or os.getenv("WHATSAPP_TEST_MODE", "").lower() in ("true", "1") or not app_secret:
+                return True
+        print("[valid_signature] Missing X-Hub-Signature-256 header")
         return False
+
+    # A signature header is present — it MUST be validated
+    if not app_secret:
+        if is_testing or env == "development":
+            return True
+        print("[valid_signature] REJECTED: WHATSAPP_APP_SECRET is not configured.")
+        return False
+
+    if not header.startswith("sha256="):
+        print(f"[valid_signature] Malformed header: {header}")
+        return False
+
     expected = hmac.new(app_secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
     matched = hmac.compare_digest(expected, header.split("=", 1)[1])
     if not matched:
@@ -5009,18 +5049,22 @@ _scheduler.add_job(process_due_whatsapp_reminders, "interval", minutes=1, id="pr
 
 @app.on_event("startup")
 def start_scheduler():
-    is_prod = os.getenv("ENVIRONMENT", "").lower() in ("production", "prod")
-    is_tunnel_or_proxy = (
-        os.getenv("BEHIND_PROXY", "").lower() in ("true", "1") or
-        os.getenv("NGROK_ACTIVE", "").lower() in ("true", "1") or
-        os.getenv("NGROK_TUNNEL", "").lower() in ("true", "1")
-    )
+    ALLOWED_ENVIRONMENTS = ("development", "testing", "staging", "production")
+    raw_env = os.getenv("ENVIRONMENT")
+    # In test environments (e.g. pytest), default to testing if unset
+    if not raw_env and ("pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ):
+        raw_env = "testing"
+    
+    if not raw_env or raw_env.strip().lower() not in ALLOWED_ENVIRONMENTS:
+        raise RuntimeError(
+            f"FATAL: ENVIRONMENT environment variable must be explicitly set to one of: "
+            f"{', '.join(ALLOWED_ENVIRONMENTS)}. Got: '{raw_env}'."
+        )
+    
+    env = raw_env.strip().lower()
+    is_prod = env in ("production", "prod")
 
-    # 1. Require ENVIRONMENT=production when deployed behind ngrok tunnel or proxy (Item 9)
-    if is_tunnel_or_proxy and not is_prod:
-        raise RuntimeError("FATAL: App is running behind ngrok/proxy but ENVIRONMENT is not explicitly set to 'production'.")
-
-    # 2. Production security check (Item 9)
+    # Production security check: fail if required secrets are missing
     if is_prod:
         missing_vars = []
         if not os.getenv("BFF_INTERNAL_SECRET"):
@@ -5043,17 +5087,17 @@ def start_scheduler():
         if enforce_wa in ("false", "0", "no"):
             raise RuntimeError("FATAL: Webhook signature verification (ENFORCE_WA_SIGNATURE) cannot be disabled in production.")
 
-    # 3. Print clean security posture summary (names and on/off status only, never secret values)
+    # Print clean security posture summary (names and on/off status only, never secret values)
     print("=" * 64)
     print("PIPELINE.EV LOGIC ENGINE - SECURITY POSTURE SUMMARY")
-    print(f"  ENVIRONMENT:                 {os.getenv('ENVIRONMENT', 'development')}")
+    print(f"  ENVIRONMENT:                 {env}")
     print(f"  PRODUCTION HARDENING:        {'ENABLED' if is_prod else 'DISABLED (dev mode)'}")
     print(f"  BFF_INTERNAL_SECRET:         {'CONFIGURED' if os.getenv('BFF_INTERNAL_SECRET') else 'MISSING'}")
     print(f"  PORTAL_CODE_PEPPER:          {'CONFIGURED' if os.getenv('PORTAL_CODE_PEPPER') else 'MISSING'}")
     print(f"  CALENDAR_SIGNING_SECRET:     {'CONFIGURED' if os.getenv('CALENDAR_SIGNING_SECRET') else 'MISSING'}")
     print(f"  WHATSAPP_APP_SECRET:         {'CONFIGURED' if os.getenv('WHATSAPP_APP_SECRET') else 'MISSING'}")
     print(f"  SUPABASE_SERVICE_KEY:        {'CONFIGURED' if (os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_KEY')) else 'MISSING'}")
-    print(f"  ENFORCE_WA_SIGNATURE:        {'ENABLED' if os.getenv('ENFORCE_WA_SIGNATURE', 'true').lower() not in ('false', '0', 'no') else 'DISABLED'}")
+    print(f"  ENFORCE_WA_SIGNATURE:        {'ENABLED' if env != 'development' or os.getenv('ENFORCE_WA_SIGNATURE', '').lower() not in ('false', '0', 'no') else 'DISABLED'}")
     print(f"  SIMULATION ENDPOINTS:        {'BLOCKED (404)' if is_prod else 'ADMIN ONLY'}")
     print("=" * 64)
 
@@ -5842,9 +5886,12 @@ def get_signals(request: Request):
 @app.post("/api/signals/{signal_id}/dismiss")
 def dismiss_signal(signal_id: str, request: Request):
     sig = supabase.table("signals").select("client_id").eq("id", signal_id).limit(1).execute()
-    if sig.data and sig.data[0].get("client_id") and hasattr(request.state, "agent"):
+    if not sig.data:
+        raise HTTPException(status_code=404, detail="Signal not found.")
+    client_id = sig.data[0].get("client_id")
+    if client_id and hasattr(request.state, "agent"):
         from agent_auth import require_client_access
-        require_client_access(request.state.agent, sig.data[0]["client_id"], supabase)
+        require_client_access(request.state.agent, client_id, supabase)
 
     supabase.table("signals").update({"dismissed": True}).eq("id", signal_id).execute()
     return {"success": True}
@@ -6585,9 +6632,13 @@ def _build_projection_prompt(metrics: dict) -> list[dict]:
 
 
 @app.get("/api/pipeline_projection")
-def get_pipeline_projection(agent_id: str | None = None):
+def get_pipeline_projection(request: Request, agent_id: str | None = None):
+    agent = getattr(request.state, "agent", None) if request else None
+    effective_agent_id = agent_id
+    if agent and agent.role != "admin":
+        effective_agent_id = str(agent.agent_id) if agent.agent_id else "unassigned_no_access"
     try:
-        metrics = get_pipeline_projection_data(agent_id)
+        metrics = get_pipeline_projection_data(effective_agent_id)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to compute pipeline projection: {exc}") from exc
 
@@ -6649,7 +6700,10 @@ def record_outcome(body: dict):
 
 
 @app.get("/api/prediction_accuracy")
-def get_prediction_accuracy():
+def get_prediction_accuracy(request: Request = None):
+    cur_agent = getattr(request.state, "agent", None) if request else None
+    if cur_agent and cur_agent.role != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden: Prediction accuracy metrics are restricted to administrators.")
     try:
         rows = supabase.table("pipeline_evaluations").select("*").neq("outcome", "pending").execute().data or []
     except Exception:
@@ -6711,7 +6765,10 @@ def retrain_model():
 
 
 @app.get("/api/model_status")
-def get_model_status():
+def get_model_status(request: Request = None):
+    cur_agent = getattr(request.state, "agent", None) if request else None
+    if cur_agent and cur_agent.role != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden: Model status and parameters are restricted to administrators.")
     try:
         latest_run = supabase.table("model_training_runs") \
             .select("*").order("trained_at", desc=True).limit(1).execute().data
@@ -7516,9 +7573,10 @@ def portal_dashboard(client_id: str, session: PortalSession = Depends(get_curren
         })
 
     # 4. Fetch this client's own demo history (requested + upcoming + completed)
+    demos = []
     try:
         demos_res = supabase.table("scheduled_viewings") \
-            .select("id, status, scheduled_at, properties(address)") \
+            .select("id, status, scheduled_at, property_id, properties(address)") \
             .eq("client_id", client_id) \
             .order("scheduled_at", desc=True) \
             .limit(10) \
@@ -7528,6 +7586,7 @@ def portal_dashboard(client_id: str, session: PortalSession = Depends(get_curren
                 "id": d["id"],
                 "status": d["status"],
                 "scheduled_at": d.get("scheduled_at"),
+                "property_id": d.get("property_id"),
                 "property_name": (d.get("properties") or {}).get("address"),
             }
             for d in (demos_res.data or [])
@@ -7535,17 +7594,61 @@ def portal_dashboard(client_id: str, session: PortalSession = Depends(get_curren
     except Exception:
         demos = []
 
+    # 5. Attention counts (unread messages, quotes awaiting response, pending demo confirmations)
+    unread_messages = 0
+    try:
+        msg_res = supabase.table("inquiry_messages") \
+            .select("id", count="exact") \
+            .eq("client_id", client_id) \
+            .eq("sender", "rep") \
+            .is_("read_at", "null") \
+            .execute()
+        unread_messages = msg_res.count if msg_res.count is not None else len(msg_res.data or [])
+    except Exception:
+        pass
+
+    quotes_awaiting = 0
+    try:
+        q_res = supabase.table("portal_quotes") \
+            .select("id", count="exact") \
+            .eq("client_id", client_id) \
+            .eq("status", "sent") \
+            .execute()
+        quotes_awaiting = q_res.count if q_res.count is not None else len(q_res.data or [])
+    except Exception:
+        pass
+
+    pending_demo_confirmations = 0
+    try:
+        all_demos_res = supabase.table("scheduled_viewings") \
+            .select("id, status, confirmation_status, client_confirmed_at") \
+            .eq("client_id", client_id) \
+            .execute()
+        for d in (all_demos_res.data or []):
+            if get_demo_effective_status(d) == "offered":
+                pending_demo_confirmations += 1
+    except Exception:
+        pass
+
     return {
         "client_name": client["name"],
         "client_id": client_id,
         "relationship_stage": client.get("relationship_stage", "new"),
         "matches": matches,
         "scheduled_demos": demos,
+        "unread_messages": unread_messages,
+        "quotes_awaiting": quotes_awaiting,
+        "pending_demo_confirmations": pending_demo_confirmations,
     }
 
 
 @app.post("/api/portal/{client_id}/request_demo")
-def portal_request_demo(client_id: str, body: dict, session: PortalSession = Depends(get_current_portal_session)):
+def portal_request_demo(
+    client_id: str,
+    body: dict,
+    request: Request,
+    session: PortalSession = Depends(get_current_portal_session),
+):
     """
     Client requests a demo for a specific robot unit.
     Creates a scheduled_viewings row with status='requested' (needs agent confirmation).
@@ -7555,6 +7658,8 @@ def portal_request_demo(client_id: str, body: dict, session: PortalSession = Dep
     if session.is_legacy:
         raise HTTPException(status_code=403, detail="Legacy session is read-only. Cannot request demo.")
 
+    check_portal_write_rate_limit(request, client_id, action="request_demo")
+
     property_id = body.get("property_id")
     preferred_date = body.get("preferred_date")   # optional ISO string from client
 
@@ -7563,9 +7668,10 @@ def portal_request_demo(client_id: str, body: dict, session: PortalSession = Dep
 
     # Validate the client exists and owns this match
     try:
-        client_res = supabase.table("clients").select("id").eq("id", client_id).single().execute()
+        client_res = supabase.table("clients").select("id, name, assigned_agent_id").eq("id", client_id).single().execute()
         if not client_res.data:
             raise HTTPException(status_code=404, detail="Client not found")
+        client_info = client_res.data
     except Exception as exc:
         raise HTTPException(status_code=404, detail="Client not found")
 
@@ -7590,14 +7696,29 @@ def portal_request_demo(client_id: str, body: dict, session: PortalSession = Dep
         res = supabase.table("scheduled_viewings").insert({
             "client_id": client_id,
             "property_id": property_id,
-            "scheduled_at": preferred_date,       # may be None — agent confirms time
-            "status": "requested",                # distinct from agent-initiated 'upcoming'
+            "scheduled_at": preferred_date,
+            "status": "upcoming",
+            "confirmation_status": "requested",
         }).execute()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to create demo request: {exc}")
 
     # Advance relationship stage to 'viewing' (non-destructive — won't demote)
     advance_stage(client_id, "viewing")
+
+    # Insert signal for sales rep
+    try:
+        c_name = client_info.get("name") or "Client"
+        p_res = supabase.table("properties").select("address").eq("id", property_id).single().execute()
+        p_name = (p_res.data or {}).get("address") or "robot unit"
+        supabase.table("signals").insert({
+            "type": "portal_demo_requested",
+            "client_id": client_id,
+            "property_id": property_id,
+            "message": f"{c_name} requested a demo for {p_name}.",
+        }).execute()
+    except Exception as sig_exc:
+        print(f"[portal_request_demo] Warning: signal insert failed: {sig_exc}")
 
     return {
         "success": True,
@@ -7606,32 +7727,465 @@ def portal_request_demo(client_id: str, body: dict, session: PortalSession = Dep
     }
 
 
+def get_ics_relative_url(viewing_id: str) -> str | None:
+    try:
+        secret = get_calendar_signing_secret()
+        if not secret:
+            return None
+        expires_ts = int((datetime.now(timezone.utc) + timedelta(days=14)).timestamp())
+        token = generate_calendar_token(viewing_id, expires_ts)
+        if not token:
+            return None
+        return f"/api/calendar/{viewing_id}.ics?token={token}&expires={expires_ts}"
+    except Exception:
+        return None
+
+
+DEMO_RULES = {
+    "confirm": {"offered"},                              # ONLY a rep-offered slot
+    "cancel": {"requested", "offered", "upcoming"},
+    "reschedule": {"requested", "offered", "upcoming"},
+}
+
+QUOTE_TRANSITIONS = {
+    ("rep", "requested"): {"sent"},
+    ("rep", "sent"): {"sent"},                  # rep may revise before client response
+    ("portal", "sent"): {"accepted", "declined"},
+}
+
+
+def can_quote_transition(actor: str, current: str, target: str) -> bool:
+    return target in QUOTE_TRANSITIONS.get((actor, current), set())
+
+
+def get_demo_effective_status(demo: dict) -> str:
+    """
+    Map scheduled_viewings row to effective demo status string for DEMO_RULES.
+    - 'offered': slot offered by rep/WhatsApp flow awaiting client confirmation.
+      This includes confirmation_status='offered' AND WhatsApp-booked slot offers
+      (status='upcoming', confirmation_status='unconfirmed', client_confirmed_at=None).
+    - 'cancelled': cancelled or rescheduled.
+    - 'completed': demo concluded.
+    - 'requested': requested by client awaiting rep slot offer.
+    - 'upcoming': confirmed upcoming scheduled demo.
+    """
+    raw_status = (demo.get("status") or "").lower()
+    conf_status = (demo.get("confirmation_status") or "").lower()
+    is_confirmed = bool(demo.get("client_confirmed_at")) or conf_status == "confirmed"
+
+    if raw_status == "cancelled" or conf_status in ("cancelled", "rescheduled", "cancelled_by_client"):
+        return "cancelled"
+    if raw_status == "completed":
+        return "completed"
+    if raw_status == "offered" or conf_status == "offered":
+        return "offered"
+    # WhatsApp auto-booked slot offer before client confirms
+    if raw_status == "upcoming" and conf_status == "unconfirmed" and not is_confirmed:
+        return "offered"
+    if raw_status == "requested" or conf_status == "requested":
+        return "requested"
+    if raw_status == "upcoming":
+        return "upcoming"
+    return raw_status or "requested"
+
+
+def check_demo_transition(action: str, demo: dict) -> str:
+    """
+    Enforces server-side DEMO_RULES transitions. Returns 409 Conflict if not allowed.
+    """
+    allowed = DEMO_RULES.get(action, set())
+    eff_status = get_demo_effective_status(demo)
+    if eff_status not in allowed:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot {action} demonstration with status '{eff_status}'. Allowed statuses: {sorted(list(allowed))}",
+        )
+    return eff_status
+
+
+def _format_portal_demo_item(d: dict, session: PortalSession) -> dict:
+    eff_status = get_demo_effective_status(d)
+    is_legacy = getattr(session, "is_legacy", False)
+    viewing_id = d["id"]
+    prop = d.get("properties") or {}
+    prop_id = d.get("property_id") or prop.get("id")
+    sched_at = d.get("scheduled_at")
+
+    can_act = not is_legacy
+    return {
+        "id": viewing_id,
+        "status": eff_status,
+        "scheduled_at": sched_at,
+        "property_id": prop_id,
+        "property_name": prop.get("address") or "Robot Unit",
+        "property_environment": prop.get("neighborhood"),
+        "confirmation_status": d.get("confirmation_status"),
+        "client_confirmed_at": d.get("client_confirmed_at"),
+        "ics_url": get_ics_relative_url(viewing_id) if sched_at and eff_status in ("upcoming", "completed") else None,
+        "can_confirm": (eff_status in DEMO_RULES["confirm"]) and can_act,
+        "can_cancel": (eff_status in DEMO_RULES["cancel"]) and can_act,
+        "can_reschedule": (eff_status in DEMO_RULES["reschedule"]) and can_act,
+    }
+
+
 @app.get("/api/portal/{client_id}/my_viewings")
 def portal_my_viewings(client_id: str, session: PortalSession = Depends(get_current_portal_session)):
     """
     Return this client's own demo history — client-safe fields only.
+    Maintained alongside /demos for backwards compatibility.
     """
     require_company_access(session, client_id)
     try:
         res = supabase.table("scheduled_viewings") \
-            .select("id, status, scheduled_at, properties(address, neighborhood)") \
+            .select("id, status, scheduled_at, property_id, confirmation_status, client_confirmed_at, properties(id, address, neighborhood)") \
             .eq("client_id", client_id) \
             .order("scheduled_at", desc=True) \
             .execute()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to fetch demo history: {exc}")
 
+    demos = [_format_portal_demo_item(d, session) for d in (res.data or [])]
     return {
-        "viewings": [
-            {
-                "id": d["id"],
-                "status": d["status"],
-                "scheduled_at": d.get("scheduled_at"),
-                "property_name": (d.get("properties") or {}).get("address"),
-                "property_environment": (d.get("properties") or {}).get("neighborhood"),
-            }
-            for d in (res.data or [])
-        ]
+        "viewings": demos,
+        "demos": demos,
+    }
+
+
+@app.get("/api/portal/{client_id}/demos")
+def portal_get_demos(client_id: str, session: PortalSession = Depends(get_current_portal_session)):
+    """
+    Return this client's robot demonstrations list.
+    """
+    require_company_access(session, client_id)
+    try:
+        res = supabase.table("scheduled_viewings") \
+            .select("id, status, scheduled_at, property_id, confirmation_status, client_confirmed_at, properties(id, address, neighborhood)") \
+            .eq("client_id", client_id) \
+            .order("scheduled_at", desc=True) \
+            .execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch demo history: {exc}")
+
+    demos = [_format_portal_demo_item(d, session) for d in (res.data or [])]
+    return {"demos": demos}
+
+
+@app.post("/api/portal/{client_id}/demos/{demo_id}/confirm")
+def portal_confirm_demo(
+    client_id: str,
+    demo_id: str,
+    request: Request,
+    session: PortalSession = Depends(get_current_portal_session),
+):
+    """
+    Client confirms a rep-offered demo slot.
+    Strict rule: ONLY demos with status 'offered' can be confirmed (otherwise 409).
+    Transitions status to 'upcoming' and records client_confirmed_at timestamp.
+    """
+    require_company_access(session, client_id)
+    if session.is_legacy:
+        raise HTTPException(status_code=403, detail="Legacy session is read-only. Cannot confirm demos.")
+
+    check_portal_write_rate_limit(request, client_id, action="confirm_demo")
+
+    try:
+        res = supabase.table("scheduled_viewings") \
+            .select("id, client_id, status, confirmation_status, scheduled_at, property_id, properties(address)") \
+            .eq("id", demo_id) \
+            .single() \
+            .execute()
+    except Exception:
+        raise HTTPException(status_code=404, detail="Demo not found")
+
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Demo not found")
+
+    demo = res.data[0] if isinstance(res.data, list) and res.data else res.data
+    if not demo or demo.get("client_id") != client_id:
+        raise HTTPException(status_code=403, detail="Forbidden: demo belongs to another company")
+
+    # Enforce DEMO_RULES: must return 409 if not 'offered'
+    check_demo_transition("confirm", demo)
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        supabase.table("scheduled_viewings") \
+            .update({
+                "status": "upcoming",
+                "confirmation_status": "confirmed",
+                "client_confirmed_at": now_iso,
+            }) \
+            .eq("id", demo_id) \
+            .execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to confirm demo: {exc}")
+
+    try:
+        schedule_viewing_reminders(demo_id)
+    except Exception as exc:
+        print(f"[portal_confirm_demo] Warning: schedule_viewing_reminders failed: {exc}")
+
+    # Insert signal for sales rep
+    try:
+        c_res = supabase.table("clients").select("name, assigned_agent_id").eq("id", client_id).single().execute()
+        c_data = c_res.data or {}
+        c_name = c_data.get("name") or "Client"
+        prop = demo.get("properties") or {}
+        prop_name = prop.get("address") or "robot unit"
+        supabase.table("signals").insert({
+            "type": "portal_demo_confirmed",
+            "client_id": client_id,
+            "property_id": demo.get("property_id"),
+            "message": f"{c_name} confirmed demo for {prop_name}.",
+        }).execute()
+    except Exception as sig_exc:
+        print(f"[portal_confirm_demo] Warning: signal insert failed: {sig_exc}")
+
+    client_ip = get_trusted_client_ip(request)
+    log_audit_event(
+        supabase,
+        client_id=client_id,
+        action="contact_confirmed_demo",
+        object_type="demo",
+        contact_id=session.contact_id,
+        object_id=demo_id,
+        details={"previous_status": demo.get("status"), "new_status": "upcoming"},
+        ip=client_ip,
+    )
+
+    return {
+        "success": True,
+        "demo_id": demo_id,
+        "status": "upcoming",
+        "confirmed": True,
+        "ics_url": get_ics_relative_url(demo_id),
+    }
+
+
+@app.post("/api/portal/{client_id}/demos/{demo_id}/cancel")
+def portal_cancel_demo(
+    client_id: str,
+    demo_id: str,
+    request: Request,
+    body: Optional[dict] = None,
+    session: PortalSession = Depends(get_current_portal_session),
+):
+    """
+    Client cancels a demonstration request or scheduled demo.
+    Strict rule: ONLY demos in 'requested', 'offered', 'upcoming' can be cancelled (409 otherwise).
+    """
+    require_company_access(session, client_id)
+    if session.is_legacy:
+        raise HTTPException(status_code=403, detail="Legacy session is read-only. Cannot cancel demos.")
+
+    check_portal_write_rate_limit(request, client_id, action="cancel_demo")
+
+    try:
+        res = supabase.table("scheduled_viewings") \
+            .select("id, client_id, status, confirmation_status, property_id, properties(address)") \
+            .eq("id", demo_id) \
+            .single() \
+            .execute()
+    except Exception:
+        raise HTTPException(status_code=404, detail="Demo not found")
+
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Demo not found")
+
+    demo = res.data[0] if isinstance(res.data, list) and res.data else res.data
+    if not demo or demo.get("client_id") != client_id:
+        raise HTTPException(status_code=403, detail="Forbidden: demo belongs to another company")
+
+    # Enforce DEMO_RULES (409 if cancelled, completed, etc.)
+    check_demo_transition("cancel", demo)
+
+    try:
+        supabase.table("scheduled_viewings") \
+            .update({
+                "status": "cancelled",
+                "confirmation_status": "cancelled",
+            }) \
+            .eq("id", demo_id) \
+            .execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to cancel demo: {exc}")
+
+    # Cancel pending WhatsApp reminders for this demo
+    try:
+        cancel_viewing_reminders(demo_id, reason="portal_cancelled")
+    except Exception as rem_exc:
+        print(f"[portal_cancel_demo] Warning: cancel_viewing_reminders failed: {rem_exc}")
+
+    # Insert signal for sales rep
+    try:
+        c_res = supabase.table("clients").select("name, assigned_agent_id").eq("id", client_id).single().execute()
+        c_data = c_res.data or {}
+        c_name = c_data.get("name") or "Client"
+        prop = demo.get("properties") or {}
+        prop_name = prop.get("address") or "robot unit"
+        supabase.table("signals").insert({
+            "type": "portal_demo_cancelled",
+            "client_id": client_id,
+            "property_id": demo.get("property_id"),
+            "message": f"{c_name} cancelled demo for {prop_name}.",
+        }).execute()
+    except Exception as sig_exc:
+        print(f"[portal_cancel_demo] Warning: signal insert failed: {sig_exc}")
+
+    reason = (body or {}).get("reason")
+    client_ip = get_trusted_client_ip(request)
+    log_audit_event(
+        supabase,
+        client_id=client_id,
+        action="contact_cancelled_demo",
+        object_type="demo",
+        contact_id=session.contact_id,
+        object_id=demo_id,
+        details={"previous_status": demo.get("status"), "reason": reason},
+        ip=client_ip,
+    )
+
+    return {"success": True, "demo_id": demo_id, "status": "cancelled"}
+
+
+@app.post("/api/portal/{client_id}/demos/{demo_id}/reschedule")
+def portal_reschedule_demo(
+    client_id: str,
+    demo_id: str,
+    body: dict,
+    request: Request,
+    session: PortalSession = Depends(get_current_portal_session),
+):
+    """
+    Client requests a demo reschedule.
+    Strict rule: ONLY demos in 'requested', 'offered', 'upcoming' can be rescheduled (409 otherwise).
+    Reschedule is atomic:
+      new_id = insert new request (if fails: return 500, old demo untouched)
+      try: cancel old demo (confirmation_status='rescheduled')
+      except: delete new_id row; return 500 (compensate)
+    Cancels pending WhatsApp reminders and inserts a rep signal.
+    """
+    require_company_access(session, client_id)
+    if session.is_legacy:
+        raise HTTPException(status_code=403, detail="Legacy session is read-only. Cannot reschedule demos.")
+
+    check_portal_write_rate_limit(request, client_id, action="reschedule_demo")
+
+    try:
+        res = supabase.table("scheduled_viewings") \
+            .select("id, client_id, property_id, status, confirmation_status, scheduled_at, properties(address)") \
+            .eq("id", demo_id) \
+            .single() \
+            .execute()
+    except Exception:
+        raise HTTPException(status_code=404, detail="Demo not found")
+
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Demo not found")
+
+    demo = res.data[0] if isinstance(res.data, list) and res.data else res.data
+    if not demo or demo.get("client_id") != client_id:
+        raise HTTPException(status_code=403, detail="Forbidden: demo belongs to another company")
+
+    # Enforce DEMO_RULES (409 if cancelled, completed, etc.)
+    check_demo_transition("reschedule", demo)
+
+    preferred_date = body.get("preferred_date")
+    notes = (body.get("notes") or "").strip()
+
+    # 1. Atomic step 1: insert new demo request
+    new_demo_id = None
+    new_demo_row = None
+    try:
+        insert_res = supabase.table("scheduled_viewings").insert({
+            "client_id": client_id,
+            "property_id": demo["property_id"],
+            "scheduled_at": preferred_date,
+            "status": "upcoming",
+            "confirmation_status": "requested",
+            "source": "portal_reschedule",
+        }).execute()
+        rows = insert_res.data or []
+        new_demo_row = rows[0] if isinstance(rows, list) and rows else rows
+        if isinstance(new_demo_row, dict):
+            new_demo_id = new_demo_row.get("id")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to create new demo request: {exc}")
+
+    if not new_demo_id:
+        raise HTTPException(status_code=500, detail="Failed to initialize new demo request")
+
+    # 2. Atomic step 2: cancel old demo with confirmation_status='rescheduled'
+    # Compensation: if updating old demo fails, delete the newly created demo row
+    try:
+        supabase.table("scheduled_viewings").update({
+            "status": "cancelled",
+            "confirmation_status": "rescheduled",
+        }).eq("id", demo_id).execute()
+    except Exception as exc:
+        try:
+            supabase.table("scheduled_viewings").delete().eq("id", new_demo_id).execute()
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"Failed to update previous demo: {exc}")
+
+    # 3. Cancel pending WhatsApp reminders for old demo
+    try:
+        cancel_viewing_reminders(demo_id, reason="portal_rescheduled")
+    except Exception as rem_exc:
+        print(f"[portal_reschedule_demo] Warning: cancel_viewing_reminders failed: {rem_exc}")
+
+    # 4. If notes provided, record inquiry note
+    if notes:
+        try:
+            supabase.table("client_inquiries").insert({
+                "client_id": client_id,
+                "property_id": demo["property_id"],
+                "message": f"[Reschedule request for demo {demo_id}] {notes}",
+                "status": "open",
+            }).execute()
+        except Exception as exc:
+            print(f"[portal_reschedule_demo] Notice: Failed to record inquiry note: {exc}")
+
+    # 5. Insert signal for sales rep
+    try:
+        c_res = supabase.table("clients").select("name, assigned_agent_id").eq("id", client_id).single().execute()
+        c_data = c_res.data or {}
+        c_name = c_data.get("name") or "Client"
+        prop = demo.get("properties") or {}
+        prop_name = prop.get("address") or "robot unit"
+        supabase.table("signals").insert({
+            "type": "portal_demo_rescheduled",
+            "client_id": client_id,
+            "property_id": demo.get("property_id"),
+            "message": f"{c_name} requested reschedule for {prop_name} demo.",
+        }).execute()
+    except Exception as sig_exc:
+        print(f"[portal_reschedule_demo] Warning: signal insert failed: {sig_exc}")
+
+    client_ip = get_trusted_client_ip(request)
+    log_audit_event(
+        supabase,
+        client_id=client_id,
+        action="contact_rescheduled_demo",
+        object_type="demo",
+        contact_id=session.contact_id,
+        object_id=new_demo_id,
+        details={
+            "old_demo_id": demo_id,
+            "new_demo_id": new_demo_id,
+            "preferred_date": preferred_date,
+            "notes": notes or None,
+        },
+        ip=client_ip,
+    )
+
+    return {
+        "success": True,
+        "old_demo_id": demo_id,
+        "new_demo": new_demo_row,
+        "status": "requested",
+        "message": "Demo rescheduled. Our team will confirm the new slot shortly.",
     }
 
 
@@ -7672,32 +8226,49 @@ def confirm_demo(viewing_id: str):
     return {"viewing_id": viewing_id, "status": "upcoming", "confirmed": True}
 
 
+# ─── Portal Inquiries & Messages ─────────────────────────────────────────────
+
 @app.post("/api/portal/{client_id}/inquiry")
-def portal_submit_inquiry(client_id: str, body: dict, session: PortalSession = Depends(get_current_portal_session)):
+def portal_submit_inquiry(
+    client_id: str,
+    body: dict,
+    request: Request,
+    session: PortalSession = Depends(get_current_portal_session),
+):
     """
-    Client submits a question about a specific robot unit.
-    Creates a client_inquiries row that agents can see and respond to.
-    This is lighter-weight than a full demo request.
+    Client submits an inquiry about a specific robot unit or general question.
+    Creates client_inquiries row and the first inquiry_messages row.
     """
     require_company_access(session, client_id)
     if session.is_legacy:
         raise HTTPException(status_code=403, detail="Legacy session is read-only. Cannot submit inquiry.")
 
+    check_portal_write_rate_limit(request, client_id, action="inquiry")
+
     property_id = body.get("property_id")
     message = (body.get("message") or "").strip()
 
-    if not property_id:
-        raise HTTPException(status_code=400, detail="property_id is required")
-    if not message:
-        raise HTTPException(status_code=400, detail="message is required")
+    if not message or len(message) > 4000:
+        raise HTTPException(status_code=422, detail="message is required and must be 1 to 4000 characters")
 
-    # Validate client exists
     try:
-        client_res = supabase.table("clients").select("id, name").eq("id", client_id).single().execute()
+        client_res = supabase.table("clients").select("id, name, assigned_agent_id").eq("id", client_id).single().execute()
+        if not client_res.data:
+            raise HTTPException(status_code=404, detail="Client not found")
+        client_name = client_res.data.get("name") or "Client"
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=404, detail="Client not found")
-    if not client_res.data:
-        raise HTTPException(status_code=404, detail="Client not found")
+
+    unit_name = "general"
+    if property_id:
+        try:
+            p_res = supabase.table("properties").select("id, address").eq("id", property_id).single().execute()
+            if p_res.data:
+                unit_name = p_res.data.get("address") or "robot unit"
+        except Exception:
+            pass
 
     try:
         res = supabase.table("client_inquiries").insert({
@@ -7706,29 +8277,147 @@ def portal_submit_inquiry(client_id: str, body: dict, session: PortalSession = D
             "message": message,
             "status": "open",
         }).execute()
+        inq_row = res.data[0] if res.data else {}
+        inquiry_id = inq_row.get("id")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to save inquiry: {exc}")
 
-    record = res.data[0] if res.data else {}
+    # Initial message in inquiry_messages
+    try:
+        supabase.table("inquiry_messages").insert({
+            "inquiry_id": inquiry_id,
+            "client_id": client_id,
+            "sender": "company",
+            "body": message,
+        }).execute()
+    except Exception as exc:
+        print(f"[portal_submit_inquiry] Warning: initial inquiry message insert failed: {exc}")
+
+    # Emit rep signal
+    try:
+        supabase.table("signals").insert({
+            "type": "portal_inquiry",
+            "client_id": client_id,
+            "property_id": property_id,
+            "message": f"New inquiry from {client_name} regarding {unit_name}: {message[:120]}",
+        }).execute()
+    except Exception as sig_exc:
+        print(f"[portal_submit_inquiry] Warning: signal insert failed: {sig_exc}")
+
     return {
-        "id": record.get("id"),
+        "id": inquiry_id,
         "client_id": client_id,
         "property_id": property_id,
         "message": message,
         "status": "open",
+        "created_at": inq_row.get("created_at"),
     }
 
 
-@app.get("/api/portal/{client_id}/activity")
-def portal_client_activity(client_id: str, session: PortalSession = Depends(get_current_portal_session)):
+@app.post("/api/portal/{client_id}/inquiries/{inquiry_id}/messages")
+def portal_inquiry_post_message(
+    client_id: str,
+    inquiry_id: str,
+    body: dict,
+    request: Request,
+    session: PortalSession = Depends(get_current_portal_session),
+):
+    """Client posts a message to an existing inquiry thread."""
+    require_company_access(session, client_id)
+    if session.is_legacy:
+        raise HTTPException(status_code=403, detail="Legacy session is read-only. Cannot send message.")
+
+    check_portal_write_rate_limit(request, client_id, action="inquiry_message")
+
+    text = (body.get("body") or "").strip()
+    if not text or len(text) > 4000:
+        raise HTTPException(status_code=422, detail="Message body must be between 1 and 4000 characters")
+
+    try:
+        inq_res = supabase.table("client_inquiries").select("id, client_id, property_id").eq("id", inquiry_id).single().execute()
+        if not inq_res.data:
+            raise HTTPException(status_code=404, detail="Inquiry not found")
+        inq = inq_res.data
+        if inq.get("client_id") != client_id:
+            raise HTTPException(status_code=403, detail="Forbidden: inquiry belongs to another company")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Inquiry not found")
+
+    try:
+        ins_res = supabase.table("inquiry_messages").insert({
+            "inquiry_id": inquiry_id,
+            "client_id": client_id,
+            "sender": "company",
+            "body": text,
+        }).execute()
+        msg_record = ins_res.data[0] if ins_res.data else {}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to post message: {exc}")
+
+    try:
+        c_res = supabase.table("clients").select("name").eq("id", client_id).single().execute()
+        c_name = (c_res.data or {}).get("name") or "Client"
+        supabase.table("signals").insert({
+            "type": "portal_inquiry_message",
+            "client_id": client_id,
+            "property_id": inq.get("property_id"),
+            "message": f"New message from {c_name}: {text[:120]}",
+        }).execute()
+    except Exception as sig_exc:
+        print(f"[portal_inquiry_post_message] Warning: signal insert failed: {sig_exc}")
+
+    return {
+        "id": msg_record.get("id"),
+        "inquiry_id": inquiry_id,
+        "sender": "company",
+        "body": text,
+        "created_at": msg_record.get("created_at"),
+    }
+
+
+@app.post("/api/portal/{client_id}/inquiries/{inquiry_id}/read")
+def portal_inquiry_mark_read(
+    client_id: str,
+    inquiry_id: str,
+    session: PortalSession = Depends(get_current_portal_session),
+):
+    """Mark all rep messages in this inquiry as read by the company contact."""
+    require_company_access(session, client_id)
+    try:
+        inq_res = supabase.table("client_inquiries").select("id, client_id").eq("id", inquiry_id).single().execute()
+        if not inq_res.data:
+            raise HTTPException(status_code=404, detail="Inquiry not found")
+        if inq_res.data.get("client_id") != client_id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Inquiry not found")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        supabase.table("inquiry_messages") \
+            .update({"read_at": now_iso}) \
+            .eq("inquiry_id", inquiry_id) \
+            .eq("client_id", client_id) \
+            .eq("sender", "rep") \
+            .is_("read_at", "null") \
+            .execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to mark messages as read: {exc}")
+
+    return {"success": True}
+
+
+@app.get("/api/portal/{client_id}/inquiries")
+def portal_list_inquiries(client_id: str, session: PortalSession = Depends(get_current_portal_session)):
     """
-    Return the client's scheduled viewing history for the portal.
-    Each item: { property_name, status, date, viewing_id }
-    Ordered newest first.  Returns an empty list when no history exists —
-    never 404.
+    Return this client's inquiries with threaded messages and unread counts.
+    Never exposes internal notes, agent identity, or other companies' data.
     """
     require_company_access(session, client_id)
-    # Validate client quietly
     try:
         client_res = supabase.table("clients").select("id").eq("id", client_id).single().execute()
         if not client_res.data:
@@ -7740,96 +8429,218 @@ def portal_client_activity(client_id: str, session: PortalSession = Depends(get_
 
     try:
         rows = (
-            supabase.table("scheduled_viewings")
-            .select("id, status, scheduled_at, properties(address)")
-            .eq("client_id", client_id)
-            .order("scheduled_at", desc=True)
-            .execute()
-        )
-        items = []
-        for v in (rows.data or []):
-            prop = v.get("properties") or {}
-            items.append({
-                "viewing_id":    v.get("id"),
-                "property_name": prop.get("address") or "Unit",
-                "status":        v.get("status", "requested"),
-                "date":          v.get("scheduled_at"),
-            })
-        return {"activity": items}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to load activity: {exc}")
-
-
-@app.get("/api/portal/{client_id}/inquiries")
-def portal_list_inquiries(client_id: str, session: PortalSession = Depends(get_current_portal_session)):
-    """
-    Return this client's own inquiry history — client-safe fields only.
-    Same auth pattern as all other portal endpoints (no session token — client_id
-    is the sole identifier).  Returns an empty list when no history exists.
-
-    Exposed fields: id, message, status, agent_reply, created_at, property_name.
-    Never exposed: agent identity, other clients' data, internal notes.
-    """
-    require_company_access(session, client_id)
-    # Validate client exists (same quiet check as other portal endpoints)
-    try:
-        client_res = (
-            supabase.table("clients")
-            .select("id")
-            .eq("id", client_id)
-            .single()
-            .execute()
-        )
-        if not client_res.data:
-            raise HTTPException(status_code=404, detail="Client not found")
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=404, detail="Client not found")
-
-    try:
-        rows = (
             supabase.table("client_inquiries")
-            .select("id, message, status, agent_reply, created_at, properties(address)")
+            .select("id, property_id, message, status, agent_reply, created_at, properties(address)")
             .eq("client_id", client_id)
             .order("created_at", desc=True)
             .execute()
         )
+        inq_rows = rows.data or []
+
+        msgs_res = (
+            supabase.table("inquiry_messages")
+            .select("id, inquiry_id, sender, body, read_at, created_at")
+            .eq("client_id", client_id)
+            .order("created_at", desc=False)
+            .execute()
+        )
+        msgs_by_inq: dict[str, list] = {}
+        total_unread = 0
+        for m in (msgs_res.data or []):
+            iq_id = m.get("inquiry_id")
+            msgs_by_inq.setdefault(iq_id, []).append(m)
+            if m.get("sender") == "rep" and not m.get("read_at"):
+                total_unread += 1
+
         inquiries = []
-        for row in rows.data or []:
+        for row in inq_rows:
             prop = row.get("properties") or {}
+            iq_id = row.get("id")
+            thread = msgs_by_inq.get(iq_id, [])
+            if not thread:
+                if row.get("message"):
+                    thread.append({
+                        "id": f"{iq_id}-orig",
+                        "inquiry_id": iq_id,
+                        "sender": "company",
+                        "body": row.get("message"),
+                        "read_at": None,
+                        "created_at": row.get("created_at"),
+                    })
+                if row.get("agent_reply"):
+                    thread.append({
+                        "id": f"{iq_id}-reply",
+                        "inquiry_id": iq_id,
+                        "sender": "rep",
+                        "body": row.get("agent_reply"),
+                        "read_at": None,
+                        "created_at": row.get("created_at"),
+                    })
+            unread_count = sum(1 for m in thread if m.get("sender") == "rep" and not m.get("read_at"))
+
             inquiries.append({
-                "id":            row.get("id"),
+                "id":            iq_id,
                 "message":       row.get("message"),
                 "status":        row.get("status", "open"),
-                "agent_reply":   row.get("agent_reply"),   # None if no reply yet
+                "agent_reply":   row.get("agent_reply"),
                 "created_at":    row.get("created_at"),
-                "property_name": prop.get("address"),
+                "property_name": prop.get("address") or "General Inquiry",
                 "property_id":   row.get("property_id"),
+                "messages":      thread,
+                "unread_count":  unread_count,
             })
-        return {"inquiries": inquiries}
+
+        return {"inquiries": inquiries, "total_unread": total_unread}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to load inquiries: {exc}")
 
 
-# ─── Portal Catalog endpoint ──────────────────────────────────────────────────
-#
-# Returns ALL active robot units with client-safe fields + a boolean `matched`
-# flag.  "matched" uses the IDENTICAL rule as the portal dashboard/Matches view:
-#   top-5 pipeline_evaluations rows for this client ordered by expected_value desc
-# This guarantees the Catalog badge and the Matches tab can never disagree.
-#
-# NEVER exposes: expected_value, ai_probability, segment_tier, ml_probability.
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── Portal Catalog & Unit Feedback ──────────────────────────────────────────
+
+@app.put("/api/portal/{client_id}/catalog/{property_id}/feedback")
+def portal_put_unit_feedback(
+    client_id: str,
+    property_id: str,
+    body: dict,
+    request: Request,
+    session: PortalSession = Depends(get_current_portal_session),
+):
+    """
+    Partial update / upsert of company feedback on a robot unit.
+    Body keys: interest ('interested'|'not_interested'|null), reason (str<=500), is_saved (bool).
+    Emits portal_interested or portal_not_interested signal.
+    """
+    require_company_access(session, client_id)
+    if session.is_legacy:
+        raise HTTPException(status_code=403, detail="Legacy session is read-only. Cannot modify feedback.")
+
+    check_portal_write_rate_limit(request, client_id, action="catalog_feedback")
+
+    # Verify property exists
+    try:
+        p_res = supabase.table("properties").select("id, address").eq("id", property_id).single().execute()
+        if not p_res.data:
+            raise HTTPException(status_code=404, detail="Property not found")
+        unit_name = p_res.data.get("address") or "robot unit"
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    allowed_interest = ("interested", "not_interested", None)
+    if "interest" in body and body["interest"] not in allowed_interest:
+        raise HTTPException(status_code=422, detail="interest must be 'interested', 'not_interested', or null")
+
+    reason = body.get("reason")
+    if reason is not None:
+        if not isinstance(reason, str) or len(reason) > 500:
+            raise HTTPException(status_code=422, detail="reason must be a string up to 500 characters")
+
+    is_saved = body.get("is_saved")
+    if is_saved is not None and not isinstance(is_saved, bool):
+        raise HTTPException(status_code=422, detail="is_saved must be a boolean")
+
+    existing = None
+    try:
+        ex_res = supabase.table("portal_unit_feedback") \
+            .select("id, interest, reason, is_saved") \
+            .eq("client_id", client_id) \
+            .eq("property_id", property_id) \
+            .execute()
+        if ex_res.data:
+            existing = ex_res.data[0]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to check existing feedback: {exc}")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    old_interest = existing.get("interest") if existing else None
+
+    if existing:
+        update_payload: dict[str, Any] = {"updated_at": now_iso}
+        if "interest" in body:
+            update_payload["interest"] = body["interest"]
+        if "reason" in body:
+            update_payload["reason"] = body["reason"]
+        if "is_saved" in body:
+            update_payload["is_saved"] = body["is_saved"]
+
+        try:
+            upd_res = supabase.table("portal_unit_feedback") \
+                .update(update_payload) \
+                .eq("client_id", client_id) \
+                .eq("property_id", property_id) \
+                .execute()
+            final_row = upd_res.data[0] if upd_res.data else {**existing, **update_payload}
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to update feedback: {exc}")
+    else:
+        insert_payload = {
+            "client_id": client_id,
+            "property_id": property_id,
+            "contact_id": getattr(session, "contact_id", None),
+            "interest": body.get("interest"),
+            "reason": body.get("reason"),
+            "is_saved": body.get("is_saved", False),
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        }
+        try:
+            ins_res = supabase.table("portal_unit_feedback").insert(insert_payload).execute()
+            final_row = ins_res.data[0] if ins_res.data else insert_payload
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to save feedback: {exc}")
+
+    new_interest = final_row.get("interest")
+    if "interest" in body and new_interest != old_interest:
+        try:
+            c_res = supabase.table("clients").select("name").eq("id", client_id).single().execute()
+            client_name = (c_res.data or {}).get("name") or "Client"
+            if new_interest == "interested":
+                supabase.table("signals").insert({
+                    "type": "portal_interested",
+                    "client_id": client_id,
+                    "property_id": property_id,
+                    "message": f"{client_name} expressed interest in {unit_name}.",
+                }).execute()
+            elif new_interest == "not_interested":
+                r_text = f" (Reason: {final_row.get('reason')})" if final_row.get("reason") else ""
+                supabase.table("signals").insert({
+                    "type": "portal_not_interested",
+                    "client_id": client_id,
+                    "property_id": property_id,
+                    "message": f"{client_name} marked {unit_name} as not interested{r_text}.",
+                }).execute()
+        except Exception as sig_exc:
+            print(f"[portal_put_unit_feedback] Signal insert warning: {sig_exc}")
+
+    return {
+        "property_id": property_id,
+        "interest": final_row.get("interest"),
+        "reason": final_row.get("reason"),
+        "is_saved": final_row.get("is_saved", False),
+    }
+
 
 @app.get("/api/portal/{client_id}/catalog")
-def portal_catalog(client_id: str, session: PortalSession = Depends(get_current_portal_session)):
+def portal_catalog(
+    client_id: str,
+    category: Optional[str] = None,
+    min_price: Optional[str] = None,
+    max_price: Optional[str] = None,
+    max_lead_time_weeks: Optional[str] = None,
+    min_payload_kg: Optional[str] = None,
+    environment: Optional[str] = None,
+    search: Optional[str] = None,
+    session: PortalSession = Depends(get_current_portal_session),
+):
+    """
+    Returns active robot units with my_feedback merged per unit in a single query.
+    Supports server-side filters. Validates filter values (422 if invalid).
+    NEVER exposes sales-internal fields (expected_value, tier, probability, etc.).
+    """
     require_company_access(session, client_id)
-    # Validate client (same quiet check as other portal endpoints)
     try:
-        client_res = (
-            supabase.table("clients").select("id").eq("id", client_id).single().execute()
-        )
+        client_res = supabase.table("clients").select("id").eq("id", client_id).single().execute()
         if not client_res.data:
             raise HTTPException(status_code=404, detail="Client not found")
     except HTTPException:
@@ -7837,7 +8648,44 @@ def portal_catalog(client_id: str, session: PortalSession = Depends(get_current_
     except Exception:
         raise HTTPException(status_code=404, detail="Client not found")
 
-    # Fetch the client's top-5 matched property IDs (same rule as /dashboard)
+    # Validate numerical filters
+    f_min_price = None
+    if min_price is not None and min_price != "":
+        try:
+            f_min_price = float(min_price)
+            if f_min_price < 0:
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(status_code=422, detail="min_price must be a positive number")
+
+    f_max_price = None
+    if max_price is not None and max_price != "":
+        try:
+            f_max_price = float(max_price)
+            if f_max_price < 0:
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(status_code=422, detail="max_price must be a positive number")
+
+    f_max_lead = None
+    if max_lead_time_weeks is not None and max_lead_time_weeks != "":
+        try:
+            f_max_lead = int(max_lead_time_weeks)
+            if f_max_lead < 0:
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(status_code=422, detail="max_lead_time_weeks must be a positive integer")
+
+    f_min_payload = None
+    if min_payload_kg is not None and min_payload_kg != "":
+        try:
+            f_min_payload = float(min_payload_kg)
+            if f_min_payload < 0:
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(status_code=422, detail="min_payload_kg must be a positive number")
+
+    # Fetch top-5 matched property IDs
     matched_ids: set[str] = set()
     try:
         evals_res = (
@@ -7850,23 +8698,40 @@ def portal_catalog(client_id: str, session: PortalSession = Depends(get_current_
         )
         matched_ids = {row["property_id"] for row in (evals_res.data or [])}
     except Exception:
-        pass  # no evaluations yet — matched will be False for all
+        pass
 
-    # Fetch all active properties (same filter as run_evaluations)
+    # Single-query merge for client feedback
+    feedback_map = {}
+    try:
+        fb_res = (
+            supabase.table("portal_unit_feedback")
+            .select("property_id, interest, reason, is_saved")
+            .eq("client_id", client_id)
+            .execute()
+        )
+        for fb in (fb_res.data or []):
+            feedback_map[fb["property_id"]] = {
+                "interest": fb.get("interest"),
+                "reason": fb.get("reason"),
+                "is_saved": fb.get("is_saved", False),
+            }
+    except Exception as exc:
+        print(f"[portal_catalog] Feedback fetch non-fatal: {exc}")
+
+    # Fetch all active properties
     try:
         props_res = (
             supabase.table("properties")
-            .select("id, address, neighborhood, property_value, image_url, property_type, bedrooms, bathrooms, sqft, estimated_annual_savings")
+            .select("id, address, neighborhood, property_value, image_url, property_type, bedrooms, bathrooms, sqft, estimated_annual_savings, sku, manufacturer, category, specs, lead_time_weeks, stock_status, spec_sheet_url, currency")
             .neq("status", "CLOSED")
             .order("address")
             .execute()
         )
-    except Exception as exc:
-        # estimated_annual_savings may not exist yet — retry without it
+    except Exception:
         try:
             props_res = (
                 supabase.table("properties")
-                .select("id, address, neighborhood, property_value, image_url, property_type, bedrooms, bathrooms, sqft")
+                .select("id, address, neighborhood, property_value, image_url, property_type, bedrooms, bathrooms, sqft, estimated_annual_savings")
                 .neq("status", "CLOSED")
                 .order("address")
                 .execute()
@@ -7876,26 +8741,93 @@ def portal_catalog(client_id: str, session: PortalSession = Depends(get_current_
 
     units = []
     for p in (props_res.data or []):
-        unit_cost  = None if session.is_legacy else p.get("property_value")
+        unit_id = p["id"]
+        unit_name = p.get("address") or "Robot Unit"
+        specs = p.get("specs") or {}
+        if not isinstance(specs, dict):
+            specs = {}
+
+        # Read payload from specs->>'payload_kg' with fallback to bedrooms
+        payload_val = specs.get("payload_kg")
+        if payload_val is None:
+            payload_val = p.get("bedrooms")
+        try:
+            payload_num = float(payload_val) if payload_val is not None else None
+        except (ValueError, TypeError):
+            payload_num = None
+
+        cost = None if session.is_legacy else p.get("property_value")
+        cost_num = float(cost) if cost is not None else None
+        lead_time = p.get("lead_time_weeks")
+        unit_category = p.get("category") or p.get("property_type")
+        env = p.get("neighborhood")
+
+        # Filters evaluation
+        if category and category.strip():
+            c_term = category.strip().lower()
+            if not unit_category or c_term not in unit_category.lower():
+                continue
+
+        if f_min_price is not None and cost_num is not None:
+            if cost_num < f_min_price:
+                continue
+
+        if f_max_price is not None and cost_num is not None:
+            if cost_num > f_max_price:
+                continue
+
+        if f_max_lead is not None and lead_time is not None:
+            if lead_time > f_max_lead:
+                continue
+
+        if f_min_payload is not None and payload_num is not None:
+            if payload_num < f_min_payload:
+                continue
+
+        if environment and environment.strip():
+            e_term = environment.strip().lower()
+            if not env or e_term not in env.lower():
+                continue
+
+        if search and search.strip():
+            s_term = search.strip().lower()
+            combined_search = f"{unit_name} {p.get('sku') or ''} {p.get('manufacturer') or ''} {unit_category or ''}".lower()
+            if s_term not in combined_search:
+                continue
+
         annual_sav = None if session.is_legacy else p.get("estimated_annual_savings")
-        payback    = None
-        if unit_cost and annual_sav and annual_sav > 0:
-            payback = round((unit_cost / annual_sav) * 12)
+        payback = None
+        if cost_num and annual_sav and annual_sav > 0:
+            payback = round((cost_num / annual_sav) * 12)
+
+        my_fb = feedback_map.get(unit_id, {
+            "interest": None,
+            "reason": None,
+            "is_saved": False,
+        })
 
         units.append({
-            "property_id":             p["id"],
-            "name":                    p.get("address"),
-            "cost":                    unit_cost,
-            "environment":             p.get("neighborhood"),
-            "image_url":               p.get("image_url"),
-            "property_type":           p.get("property_type"),
-            # Repurposed robot-spec fields with semantic names
-            "payload_tier":            p.get("bedrooms"),         # 1-5 payload rating
-            "nav_sensors":             p.get("bathrooms"),         # lidar/sensor redundancy
-            "operational_range_sqft":  p.get("sqft"),             # coverage per 8h shift
+            "property_id":              unit_id,
+            "name":                     unit_name,
+            "sku":                      p.get("sku"),
+            "manufacturer":             p.get("manufacturer"),
+            "category":                 unit_category,
+            "specs":                    specs,
+            "lead_time_weeks":          lead_time,
+            "stock_status":             p.get("stock_status"),
+            "spec_sheet_url":           p.get("spec_sheet_url"),
+            "currency":                 p.get("currency") or "MYR",
+            "cost":                     cost_num,
+            "environment":              env,
+            "image_url":                p.get("image_url"),
+            "property_type":            p.get("property_type"),
+            "payload_tier":             p.get("bedrooms"),
+            "nav_sensors":              p.get("bathrooms"),
+            "operational_range_sqft":   p.get("sqft"),
             "estimated_annual_savings": annual_sav,
-            "payback_months":          payback,
-            "matched":                 p["id"] in matched_ids,    # top-5 flag — same as Matches tab
+            "payback_months":           payback,
+            "matched":                  unit_id in matched_ids,
+            "my_feedback":              my_fb,
         })
 
     return {
@@ -7904,26 +8836,542 @@ def portal_catalog(client_id: str, session: PortalSession = Depends(get_current_
     }
 
 
-# ─── Portal Preferences endpoint ──────────────────────────────────────────────
-#
-# GET  — fetch client's current editable preferences
-# PUT  — update preferences, re-score all evaluation rows for this client,
-#        invalidate reasoning cache (lazy — dashboard will regenerate on next visit),
-#        emit a single "client_preferences_updated" signal so the agent sees the change.
-#
-# AUTH NOTE: same pattern as all portal endpoints — client_id in URL, no session
-#   token.  A caller who knows another client's UUID could update their preferences.
-#   This is a pre-existing Phase 1 design decision (all portal endpoints share it).
-#   To strengthen: add access_code verification in the PUT body.  Ask the product
-#   owner before making that change as it affects the client UX.
-#
-# WHITELIST — strict server-side validation, 6 fields only:
-#   stated_budget, preferred_neighborhood, secondary_neighborhood,
-#   financing_status, move_in_timeline, property_type_preference
-#
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── Portal Quotes Endpoints ──────────────────────────────────────────────────
 
-# Valid values (must match scoring_engine.py exactly)
+@app.post("/api/portal/{client_id}/quotes")
+def portal_create_quote(
+    client_id: str,
+    body: dict,
+    request: Request,
+    session: PortalSession = Depends(get_current_portal_session),
+):
+    """
+    Client requests a formal quote for a robot unit.
+    Status starts in 'requested'. Duplicate open requests for same unit return 409.
+    """
+    require_company_access(session, client_id)
+    if session.is_legacy:
+        raise HTTPException(status_code=403, detail="Legacy session is read-only. Cannot request quotes.")
+
+    check_portal_write_rate_limit(request, client_id, action="quote_request")
+
+    property_id = body.get("property_id")
+    if not property_id:
+        raise HTTPException(status_code=400, detail="property_id is required")
+
+    quantity = body.get("quantity", 1)
+    if not isinstance(quantity, int) or quantity < 1 or quantity > 1000:
+        raise HTTPException(status_code=422, detail="quantity must be an integer between 1 and 1000")
+
+    notes = body.get("notes")
+    if notes is not None:
+        if not isinstance(notes, str) or len(notes) > 1000:
+            raise HTTPException(status_code=422, detail="notes must be a string up to 1000 characters")
+
+    # Verify property exists
+    try:
+        p_res = supabase.table("properties").select("id, address").eq("id", property_id).single().execute()
+        if not p_res.data:
+            raise HTTPException(status_code=404, detail="Property not found")
+        unit_name = p_res.data.get("address") or "robot unit"
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    # Check for duplicate open quote
+    try:
+        dup = (
+            supabase.table("portal_quotes")
+            .select("id")
+            .eq("client_id", client_id)
+            .eq("property_id", property_id)
+            .eq("status", "requested")
+            .execute()
+        )
+        if dup.data:
+            raise HTTPException(status_code=409, detail="An open quote request already exists for this unit.")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to check duplicate quotes: {exc}")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        ins_res = supabase.table("portal_quotes").insert({
+            "client_id": client_id,
+            "property_id": property_id,
+            "contact_id": getattr(session, "contact_id", None),
+            "quantity": quantity,
+            "notes": notes,
+            "status": "requested",
+            "requested_at": now_iso,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        }).execute()
+        quote_row = ins_res.data[0] if ins_res.data else {}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to create quote request: {exc}")
+
+    # Emit signal for sales rep
+    try:
+        c_res = supabase.table("clients").select("name").eq("id", client_id).single().execute()
+        c_name = (c_res.data or {}).get("name") or "Client"
+        supabase.table("signals").insert({
+            "type": "portal_quote_requested",
+            "client_id": client_id,
+            "property_id": property_id,
+            "message": f"{c_name} requested a quote for {quantity}x {unit_name}.",
+        }).execute()
+    except Exception as sig_exc:
+        print(f"[portal_create_quote] Warning: signal insert failed: {sig_exc}")
+
+    return {
+        "id": quote_row.get("id"),
+        "property_id": property_id,
+        "property_name": unit_name,
+        "quantity": quantity,
+        "notes": notes,
+        "status": "requested",
+        "requested_at": now_iso,
+        "responded_at": None,
+    }
+
+
+@app.get("/api/portal/{client_id}/quotes")
+def portal_get_quotes(client_id: str, session: PortalSession = Depends(get_current_portal_session)):
+    """
+    List quotes for company, newest first.
+    Excludes internal_notes entirely. Only exposes pricing fields once status in sent/accepted/declined.
+    """
+    require_company_access(session, client_id)
+    try:
+        res = (
+            supabase.table("portal_quotes")
+            .select("id, property_id, quantity, notes, status, requested_at, sent_at, responded_at, quoted_amount, currency, customer_note, valid_until, properties(address)")
+            .eq("client_id", client_id)
+            .order("requested_at", desc=True)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch quotes: {exc}")
+
+    quotes = []
+    for r in (res.data or []):
+        prop = r.get("properties") or {}
+        st = r.get("status")
+        dto = {
+            "id": r["id"],
+            "property_id": r.get("property_id"),
+            "property_name": prop.get("address") or "Robot Unit",
+            "quantity": r.get("quantity", 1),
+            "notes": r.get("notes"),
+            "status": st,
+            "requested_at": r.get("requested_at"),
+            "responded_at": r.get("responded_at"),
+        }
+        if st in ("sent", "accepted", "declined"):
+            dto["quoted_amount"] = float(r["quoted_amount"]) if r.get("quoted_amount") is not None else None
+            dto["currency"] = r.get("currency") or "MYR"
+            dto["customer_note"] = r.get("customer_note")
+            dto["valid_until"] = str(r["valid_until"]) if r.get("valid_until") else None
+            dto["sent_at"] = r.get("sent_at")
+        quotes.append(dto)
+
+    return {"quotes": quotes}
+
+
+@app.post("/api/portal/{client_id}/quotes/{quote_id}/respond")
+def portal_respond_quote(
+    client_id: str,
+    quote_id: str,
+    body: dict,
+    request: Request,
+    session: PortalSession = Depends(get_current_portal_session),
+):
+    """
+    Company accepts or declines a quote.
+    Transitions status to 'accepted' or 'declined'.
+    Emits portal_quote_accepted or portal_quote_declined signal.
+    MUST NOT mutate pipeline_evaluations outcome, stage, or mark anything 'won'.
+    """
+    require_company_access(session, client_id)
+    if session.is_legacy:
+        raise HTTPException(status_code=403, detail="Legacy session is read-only. Cannot respond to quotes.")
+
+    check_portal_write_rate_limit(request, client_id, action="quote_respond")
+
+    response_val = body.get("response") or body.get("status")
+    if response_val not in ("accepted", "declined"):
+        raise HTTPException(status_code=422, detail="response must be 'accepted' or 'declined'")
+
+    note = body.get("note")
+    if note is not None:
+        if not isinstance(note, str) or len(note) > 500:
+            raise HTTPException(status_code=422, detail="note must be a string up to 500 characters")
+
+    try:
+        q_res = (
+            supabase.table("portal_quotes")
+            .select("id, client_id, property_id, status, quantity, quoted_amount, currency, customer_note, valid_until, requested_at, properties(address)")
+            .eq("id", quote_id)
+            .single()
+            .execute()
+        )
+        if not q_res.data:
+            raise HTTPException(status_code=404, detail="Quote not found")
+        quote = q_res.data
+        if quote.get("client_id") != client_id:
+            raise HTTPException(status_code=403, detail="Forbidden: quote belongs to another company")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    current_status = quote.get("status")
+    if not can_quote_transition("portal", current_status, response_val):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot transition quote from '{current_status}' to '{response_val}'. Allowed transitions: sent -> accepted/declined",
+        )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        supabase.table("portal_quotes").update({
+            "status": response_val,
+            "responded_at": now_iso,
+            "portal_response_note": note,
+            "updated_at": now_iso,
+        }).eq("id", quote_id).execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to respond to quote: {exc}")
+
+    # Emit signal for sales rep (does NOT touch pipeline_evaluations)
+    try:
+        c_res = supabase.table("clients").select("name").eq("id", client_id).single().execute()
+        c_name = (c_res.data or {}).get("name") or "Client"
+        prop = quote.get("properties") or {}
+        unit_name = prop.get("address") or "robot unit"
+        sig_type = "portal_quote_accepted" if response_val == "accepted" else "portal_quote_declined"
+        supabase.table("signals").insert({
+            "type": sig_type,
+            "client_id": client_id,
+            "property_id": quote.get("property_id"),
+            "message": f"{c_name} {response_val} quote for {quote.get('quantity', 1)}x {unit_name}.",
+        }).execute()
+    except Exception as sig_exc:
+        print(f"[portal_respond_quote] Warning: signal insert failed: {sig_exc}")
+
+    return {
+        "id": quote_id,
+        "property_id": quote.get("property_id"),
+        "property_name": (quote.get("properties") or {}).get("address") or "Robot Unit",
+        "quantity": quote.get("quantity", 1),
+        "status": response_val,
+        "requested_at": quote.get("requested_at"),
+        "responded_at": now_iso,
+        "quoted_amount": float(quote["quoted_amount"]) if quote.get("quoted_amount") is not None else None,
+        "currency": quote.get("currency") or "MYR",
+        "customer_note": quote.get("customer_note"),
+        "valid_until": str(quote["valid_until"]) if quote.get("valid_until") else None,
+    }
+
+
+# ─── Rep Console Quotes & Profile Audit ───────────────────────────────────────
+
+@app.get("/api/console/clients/{client_id}/quotes")
+def rep_get_client_quotes(client_id: str, request: Request):
+    """Rep console: view quotes for assigned client company (including internal_notes)."""
+    if hasattr(request.state, "agent"):
+        require_client_access(request.state.agent, client_id, supabase)
+
+    try:
+        res = (
+            supabase.table("portal_quotes")
+            .select("id, property_id, quantity, notes, status, requested_at, sent_at, responded_at, quoted_amount, currency, customer_note, internal_notes, valid_until, portal_response_note, properties(address)")
+            .eq("client_id", client_id)
+            .order("requested_at", desc=True)
+            .execute()
+        )
+        return {"quotes": res.data or []}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch quotes: {exc}")
+
+
+@app.get("/api/console/quotes/pending")
+def rep_get_pending_quotes(request: Request):
+    """Rep console: list pending quote requests for rep (admin sees all)."""
+    agent = getattr(request.state, "agent", None)
+    try:
+        q = (
+            supabase.table("portal_quotes")
+            .select("id, client_id, property_id, quantity, notes, status, requested_at, clients(id, name, assigned_agent_id), properties(address)")
+            .eq("status", "requested")
+            .order("requested_at", desc=True)
+        )
+        res = q.execute()
+        rows = res.data or []
+        if agent and agent.role != "admin" and agent.agent_id:
+            rows = [r for r in rows if str((r.get("clients") or {}).get("assigned_agent_id")) == str(agent.agent_id)]
+        return {"quotes": rows}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch pending quotes: {exc}")
+
+
+@app.post("/api/console/clients/{client_id}/quotes/{quote_id}/send")
+def rep_send_quote(client_id: str, quote_id: str, body: dict, request: Request):
+    """Rep console: send formal quote to company."""
+    if hasattr(request.state, "agent"):
+        require_client_access(request.state.agent, client_id, supabase)
+
+    quoted_amount = body.get("quoted_amount")
+    if quoted_amount is None:
+        raise HTTPException(status_code=422, detail="quoted_amount is required")
+    try:
+        f_amount = float(quoted_amount)
+        if f_amount <= 0:
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="quoted_amount must be a positive number")
+
+    currency = body.get("currency", "MYR")
+    if currency not in ("MYR", "USD"):
+        raise HTTPException(status_code=422, detail="currency must be 'MYR' or 'USD'")
+
+    customer_note = body.get("customer_note")
+    internal_notes = body.get("internal_notes")
+    valid_until = body.get("valid_until")
+
+    try:
+        q_res = supabase.table("portal_quotes").select("id, client_id, status").eq("id", quote_id).single().execute()
+        if not q_res.data:
+            raise HTTPException(status_code=404, detail="Quote not found")
+        quote = q_res.data
+        if quote.get("client_id") != client_id:
+            raise HTTPException(status_code=404, detail="Quote not found")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    if not can_quote_transition("rep", quote.get("status"), "sent"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot send quote with status '{quote.get('status')}'. Allowed: requested -> sent, sent -> sent",
+        )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        upd = supabase.table("portal_quotes").update({
+            "status": "sent",
+            "quoted_amount": f_amount,
+            "currency": currency,
+            "customer_note": customer_note,
+            "internal_notes": internal_notes,
+            "valid_until": valid_until,
+            "sent_at": now_iso,
+            "updated_at": now_iso,
+        }).eq("id", quote_id).execute()
+        return upd.data[0] if upd.data else {"success": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to send quote: {exc}")
+
+
+@app.post("/api/console/clients/{client_id}/inquiries/{inquiry_id}/reply")
+def rep_reply_inquiry(client_id: str, inquiry_id: str, body: dict, request: Request):
+    """Rep console: rep sends a reply to an inquiry thread."""
+    if hasattr(request.state, "agent"):
+        require_client_access(request.state.agent, client_id, supabase)
+
+    reply_body = (body.get("body") or "").strip()
+    if not reply_body or len(reply_body) > 4000:
+        raise HTTPException(status_code=422, detail="Reply body must be between 1 and 4000 characters")
+
+    try:
+        inq_res = supabase.table("client_inquiries").select("id, client_id").eq("id", inquiry_id).single().execute()
+        if not inq_res.data or inq_res.data.get("client_id") != client_id:
+            raise HTTPException(status_code=404, detail="Inquiry not found")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Inquiry not found")
+
+    try:
+        # Update client_inquiries.agent_reply for backward compatibility
+        supabase.table("client_inquiries").update({
+            "agent_reply": reply_body,
+            "status": "in_progress",
+        }).eq("id", inquiry_id).execute()
+
+        # Insert rep message into inquiry_messages
+        ins = supabase.table("inquiry_messages").insert({
+            "inquiry_id": inquiry_id,
+            "client_id": client_id,
+            "sender": "rep",
+            "body": reply_body,
+        }).execute()
+        return {"success": True, "message": ins.data[0] if ins.data else None}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to post rep reply: {exc}")
+
+
+@app.get("/api/console/clients/{client_id}/portal/profile-audit")
+def rep_get_profile_audit(client_id: str, request: Request):
+    """Rep console: view portal profile change history for assigned client."""
+    if hasattr(request.state, "agent"):
+        require_client_access(request.state.agent, client_id, supabase)
+
+    try:
+        res = (
+            supabase.table("portal_profile_audit")
+            .select("id, field, old_value, new_value, changed_at, contact_id, portal_contacts(name, email)")
+            .eq("client_id", client_id)
+            .order("changed_at", desc=True)
+            .execute()
+        )
+        return {"audit_log": res.data or []}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch profile audit log: {exc}")
+
+
+# ─── Portal Activity Stream ───────────────────────────────────────────────────
+
+@app.get("/api/portal/{client_id}/activity")
+def portal_client_activity(client_id: str, session: PortalSession = Depends(get_current_portal_session)):
+    """
+    Return a unified activity stream: demos, rep messages, quotes (sent/accepted/declined), profile updates.
+    Each item: { event_type: demo|message|quote|profile, label, at, ref_id }.
+    Labels in plain English.
+    """
+    require_company_access(session, client_id)
+    try:
+        client_res = supabase.table("clients").select("id").eq("id", client_id).single().execute()
+        if not client_res.data:
+            raise HTTPException(status_code=404, detail="Client not found")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    items = []
+
+    # 1. Demos
+    try:
+        d_res = (
+            supabase.table("scheduled_viewings")
+            .select("id, status, confirmation_status, scheduled_at, created_at, properties(address)")
+            .eq("client_id", client_id)
+            .order("created_at", desc=True)
+            .limit(20)
+            .execute()
+        )
+        for d in (d_res.data or []):
+            prop = d.get("properties") or {}
+            unit_name = prop.get("address") or "robot unit"
+            eff = get_demo_effective_status(d)
+            if eff == "confirmed":
+                label = f"Demo confirmed for {unit_name}"
+            elif eff == "cancelled":
+                label = f"Demo cancelled for {unit_name}"
+            elif eff == "offered":
+                label = f"Demo slot offered for {unit_name}"
+            elif eff == "completed":
+                label = f"Demo completed for {unit_name}"
+            else:
+                label = f"Demo requested for {unit_name}"
+
+            at_val = d.get("scheduled_at") or d.get("created_at")
+            items.append({
+                "event_type": "demo",
+                "label": label,
+                "at": at_val,
+                "ref_id": d["id"],
+            })
+    except Exception as exc:
+        print(f"[portal_client_activity] Demos non-fatal: {exc}")
+
+    # 2. Messages (rep -> company only)
+    try:
+        m_res = (
+            supabase.table("inquiry_messages")
+            .select("id, inquiry_id, body, created_at")
+            .eq("client_id", client_id)
+            .eq("sender", "rep")
+            .order("created_at", desc=True)
+            .limit(20)
+            .execute()
+        )
+        for m in (m_res.data or []):
+            items.append({
+                "event_type": "message",
+                "label": "Message from your sales representative",
+                "at": m.get("created_at"),
+                "ref_id": m["id"],
+            })
+    except Exception as exc:
+        print(f"[portal_client_activity] Messages non-fatal: {exc}")
+
+    # 3. Quotes (sent, accepted, declined)
+    try:
+        q_res = (
+            supabase.table("portal_quotes")
+            .select("id, status, quantity, sent_at, responded_at, requested_at, properties(address)")
+            .eq("client_id", client_id)
+            .in_("status", ["sent", "accepted", "declined"])
+            .order("updated_at", desc=True)
+            .limit(20)
+            .execute()
+        )
+        for q in (q_res.data or []):
+            prop = q.get("properties") or {}
+            u_name = prop.get("address") or "unit"
+            st = q.get("status")
+            if st == "sent":
+                label = f"Quote sent for {q.get('quantity', 1)}x {u_name}"
+                at_val = q.get("sent_at") or q.get("requested_at")
+            elif st == "accepted":
+                label = f"Quote accepted for {q.get('quantity', 1)}x {u_name}"
+                at_val = q.get("responded_at") or q.get("sent_at")
+            else:
+                label = f"Quote declined for {q.get('quantity', 1)}x {u_name}"
+                at_val = q.get("responded_at") or q.get("sent_at")
+
+            items.append({
+                "event_type": "quote",
+                "label": label,
+                "at": at_val,
+                "ref_id": q["id"],
+            })
+    except Exception as exc:
+        print(f"[portal_client_activity] Quotes non-fatal: {exc}")
+
+    # 4. Profile updates
+    try:
+        p_res = (
+            supabase.table("portal_profile_audit")
+            .select("id, field, changed_at")
+            .eq("client_id", client_id)
+            .order("changed_at", desc=True)
+            .limit(20)
+            .execute()
+        )
+        for p in (p_res.data or []):
+            items.append({
+                "event_type": "profile",
+                "label": f"Company profile updated ({p.get('field', 'profile')})",
+                "at": p.get("changed_at"),
+                "ref_id": p["id"],
+            })
+    except Exception as exc:
+        print(f"[portal_client_activity] Profile non-fatal: {exc}")
+
+    # Sort all items descending by timestamp
+    items.sort(key=lambda x: x.get("at") or "", reverse=True)
+    return {"activity": items}
+
+
+# ─── Portal Preferences & Profile Endpoint ───────────────────────────────────
+
 _VALID_ENVIRONMENTS = {
     "Logistics & Warehousing",
     "Healthcare Facilities",
@@ -7934,17 +9382,26 @@ _VALID_ENVIRONMENTS = {
 }
 _VALID_FINANCING = {"cash", "pre-approved", "in-progress", "unspecified", "leasing"}
 _VALID_TIMELINE  = {"< 3 months", "3-6 months", "6-12 months", "flexible"}
-_BUDGET_MAX      = 10_000_000   # RM 10M upper bound
+_BUDGET_MAX      = 10_000_000
+
+PROFILE_FIELDS = [
+    "industry",
+    "facility_type",
+    "facility_size_sqm",
+    "use_case",
+    "purchase_timeline",
+    "existing_automation",
+]
 
 
 @app.get("/api/portal/{client_id}/preferences")
 def portal_get_preferences(client_id: str, session: PortalSession = Depends(get_current_portal_session)):
-    """Return the client's current editable preference fields."""
+    """Return the client's current editable preferences, new B2B profile fields, and contacts list."""
     require_company_access(session, client_id)
     try:
         res = (
             supabase.table("clients")
-            .select("id, stated_budget, preferred_neighborhood, secondary_neighborhood, financing_status, move_in_timeline, property_type_preference")
+            .select("id, stated_budget, preferred_neighborhood, secondary_neighborhood, financing_status, move_in_timeline, property_type_preference, industry, facility_type, facility_size_sqm, use_case, purchase_timeline, existing_automation, profile_updated_at")
             .eq("id", client_id)
             .single()
             .execute()
@@ -7958,7 +9415,6 @@ def portal_get_preferences(client_id: str, session: PortalSession = Depends(get_
 
     c = res.data
 
-    # Fetch distinct property_type values so the frontend can build a real dropdown
     pt_values: list[str] = []
     try:
         pt_res = supabase.table("properties").select("property_type").execute()
@@ -7969,6 +9425,28 @@ def portal_get_preferences(client_id: str, session: PortalSession = Depends(get_
     except Exception:
         pass
 
+    # Fetch contacts list (read-only: name, role, email; no codes/hashes)
+    contacts = []
+    try:
+        ct_res = (
+            supabase.table("portal_contacts")
+            .select("id, name, title, portal_role, email")
+            .eq("client_id", client_id)
+            .eq("status", "active")
+            .order("is_primary", desc=True)
+            .execute()
+        )
+        for ct in (ct_res.data or []):
+            contacts.append({
+                "id": ct["id"],
+                "name": ct.get("name") or "Contact",
+                "role": ct.get("portal_role") or "member",
+                "title": ct.get("title"),
+                "email": ct.get("email"),
+            })
+    except Exception as exc:
+        print(f"[portal_get_preferences] Contacts non-fatal: {exc}")
+
     return {
         "client_id":                c["id"],
         "stated_budget":            c.get("stated_budget"),
@@ -7977,6 +9455,14 @@ def portal_get_preferences(client_id: str, session: PortalSession = Depends(get_
         "financing_status":         c.get("financing_status"),
         "move_in_timeline":         c.get("move_in_timeline"),
         "property_type_preference": c.get("property_type_preference"),
+        "industry":                 c.get("industry"),
+        "facility_type":            c.get("facility_type"),
+        "facility_size_sqm":        c.get("facility_size_sqm"),
+        "use_case":                 c.get("use_case"),
+        "purchase_timeline":        c.get("purchase_timeline"),
+        "existing_automation":      c.get("existing_automation"),
+        "profile_updated_at":       c.get("profile_updated_at"),
+        "contacts":                 contacts,
         "matches_refreshed_count":  0,
         "updated_fields":           [],
         "available_property_types": pt_values,
@@ -7985,25 +9471,27 @@ def portal_get_preferences(client_id: str, session: PortalSession = Depends(get_
 
 
 @app.put("/api/portal/{client_id}/preferences")
-def portal_save_preferences(client_id: str, body: dict, session: PortalSession = Depends(get_current_portal_session)):
+def portal_save_preferences(
+    client_id: str,
+    body: dict,
+    request: Request,
+    session: PortalSession = Depends(get_current_portal_session),
+):
     """
-    Update the six whitelisted preference fields.  Validates every value
-    server-side — rejects unknown fields and out-of-range values with 422.
-    Re-scores all of this client's evaluation rows after a successful save.
-    Does NOT call check_and_log_tier_signal during re-score to avoid spamming
-    the agent with tier-change notifications; instead emits exactly one
-    'client_preferences_updated' signal that includes changed field names.
+    Update company preferences and profile fields.
+    Records field diffs in portal_profile_audit, updates profile_updated_at = now(),
+    and emits a portal_profile_updated signal.
     """
     require_company_access(session, client_id)
     if session.is_legacy:
         raise HTTPException(status_code=403, detail="Legacy session is read-only. Cannot modify preferences.")
     if session.portal_role == "finance_viewer":
         raise HTTPException(status_code=403, detail="Finance viewers cannot modify preferences.")
-    # ── Validate client exists ───────────────────────────────────────────────
+
+    check_portal_write_rate_limit(request, client_id, action="save_preferences")
+
     try:
-        client_res = (
-            supabase.table("clients").select("*").eq("id", client_id).single().execute()
-        )
+        client_res = supabase.table("clients").select("*").eq("id", client_id).single().execute()
         if not client_res.data:
             raise HTTPException(status_code=404, detail="Client not found")
     except HTTPException:
@@ -8012,15 +9500,14 @@ def portal_save_preferences(client_id: str, body: dict, session: PortalSession =
         raise HTTPException(status_code=404, detail="Client not found")
 
     client = client_res.data
+    updates: dict[str, Any] = {}
+    errors: list[str] = []
 
-    # ── Strict whitelist + validation ────────────────────────────────────────
-    updates: dict = {}
-    errors:  list[str] = []
-
+    # 1. Standard preferences fields
     if "stated_budget" in body:
         v = body["stated_budget"]
         if v is None:
-            pass  # allow clearing
+            updates["stated_budget"] = None
         elif not isinstance(v, (int, float)) or v <= 0 or v > _BUDGET_MAX:
             errors.append(f"stated_budget must be a positive number <= {_BUDGET_MAX:,}")
         else:
@@ -8029,7 +9516,7 @@ def portal_save_preferences(client_id: str, body: dict, session: PortalSession =
     if "preferred_neighborhood" in body:
         v = body["preferred_neighborhood"]
         if v is None:
-            pass
+            updates["preferred_neighborhood"] = None
         elif v not in _VALID_ENVIRONMENTS:
             errors.append(f"preferred_neighborhood must be one of: {', '.join(sorted(_VALID_ENVIRONMENTS))}")
         else:
@@ -8047,7 +9534,7 @@ def portal_save_preferences(client_id: str, body: dict, session: PortalSession =
     if "financing_status" in body:
         v = body["financing_status"]
         if v is None:
-            pass
+            updates["financing_status"] = None
         elif v not in _VALID_FINANCING:
             errors.append(f"financing_status must be one of: {', '.join(sorted(_VALID_FINANCING))}")
         else:
@@ -8056,7 +9543,7 @@ def portal_save_preferences(client_id: str, body: dict, session: PortalSession =
     if "move_in_timeline" in body:
         v = body["move_in_timeline"]
         if v is None:
-            pass
+            updates["move_in_timeline"] = None
         elif v not in _VALID_TIMELINE:
             errors.append(f"move_in_timeline must be one of: {', '.join(sorted(_VALID_TIMELINE))}")
         else:
@@ -8065,23 +9552,35 @@ def portal_save_preferences(client_id: str, body: dict, session: PortalSession =
     if "property_type_preference" in body:
         v = body["property_type_preference"]
         if v is None:
-            pass
+            updates["property_type_preference"] = None
         else:
-            # Validate against distinct values that actually exist in properties table
-            try:
-                pt_res = supabase.table("properties").select("property_type").execute()
-                valid_types = {r["property_type"] for r in (pt_res.data or []) if r.get("property_type")}
-            except Exception:
-                valid_types = set()
-            if valid_types and v not in valid_types:
-                errors.append(f"property_type_preference must be one of: {', '.join(sorted(valid_types))}")
-            else:
-                updates["property_type_preference"] = v
+            updates["property_type_preference"] = str(v)
 
-    # Reject any extra keys — nothing outside the whitelist is allowed
+    # 2. B2B Company Profile fields
+    if "facility_size_sqm" in body:
+        v = body["facility_size_sqm"]
+        if v is None:
+            updates["facility_size_sqm"] = None
+        elif not isinstance(v, int) or v <= 0:
+            errors.append("facility_size_sqm must be a positive integer")
+        else:
+            updates["facility_size_sqm"] = v
+
+    for s_field in ("industry", "facility_type", "use_case", "purchase_timeline", "existing_automation"):
+        if s_field in body:
+            v = body[s_field]
+            if v is None:
+                updates[s_field] = None
+            elif not isinstance(v, str) or len(v) > 200:
+                errors.append(f"{s_field} must be a string up to 200 characters")
+            else:
+                updates[s_field] = v.strip()
+
     allowed_keys = {
         "stated_budget", "preferred_neighborhood", "secondary_neighborhood",
         "financing_status", "move_in_timeline", "property_type_preference",
+        "industry", "facility_type", "facility_size_sqm", "use_case",
+        "purchase_timeline", "existing_automation",
     }
     extra = set(body.keys()) - allowed_keys
     if extra:
@@ -8093,148 +9592,134 @@ def portal_save_preferences(client_id: str, body: dict, session: PortalSession =
     if not updates:
         return {
             "client_id": client_id,
-            "stated_budget": client.get("stated_budget"),
-            "preferred_neighborhood": client.get("preferred_neighborhood"),
-            "secondary_neighborhood": client.get("secondary_neighborhood"),
-            "financing_status": client.get("financing_status"),
-            "move_in_timeline": client.get("move_in_timeline"),
-            "property_type_preference": client.get("property_type_preference"),
-            "matches_refreshed_count": 0,
             "updated_fields": [],
+            "matches_refreshed_count": 0,
         }
 
-    # Build human-readable change summary for the agent signal
-    change_parts = []
-    field_labels = {
-        "stated_budget": "Budget",
-        "preferred_neighborhood": "Primary environment",
-        "secondary_neighborhood": "Secondary environment",
-        "financing_status": "Financing",
-        "move_in_timeline": "Timeline",
-        "property_type_preference": "Unit type preference",
-    }
-    for field, new_val in updates.items():
-        old_val = client.get(field)
-        label   = field_labels.get(field, field)
-        if field == "stated_budget" and new_val:
-            old_str = f"RM {old_val:,.0f}" if old_val else "not set"
-            new_str = f"RM {new_val:,.0f}"
-        else:
-            old_str = str(old_val) if old_val else "not set"
-            new_str = str(new_val) if new_val else "cleared"
-        change_parts.append(f"{label}: {old_str} → {new_str}")
+    # Audit profile field changes
+    now_iso = datetime.now(timezone.utc).isoformat()
+    profile_diffs = []
+    for pf in PROFILE_FIELDS:
+        if pf in updates:
+            old_val = client.get(pf)
+            new_val = updates[pf]
+            if str(old_val or "") != str(new_val or ""):
+                profile_diffs.append((pf, old_val, new_val))
 
-    # ── Persist the changes ──────────────────────────────────────────────────
+    for pf, old_v, new_v in profile_diffs:
+        try:
+            supabase.table("portal_profile_audit").insert({
+                "client_id": client_id,
+                "contact_id": getattr(session, "contact_id", None),
+                "field": pf,
+                "old_value": str(old_v) if old_v is not None else None,
+                "new_value": str(new_v) if new_v is not None else None,
+                "changed_at": now_iso,
+            }).execute()
+        except Exception as aud_exc:
+            print(f"[portal_save_preferences] Audit insert non-fatal: {aud_exc}")
+
+    if profile_diffs:
+        updates["profile_updated_at"] = now_iso
+
+    # Persist updates to clients table
     try:
         supabase.table("clients").update(updates).eq("id", client_id).execute()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to save preferences: {exc}")
 
-    # ── Re-score ALL of this client's evaluation rows (no tier-change signals) ─
+    # Emit signal if profile changed
+    client_name = client.get("name", "Client")
+    if profile_diffs:
+        try:
+            diff_names = ", ".join(d[0] for d in profile_diffs)
+            supabase.table("signals").insert({
+                "type": "portal_profile_updated",
+                "client_id": client_id,
+                "message": f"{client_name} updated company profile ({diff_names}).",
+            }).execute()
+        except Exception as sig_exc:
+            print(f"[portal_save_preferences] Signal insert non-fatal: {sig_exc}")
+
+    # Re-score evaluations if preferences changed
     rescored = 0
-    try:
-        # Fetch updated client row + all properties
-        updated_client = supabase.table("clients").select("*").eq("id", client_id).single().execute()
-        props_res = supabase.table("properties").select("*").execute()
-        purchases_res = supabase.table("client_past_purchases").select("*").eq("client_id", client_id).execute()
+    pref_keys_changed = set(updates.keys()) & {
+        "stated_budget", "preferred_neighborhood", "secondary_neighborhood",
+        "financing_status", "move_in_timeline", "property_type_preference",
+    }
+    if pref_keys_changed:
+        try:
+            updated_client = supabase.table("clients").select("*").eq("id", client_id).single().execute()
+            props_res = supabase.table("properties").select("*").execute()
+            purchases_res = supabase.table("client_past_purchases").select("*").eq("client_id", client_id).execute()
 
-        c2 = updated_client.data or {}
-        all_props = {p["id"]: p for p in (props_res.data or [])}
-        past_purchases = purchases_res.data or []
+            c2 = updated_client.data or {}
+            all_props = {p["id"]: p for p in (props_res.data or [])}
+            past_purchases = purchases_res.data or []
 
-        client_profile = {
-            "budget":                   c2.get("stated_budget"),
-            "preferred_neighborhood":   c2.get("preferred_neighborhood"),
-            "engagement_history":       c2.get("past_viewings"),
-            "source":                   c2.get("source"),
-            "financing_status":         c2.get("financing_status"),
-            "move_in_timeline":         c2.get("move_in_timeline"),
-            "property_type_preference": c2.get("property_type_preference"),
-            "secondary_neighborhood":   c2.get("secondary_neighborhood"),
-            "past_purchases":           past_purchases,
-        }
+            client_profile = {
+                "budget":                   c2.get("stated_budget"),
+                "preferred_neighborhood":   c2.get("preferred_neighborhood"),
+                "engagement_history":       c2.get("past_viewings"),
+                "source":                   c2.get("source"),
+                "financing_status":         c2.get("financing_status"),
+                "move_in_timeline":         c2.get("move_in_timeline"),
+                "property_type_preference": c2.get("property_type_preference"),
+                "secondary_neighborhood":   c2.get("secondary_neighborhood"),
+                "past_purchases":           past_purchases,
+            }
 
-        # Fetch existing eval rows for this client
-        evals_res = (
-            supabase.table("pipeline_evaluations")
-            .select("property_id")
-            .eq("client_id", client_id)
-            .execute()
-        )
-        eval_rows = evals_res.data or []
+            evals_res = (
+                supabase.table("pipeline_evaluations")
+                .select("property_id")
+                .eq("client_id", client_id)
+                .execute()
+            )
+            eval_rows = evals_res.data or []
+            new_evals = []
+            for row in eval_rows:
+                prop = all_props.get(row["property_id"])
+                if not prop:
+                    continue
+                result = score_pair(client_profile, prop)
+                ml_prob = predict_probability(client_profile, prop)
+                new_evals.append({
+                    "client_id":      client_id,
+                    "property_id":    row["property_id"],
+                    "ai_probability": result["probability"],
+                    "expected_value": result["expected_value"],
+                    "segment_tier":   result["tier"],
+                    "ml_probability": ml_prob,
+                })
 
-        new_evals = []
-        for row in eval_rows:
-            prop = all_props.get(row["property_id"])
-            if not prop:
-                continue
-            result  = score_pair(client_profile, prop)
-            ml_prob = predict_probability(client_profile, prop)
-            new_evals.append({
-                "client_id":      client_id,
-                "property_id":    row["property_id"],
-                "ai_probability": result["probability"],
-                "expected_value": result["expected_value"],
-                "segment_tier":   result["tier"],
-                "ml_probability": ml_prob,
-            })
-
-        if new_evals:
-            try:
-                supabase.table("pipeline_evaluations").upsert(
-                    new_evals, on_conflict="client_id,property_id"
-                ).execute()
-            except Exception as exc:
-                if "ml_probability" in str(exc):
-                    for e in new_evals:
-                        e.pop("ml_probability", None)
+            if new_evals:
+                try:
                     supabase.table("pipeline_evaluations").upsert(
                         new_evals, on_conflict="client_id,property_id"
                     ).execute()
-            rescored = len(new_evals)
+                except Exception as exc:
+                    if "ml_probability" in str(exc):
+                        for e in new_evals:
+                            e.pop("ml_probability", None)
+                        supabase.table("pipeline_evaluations").upsert(
+                            new_evals, on_conflict="client_id,property_id"
+                        ).execute()
+                rescored = len(new_evals)
+        except Exception as rescore_exc:
+            print(f"[portal_save_preferences] Re-score non-fatal: {rescore_exc}")
 
-    except Exception as rescore_exc:
-        print(f"[portal_preferences] Re-score non-fatal error: {rescore_exc}")
-        # Re-score failure is non-fatal — preferences were saved
-
-    # ── Invalidate client_facing_reasoning_cache (lazy — not regenerated here) ─
-    try:
-        supabase.table("client_facing_reasoning_cache").delete().eq("client_id", client_id).execute()
-    except Exception:
-        pass  # cache table may not exist yet
-
-    # ── Single agent signal (NOT tier-change — no spam) ──────────────────────
-    client_name = client.get("name", "Client")
-    change_summary = "; ".join(change_parts) if change_parts else "preferences updated"
-    try:
-        supabase.table("signals").insert({
-            "type":      "client_preferences_updated",
-            "client_id": client_id,
-            "message":   f"{client_name} updated their preferences: {change_summary}",
-        }).execute()
-    except Exception as sig_exc:
-        print(f"[portal_preferences] Signal insert non-fatal: {sig_exc}")
-
-    # ── Re-fetch final state for response ─────────────────────────────────────
-    try:
-        final = supabase.table("clients").select(
-            "stated_budget, preferred_neighborhood, secondary_neighborhood, financing_status, move_in_timeline, property_type_preference"
-        ).eq("id", client_id).single().execute()
-        final_data = final.data or {}
-    except Exception:
-        final_data = {}
+        try:
+            supabase.table("client_facing_reasoning_cache").delete().eq("client_id", client_id).execute()
+        except Exception:
+            pass
 
     return {
-        "client_id":                client_id,
-        "stated_budget":            final_data.get("stated_budget"),
-        "preferred_neighborhood":   final_data.get("preferred_neighborhood"),
-        "secondary_neighborhood":   final_data.get("secondary_neighborhood"),
-        "financing_status":         final_data.get("financing_status"),
-        "move_in_timeline":         final_data.get("move_in_timeline"),
-        "property_type_preference": final_data.get("property_type_preference"),
-        "matches_refreshed_count":  rescored,
-        "updated_fields":           list(updates.keys()),
+        "client_id": client_id,
+        "updated_fields": list(updates.keys()),
+        "matches_refreshed_count": rescored,
+        "profile_updated_at": updates.get("profile_updated_at"),
     }
+
 
 
 

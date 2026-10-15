@@ -38,6 +38,8 @@ from portal_auth import (
     get_trusted_client_ip,
     check_and_record_ip_attempt,
     check_and_record_contact_attempt,
+    check_and_record_code_ip_attempt,
+    check_and_record_code_contact_attempt,
     log_audit_event,
     verify_origin,
     get_current_portal_session,
@@ -69,8 +71,8 @@ def request_login_code(body: dict, request: Request):
     client_ip = get_trusted_client_ip(request)
     raw_identifier = (body.get("identifier") or "").strip()
 
-    # 1. IP rate limit check (30 attempts per 15 min)
-    check_and_record_ip_attempt(client_ip)
+    # 1. IP rate limit check (5 code requests per 15 min per IP)
+    check_and_record_code_ip_attempt(client_ip)
 
     generic_success = {
         "success": True,
@@ -120,6 +122,11 @@ def request_login_code(body: dict, request: Request):
                 return generic_success
 
         if not contact:
+            return generic_success
+
+        # Check contact code request rate limit (3 code requests per 15 min per contact)
+        if not check_and_record_code_contact_attempt(contact["id"]):
+            print(f"[PORTAL_AUTH] Contact {contact['id']} exceeded code request quota (3/15m).")
             return generic_success
 
         # Check contact lockout
@@ -481,7 +488,7 @@ def legacy_company_login(body: dict, request: Request):
     supabase = main.supabase
 
     client_ip = get_trusted_client_ip(request)
-    raw_code = (body.get("code") or "").strip().upper()
+    raw_code = (body.get("code") or body.get("access_code") or "").strip().upper()
 
     check_and_record_ip_attempt(client_ip)
 

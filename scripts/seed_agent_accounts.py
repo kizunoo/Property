@@ -10,29 +10,31 @@ Links agent accounts to existing representatives in public.agents via agent_id F
 Admin accounts that map to no agents row are permitted (agent_id = NULL).
 
 Usage:
-  # Seed an admin account (not linked to an agents row)
-  python scripts/seed_agent_accounts.py --email admin@pipeline-ev.com --name "System Administrator" --role admin
+  # Provision an admin account directly
+  python scripts/seed_agent_accounts.py --email admin@example.com --name "System Administrator" --role admin
 
-  # Seed an agent account linked to an existing agents row by ID
-  python scripts/seed_agent_accounts.py --email rep1@pipeline-ev.com --name "Ahmad Zaki" --role agent --agent-id 11111111-2222-3333-4444-555555555555
+  # Provision an agent representative by linking to their agents table row
+  python scripts/seed_agent_accounts.py --email zaki@example.com --name "Ahmad Zaki" --role agent --match-name "Ahmad Zaki"
 
-  # Seed an agent account matched automatically by name against public.agents
-  python scripts/seed_agent_accounts.py --email rep1@pipeline-ev.com --name "Ahmad Zaki" --role agent --match-name "Ahmad Zaki"
+  # Batch provision from a CSV file (email, name, role, match_name)
+  python scripts/seed_agent_accounts.py --csv agents.csv
 
-  # Seed defaults from database agents table
-  python scripts/seed_agent_accounts.py --seed-defaults
+  # Dry-run validation (does not write to database or consume codes)
+  python scripts/seed_agent_accounts.py --csv agents.csv --dry-run
 """
 
 import sys
+import os
+import csv
 import argparse
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Optional, List, Dict, Set
 
 backend_dir = Path(__file__).resolve().parent.parent / "backend"
 sys.path.insert(0, str(backend_dir))
 
-from agent_auth import generate_enrollment_code, hash_enrollment_code, hash_password
+from agent_auth import generate_enrollment_code, hash_enrollment_code
 
 
 def resolve_agent_rep_id(supabase_client, agent_id: Optional[str], match_name: Optional[str]) -> Optional[str]:
@@ -47,10 +49,9 @@ def resolve_agent_rep_id(supabase_client, agent_id: Optional[str], match_name: O
     if match_name:
         res = supabase_client.table("agents").select("id, name").ilike("name", match_name.strip()).limit(1).execute()
         if res.data:
-            print(f"Matched representative '{res.data[0]['name']}' (ID: {res.data[0]['id']})")
             return res.data[0]["id"]
         else:
-            print(f"WARNING: No representative in 'agents' matched name '{match_name}'.")
+            print(f"WARNING: No representative in 'agents' table matched name '{match_name}'.")
 
     return None
 
@@ -62,7 +63,8 @@ def provision_agent(
     role: str = "agent",
     agent_id: Optional[str] = None,
     match_name: Optional[str] = None,
-):
+    dry_run: bool = False,
+) -> bool:
     email_clean = email.strip().lower()
     name_clean = name.strip()
     role_clean = role.strip().lower()
@@ -71,10 +73,22 @@ def provision_agent(
         print(f"Error: Role must be 'admin' or 'agent'. Got '{role_clean}'.")
         return False
 
-    # Resolve linked representative row if role is agent or if explicitly requested
-    linked_agent_id = resolve_agent_rep_id(supabase_client, agent_id, match_name or name_clean if role_clean == "agent" else None)
+    linked_agent_id = resolve_agent_rep_id(
+        supabase_client,
+        agent_id,
+        match_name or (name_clean if role_clean == "agent" else None)
+    )
 
-    # Check if this agent_id is already assigned to another account (1:1 constraint)
+    if dry_run:
+        print("\n" + "-" * 64)
+        print(f"[DRY-RUN] Would provision agent account: {name_clean} <{email_clean}>")
+        print(f"  Role:                {role_clean.upper()}")
+        print(f"  Linked Rep ID:       {linked_agent_id or 'None (Admin Global Visibility)'}")
+        print(f"  Enrollment Code:     [SIMULATED - 48h validity]")
+        print("-" * 64)
+        return True
+
+    # Check 1:1 agent_id link constraint
     if linked_agent_id:
         existing_rep = supabase_client.table("agent_accounts").select("id, email").eq("agent_id", linked_agent_id).limit(1).execute()
         if existing_rep.data and existing_rep.data[0]["email"] != email_clean:
@@ -86,14 +100,12 @@ def provision_agent(
     code = generate_enrollment_code()
     code_h = hash_enrollment_code(code)
 
-    # Check if account already exists
     res = supabase_client.table("agent_accounts").select("id, email, status").eq("email", email_clean).limit(1).execute()
     if res.data:
         acc = res.data[0]
         if acc["status"] == "active":
             print(f"Agent account '{email_clean}' is already active. Use password reset flow if needed.")
             return False
-        # Update enrollment code for pending account
         update_data = {
             "name": name_clean,
             "role": role_clean,
@@ -106,13 +118,12 @@ def provision_agent(
         supabase_client.table("agent_accounts").update(update_data).eq("id", acc["id"]).execute()
         acc_id = acc["id"]
     else:
-        # Create new pending enrollment account with temporary placeholder password hash
         row = {
             "email": email_clean,
             "name": name_clean,
             "role": role_clean,
             "agent_id": linked_agent_id,
-            "password_hash": hash_password(code + "_placeholder_pending"),
+            "password_hash": None,
             "status": "pending_enrollment",
             "enrollment_code_hash": code_h,
             "enrollment_code_expires_at": exp.isoformat(),
@@ -135,6 +146,53 @@ def provision_agent(
     return True
 
 
+def process_csv_provisioning(supabase_client, csv_path: Path, dry_run: bool = False):
+    if not csv_path.exists():
+        print(f"ERROR: CSV file not found: {csv_path}")
+        sys.exit(1)
+
+    seen_emails: Set[str] = set()
+    records: List[Dict[str, str]] = []
+
+    with open(csv_path, mode="r", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        for idx, row in enumerate(reader, start=2):
+            email = (row.get("email") or "").strip().lower()
+            name = (row.get("name") or "").strip()
+            role = (row.get("role") or "agent").strip().lower()
+            agent_id = (row.get("agent_id") or "").strip() or None
+            match_name = (row.get("match_name") or row.get("name") or "").strip() or None
+
+            if not email or not name:
+                print(f"Row {idx}: Skipping row with missing email or name.")
+                continue
+
+            if email in seen_emails:
+                print(f"ERROR: Duplicate email detected in CSV at row {idx}: '{email}'. Aborting.")
+                sys.exit(1)
+
+            seen_emails.add(email)
+            records.append({
+                "email": email,
+                "name": name,
+                "role": role,
+                "agent_id": agent_id,
+                "match_name": match_name,
+            })
+
+    print(f"Parsed {len(records)} unique agent records from {csv_path.name}.")
+    for r in records:
+        provision_agent(
+            supabase_client,
+            email=r["email"],
+            name=r["name"],
+            role=r["role"],
+            agent_id=r["agent_id"],
+            match_name=r["match_name"],
+            dry_run=dry_run,
+        )
+
+
 def main_cli():
     parser = argparse.ArgumentParser(description="Seed and provision agent accounts.")
     parser.add_argument("--email", help="Agent corporate email address")
@@ -142,39 +200,33 @@ def main_cli():
     parser.add_argument("--role", default="agent", choices=["admin", "agent"], help="Account role")
     parser.add_argument("--agent-id", help="UUID of existing row in public.agents table")
     parser.add_argument("--match-name", help="Match name against public.agents table")
-    parser.add_argument("--seed-defaults", action="store_true", help="Seed default administrative and rep accounts from public.agents")
+    parser.add_argument("--csv", help="Path to CSV file with columns: email, name, role, [agent_id], [match_name]")
+    parser.add_argument("--dry-run", action="store_true", help="Print planned actions without modifying database")
+    parser.add_argument("--seed-defaults", action="store_true", help="Seed accounts from CSV or reject if no CSV provided")
 
     args = parser.parse_args()
 
     import main
     supabase = main.supabase
 
-    if args.seed_defaults:
-        print("Seeding administrative account...")
-        provision_agent(supabase, "admin@pipeline-ev.internal", "System Administrator", "admin", agent_id=None)
-
-        print("\nQuerying existing representatives from public.agents...")
-        try:
-            agents_res = supabase.table("agents").select("id, name").order("name").execute()
-            reps = agents_res.data or []
-            print(f"Found {len(reps)} representatives in 'agents' table.")
-            for rep in reps:
-                rep_name = rep["name"]
-                # Formulate corporate email
-                slug = rep_name.lower().replace(" ", ".").replace("'", "")
-                rep_email = f"{slug}@pipeline-ev.internal"
-                provision_agent(supabase, rep_email, rep_name, "agent", agent_id=rep["id"])
-        except Exception as exc:
-            print(f"Error querying agents table: {exc}")
-
+    if args.csv:
+        process_csv_provisioning(supabase, Path(args.csv), dry_run=args.dry_run)
+    elif args.seed_defaults:
+        print("ERROR: The 'public.agents' table contains representatives (name, role, initials) but NO corporate emails.")
+        print("To provision accounts without inventing fictitious emails, specify a CSV file:")
+        print("  python scripts/seed_agent_accounts.py --csv <path-to-agents.csv>")
+        print("Or provision individual accounts using:")
+        print("  python scripts/seed_agent_accounts.py --email agent@company.com --name 'Rep Name' --match-name 'Rep Name'")
+        sys.exit(1)
     elif args.email and args.name:
         provision_agent(
             supabase,
-            args.email,
-            args.name,
-            args.role,
+            email=args.email,
+            name=args.name,
+            role=args.role,
             agent_id=args.agent_id,
             match_name=args.match_name,
+            dry_run=args.dry_run,
         )
     else:
         parser.print_help()

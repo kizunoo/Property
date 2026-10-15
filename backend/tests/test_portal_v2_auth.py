@@ -108,6 +108,16 @@ class TestPortalV2Auth(unittest.TestCase):
             self.assertIn("session_token", data)
             self.assertEqual(data["portal_role"], "legacy_readonly")
 
+    def test_legacy_login_blocked_in_production(self):
+        os.environ["PORTAL_LEGACY_LOGIN_ENABLED"] = "true"
+        os.environ["ENVIRONMENT"] = "production"
+        try:
+            res = self.client.post("/api/portal/auth/legacy-login", json={"code": "LEGACY88"})
+            self.assertEqual(res.status_code, 403)
+            self.assertIn("Legacy company code login is disabled", res.json()["detail"])
+        finally:
+            os.environ["ENVIRONMENT"] = "test"
+
     def test_endpoint_no_session_returns_401(self):
         res = self.client.get("/api/portal/company-aaa-111/dashboard")
         self.assertEqual(res.status_code, 401)
@@ -262,8 +272,8 @@ class TestPortalV2Auth(unittest.TestCase):
 
     # ─── NEW HARDENING TESTS ──────────────────────────────────────────────────
 
-    def test_rate_limit_many_contacts_one_ip(self):
-        """30 attempts from one IP across 30 different contacts succeed; 31st triggers 429."""
+    def test_rate_limit_code_request_ip_limit(self):
+        """5 code requests from one IP across contacts succeed; 6th triggers 429 (5 requests per 15 min per IP limit)."""
         ip = "192.168.1.100"
         with patch.object(main.supabase, "table") as mock_table:
             mock_query = MagicMock()
@@ -279,8 +289,8 @@ class TestPortalV2Auth(unittest.TestCase):
                 "X-Forwarded-For": ip,
             }
 
-            # 30 allowed attempts
-            for i in range(30):
+            # 5 allowed attempts
+            for i in range(5):
                 res = self.client.post(
                     "/api/portal/auth/request-code",
                     json={"identifier": f"buyer_{i}@company.com"},
@@ -288,10 +298,44 @@ class TestPortalV2Auth(unittest.TestCase):
                 )
                 self.assertEqual(res.status_code, 200)
 
+            # 6th attempt triggers IP rate limit (429)
+            res6 = self.client.post(
+                "/api/portal/auth/request-code",
+                json={"identifier": "buyer_6@company.com"},
+                headers=headers,
+            )
+            self.assertEqual(res6.status_code, 429)
+            self.assertIn("Too many code requests from this IP", res6.json()["detail"])
+
+    def test_rate_limit_portal_login_ip_limit(self):
+        """30 failed login attempts from one IP succeed with 401; 31st triggers 429 (30 failed per 15 min per IP limit)."""
+        ip = "192.168.1.200"
+        with patch.object(main.supabase, "table") as mock_table:
+            mock_query = MagicMock()
+            mock_query.select.return_value = mock_query
+            mock_query.eq.return_value = mock_query
+            mock_query.ilike.return_value = mock_query
+            mock_query.limit.return_value = mock_query
+            mock_query.execute.return_value = MagicMock(data=[])
+            mock_table.return_value = mock_query
+
+            headers = {
+                "X-BFF-Internal-Secret": "test_bff_shared_secret_abc123",
+                "X-Forwarded-For": ip,
+            }
+
+            for i in range(30):
+                res = self.client.post(
+                    "/api/portal/auth/verify-code",
+                    json={"identifier": f"unknown_{i}@company.com", "code": "WRONG1"},
+                    headers=headers,
+                )
+                self.assertEqual(res.status_code, 401)
+
             # 31st attempt triggers IP rate limit (429)
             res31 = self.client.post(
-                "/api/portal/auth/request-code",
-                json={"identifier": "buyer_31@company.com"},
+                "/api/portal/auth/verify-code",
+                json={"identifier": "unknown_31@company.com", "code": "WRONG1"},
                 headers=headers,
             )
             self.assertEqual(res31.status_code, 429)

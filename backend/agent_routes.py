@@ -138,18 +138,18 @@ def agent_login(body: dict, request: Request, response: Response):
     client_ip = get_trusted_client_ip(request)
     now = datetime.now(timezone.utc)
 
-    # 1. Rate limit IP attempts (30 attempts / 15m) - DB-backed fail-closed (Item 6)
+    # 1. Rate limit IP attempts (15 attempts / 15m) - DB-backed fail-closed (Item 3)
     ip_key = hash_rate_limit_key("agent_ip", client_ip)
     if not is_sqlite_rate_limiting_enabled():
         attempts, _ = execute_rpc_rate_limit(ip_key, 900)
-        if attempts > 30:
+        if attempts > 15:
             raise HTTPException(status_code=429, detail="Too many failed requests from this IP. Please wait 15 minutes.")
     else:
         allowed, _, _ = rate_limit_store.increment_and_check(
             key_hash=ip_key,
             bucket_type="agent_ip",
             window_seconds=900,
-            max_attempts=30,
+            max_attempts=15,
             lockout_seconds=900,
         )
         if not allowed:
@@ -189,43 +189,70 @@ def agent_login(body: dict, request: Request, response: Response):
             }).eq("id", acc["id"]).execute()
             acc["failed_login_attempts"] = 0
 
+    if acc.get("status") == "pending_enrollment" or not acc.get("password_hash"):
+        raise HTTPException(
+            status_code=403,
+            detail="Account enrollment is pending. Please redeem your enrollment invitation code first."
+        )
+
     if acc.get("status") != "active":
-        raise HTTPException(status_code=403, detail="Account is pending enrollment or suspended.")
+        raise HTTPException(status_code=403, detail="Account is suspended or deactivated.")
 
     # 4. Verify Argon2id password
     pwd_valid = verify_password(acc["password_hash"], password)
     if not pwd_valid:
-        # Increment failed attempts
+        # Atomic RPC failure recording (lockout non-extension & 15m window reset)
+        is_locked = False
         failed_count = (acc.get("failed_login_attempts") or 0) + 1
         new_lock = None
-        if failed_count >= AGENT_MAX_FAILED_LOGINS:
-            new_lock = now + timedelta(minutes=AGENT_LOCKOUT_MINUTES)
-
-        supabase.table("agent_accounts").update({
-            "failed_login_attempts": failed_count,
-            "locked_until": new_lock.isoformat() if new_lock else None,
-        }).eq("id", acc["id"]).execute()
+        try:
+            rpc_res = supabase.rpc("agent_record_failed_login", {
+                "p_account_id": acc["id"],
+                "p_max_attempts": AGENT_MAX_FAILED_LOGINS,
+                "p_lockout_seconds": AGENT_LOCKOUT_MINUTES * 60,
+                "p_window_seconds": 900,
+            }).execute()
+            if rpc_res.data:
+                row = rpc_res.data[0]
+                failed_count = row.get("out_failed_attempts", failed_count)
+                is_locked = row.get("out_is_locked", False)
+                new_lock = row.get("out_locked_until")
+        except Exception as exc:
+            print(f"[SECURITY] agent_record_failed_login RPC error: {exc}")
+            if failed_count >= AGENT_MAX_FAILED_LOGINS:
+                new_lock = (now + timedelta(minutes=AGENT_LOCKOUT_MINUTES)).isoformat()
+                is_locked = True
+            supabase.table("agent_accounts").update({
+                "failed_login_attempts": failed_count,
+                "locked_until": new_lock,
+            }).eq("id", acc["id"]).execute()
 
         log_agent_audit_event(
             supabase,
             agent_id=acc["id"],
             action="login_failed",
             object_type="agent_account",
-            details={"attempt": failed_count, "locked": bool(new_lock)},
+            details={"attempt": failed_count, "locked": is_locked},
             ip_hash=hash_rate_limit_key("ip", client_ip),
         )
 
-        if new_lock:
+        if is_locked:
             raise HTTPException(
                 status_code=403,
                 detail=f"Too many failed login attempts. Account locked for {AGENT_LOCKOUT_MINUTES} minutes."
             )
         raise HTTPException(status_code=401, detail="Invalid credentials.")
 
-    # 5. Success! Clear lockout counters
+    # 5. Success! Clear lockout counters atomically
+    try:
+        supabase.rpc("agent_reset_failed_login", {"p_account_id": acc["id"]}).execute()
+    except Exception:
+        supabase.table("agent_accounts").update({
+            "failed_login_attempts": 0,
+            "locked_until": None,
+        }).eq("id", acc["id"]).execute()
+
     supabase.table("agent_accounts").update({
-        "failed_login_attempts": 0,
-        "locked_until": None,
         "last_login_at": now.isoformat(),
     }).eq("id", acc["id"]).execute()
 
@@ -237,7 +264,7 @@ def agent_login(body: dict, request: Request, response: Response):
     abs_exp = now + timedelta(days=AGENT_ABSOLUTE_TIMEOUT_DAYS)
 
     session_row = {
-        "agent_id": acc["id"],
+        "account_id": acc["id"],
         "token_hash": token_h,
         "idle_expires_at": idle_exp.isoformat(),
         "absolute_expires_at": abs_exp.isoformat(),
@@ -380,7 +407,7 @@ def admin_revoke_all_sessions(
     try:
         supabase.table("agent_sessions").update({
             "revoked_at": now.isoformat()
-        }).eq("agent_id", agent_id).is_("revoked_at", None).execute()
+        }).eq("account_id", agent_id).is_("revoked_at", None).execute()
 
         log_agent_audit_event(
             supabase,
@@ -440,7 +467,7 @@ def admin_suspend_agent(
         # Revoke all active sessions
         supabase.table("agent_sessions").update({
             "revoked_at": now.isoformat()
-        }).eq("agent_id", agent_id).is_("revoked_at", None).execute()
+        }).eq("account_id", agent_id).is_("revoked_at", None).execute()
 
         log_agent_audit_event(
             supabase,
@@ -524,7 +551,7 @@ def agent_reset_password(body: dict, request: Request = None):
     # Invalidate all existing sessions for this agent
     supabase.table("agent_sessions").update({
         "revoked_at": now.isoformat()
-    }).eq("agent_id", acc["id"]).execute()
+    }).eq("account_id", acc["id"]).execute()
 
     # Update password and clear reset code
     supabase.table("agent_accounts").update({
