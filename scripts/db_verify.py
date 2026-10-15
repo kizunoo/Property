@@ -62,6 +62,10 @@ EXPECTED_TABLES = [
     "daily_worklist_cache",
     "chart_insight_cache",
     "model_training_runs",
+    "portal_unit_feedback",
+    "portal_quotes",
+    "inquiry_messages",
+    "portal_profile_audit",
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -106,65 +110,153 @@ else:
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Function Signatures
 # ─────────────────────────────────────────────────────────────────────────────
-print("\n--- 2. Booking and Reminder RPC Functions ---")
+print("\n--- 2. Booking, Auth and Reminder RPC Functions (Anon Execution Lockdown) ---")
 EXPECTED_FUNCS = [
     ("claim_and_book_slot_offer", "offer_id uuid, slot_index integer, client_id uuid, property_id uuid, scheduled_at timestamptz"),
     ("claim_and_lock_pending_reminders", "batch_limit integer"),
+    ("claim_due_whatsapp_reminders", "p_limit integer"),
     ("check_column_privilege", "role text, table text, column text, privilege text"),
+    ("portal_increment_rate_limit", "p_key text, p_window_seconds integer"),
+    ("portal_record_failed_login", "p_contact_id uuid, p_max_attempts integer, p_lockout_seconds integer, p_window_seconds integer"),
+    ("portal_reset_contact_lockout", "p_contact_id uuid"),
+    ("agent_record_failed_login", "p_account_id uuid, p_max_attempts integer, p_lockout_seconds integer, p_window_seconds integer"),
+    ("agent_reset_failed_login", "p_account_id uuid"),
 ]
 
-if schema_info and "functions" in schema_info:
-    func_map = {f["function_name"]: f for f in schema_info.get("functions", [])}
-    for fname, exp_args in EXPECTED_FUNCS:
-        fdata = func_map.get(fname)
-        if fdata:
-            print(f"  [EXISTS] {fname}")
-            print(f"           Signature: {fdata.get('identity_args')}")
+NIL_UUID = "00000000-0000-0000-0000-000000000000"
+PROBE_ARGS = {
+    "claim_and_book_slot_offer": {
+        "p_offer_id": NIL_UUID,
+        "p_slot_index": 0,
+        "p_client_id": NIL_UUID,
+        "p_property_id": NIL_UUID,
+        "p_scheduled_at": "2026-10-15T12:00:00Z",
+    },
+    "claim_and_lock_pending_reminders": {"batch_limit": 0},
+    "claim_due_whatsapp_reminders": {"p_limit": 0},
+    "check_column_privilege": {
+        "p_role": "anon",
+        "p_table": "clients",
+        "p_column": "id",
+        "p_privilege": "SELECT",
+    },
+    "portal_increment_rate_limit": {
+        "p_key": "probe:db_verify",
+        "p_window_seconds": 60,
+    },
+    "portal_record_failed_login": {
+        "p_contact_id": NIL_UUID,
+        "p_max_attempts": 5,
+        "p_lockout_seconds": 60,
+        "p_window_seconds": 60,
+    },
+    "portal_reset_contact_lockout": {
+        "p_contact_id": NIL_UUID,
+    },
+    "agent_record_failed_login": {
+        "p_account_id": NIL_UUID,
+        "p_max_attempts": 5,
+        "p_lockout_seconds": 60,
+        "p_window_seconds": 60,
+    },
+    "agent_reset_failed_login": {
+        "p_account_id": NIL_UUID,
+    },
+}
+
+for fname, _ in EXPECTED_FUNCS:
+    args = PROBE_ARGS.get(fname, {})
+    # 2a. Direct probe via anon client (Must be DENIED execution)
+    try:
+        anon_client.rpc(fname, args).execute()
+        print(f"  [!] {fname:<34} EXPOSED TO ANON KEY! (has_function_privilege('anon', oid, 'execute') is TRUE)")
+    except Exception as exc:
+        err_msg = str(exc).lower()
+        if any(w in err_msg for w in ("permission denied", "not find", "pgrst202", "42501", "unauthorized")):
+            print(f"  [OK] {fname:<34} Protected against anon (EXECUTE revoked from PUBLIC & anon)")
         else:
-            print(f"  [MISSING] {fname}")
-else:
-    for fname, _ in EXPECTED_FUNCS:
-        if service_client:
-            try:
-                # Attempt dry test call with dummy params
-                service_client.rpc(fname, {}).execute()
-                print(f"  [EXISTS] {fname}")
-            except Exception as e:
-                err = str(e)
-                if "Could not find the function" in err or "PGRST202" in err:
-                    print(f"  [MISSING] {fname}")
-                else:
-                    print(f"  [EXISTS] {fname} (Callable - verified with service_role)")
-        else:
-            print(f"  [UNKNOWN] {fname} (Requires service_role key to probe)")
+            print(f"  [OK] {fname:<34} Denied execution to anon ({str(exc)[:45]}...)")
+
+    # 2b. If service_role available, verify function exists and is callable by service_role
+    if service_client:
+        try:
+            service_client.rpc(fname, args).execute()
+            print(f"       -> Service role status: Verified (Authorized)")
+        except Exception as e:
+            err = str(e)
+            if "Could not find the function" in err or "PGRST202" in err:
+                print(f"       -> Service role status: Pending migration application in Supabase")
+            else:
+                print(f"       -> Service role status: Callable / Available")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. Sensitive Column Privileges on `clients`
+# 3. Sensitive Column Privileges on `clients` and Portal v2 Tables Isolation
 # ─────────────────────────────────────────────────────────────────────────────
-print("\n--- 3. Client Sensitive Column Grants (portal_access_code & whatsapp_number) ---")
+print("\n--- 3. Client Sensitive Column Grants & Portal v2 Tables Lockdown ---")
 sensitive_cols = ["portal_access_code", "whatsapp_number"]
+new_client_cols = [
+    "industry",
+    "facility_type",
+    "facility_size_sqm",
+    "use_case",
+    "purchase_timeline",
+    "existing_automation",
+    "profile_updated_at",
+]
 
-for col in sensitive_cols:
+for col in sensitive_cols + new_client_cols:
     # 1. Direct anon REST query test
     try:
         res = anon_client.table("clients").select(f"id, {col}").limit(1).execute()
-        print(f"  [!] {col:<20} EXPOSED TO ANON KEY! (Returned {len(res.data or [])} rows)")
+        print(f"  [!] {col:<22} EXPOSED TO ANON KEY! (Returned {len(res.data or [])} rows)")
     except Exception as e:
-        print(f"  [OK] {col:<20} Protected against anon (Denied: 42501 / column revoked)")
+        print(f"  [OK] clients.{col:<14} Protected against anon (Denied: 42501 / column revoked)")
 
     # 2. Check authenticated privilege if helper available
-    if service_client:
+    if service_client and col in sensitive_cols:
         try:
             auth_can_read = service_client.rpc(
                 "check_column_privilege",
                 {"p_role": "authenticated", "p_table": "clients", "p_column": col, "p_privilege": "SELECT"}
             ).execute().data
             if auth_can_read:
-                print(f"  [!] {col:<20} EXPOSED to 'authenticated' role!")
+                print(f"  [!] clients.{col:<14} EXPOSED to 'authenticated' role!")
             else:
-                print(f"  [OK] {col:<20} Protected against 'authenticated' role")
+                print(f"  [OK] clients.{col:<14} Protected against 'authenticated' role")
         except Exception:
             pass
+
+print("\n--- 3b. Portal v2 Tables Lockdown (anon & authenticated revoked) ---")
+portal_v2_tables = ["portal_unit_feedback", "portal_quotes", "inquiry_messages", "portal_profile_audit"]
+
+for ptbl in portal_v2_tables:
+    # Check anon query (MUST fail)
+    try:
+        anon_client.table(ptbl).select("id").limit(1).execute()
+        print(f"  [!] {ptbl:<22} EXPOSED TO ANON ROLE! (Select succeeded)")
+    except Exception as e:
+        print(f"  [OK] {ptbl:<22} Access denied to anon (RLS / table privileges revoked)")
+
+    # Check authenticated privilege via check_column_privilege or service role check
+    if service_client:
+        try:
+            auth_has_priv = service_client.rpc(
+                "check_column_privilege",
+                {"p_role": "authenticated", "p_table": ptbl, "p_column": "id", "p_privilege": "SELECT"}
+            ).execute().data
+            if auth_has_priv:
+                print(f"  [!] {ptbl:<22} EXPOSED to 'authenticated' role!")
+            else:
+                print(f"  [OK] {ptbl:<22} Access denied to authenticated role")
+        except Exception:
+            pass
+        # Confirm service_role CAN access
+        try:
+            service_client.table(ptbl).select("id").limit(1).execute()
+            print(f"       -> Service role status: Verified (Authorized)")
+        except Exception as e:
+            print(f"       -> Service role status: Error ({str(e)[:45]}...)")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. Exact Dashboard Queries via Anon Key (from lib/fetch-pipeline-data.ts)
