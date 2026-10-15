@@ -1,6 +1,6 @@
 /**
- * middleware.ts
- * Next.js Edge Middleware implementing:
+ * proxy.ts
+ * Next.js 16+ Edge Proxy (migrated from deprecated middleware.ts convention)
  * 1. CSRF/Origin enforcement on browser-facing state-changing /api/* requests.
  * 2. Strict Default-Deny gate over all pages and API routes.
  * 
@@ -32,7 +32,7 @@ const PUBLIC_EXEMPT_PATHS = new Set([
   "/login",
 ])
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl
   const isProd = (process.env.ENVIRONMENT || "").toLowerCase() === "production"
 
@@ -111,8 +111,8 @@ export function middleware(req: NextRequest) {
     }
   }
 
-  // 4. Signed calendar .ics link pass-through
-  if (pathname.startsWith("/api/calendar/") && pathname.endsWith(".ics")) {
+  // 4. Signed calendar link pass-through (with .ics extension or signed token query param)
+  if (pathname.startsWith("/api/calendar/") && (pathname.endsWith(".ics") || req.nextUrl.searchParams.has("token"))) {
     return NextResponse.next()
   }
 
@@ -146,6 +146,9 @@ export function middleware(req: NextRequest) {
 
   return NextResponse.next()
 }
+
+// Export middleware as alias for backwards compatibility
+export const middleware = proxy
 
 export const config = {
   matcher: [

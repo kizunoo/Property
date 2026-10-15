@@ -34,3 +34,4 @@ backend/daily_worklist_cache.json
 scripts/active-tunnel.txt
 scripts/scenario_results.json
 supabase/.temp/
+scratch/
