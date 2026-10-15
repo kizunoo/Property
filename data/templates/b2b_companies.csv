@@ -1,0 +1,3 @@
+company_name,industry,facility_location,facility_size_sqft,contact_name,contact_role,contact_email,contact_phone_e164,company_phone_e164,website,source_url,estimated_budget,target_use_case,crm_stage,assigned_agent_email
+EXAMPLE - Apex Cold Chain Logistics Sdn Bhd,Logistics & 3PL,Shah Alam Selangor,120000,Example Contact,VP of Operations,contact@example.com,+60100000001,,https://example.com,https://example.com/source,150000,Pallet transport between staging zones,,rep@example.com
+EXAMPLE - Sunrise Medical Centre,Hospital / Healthcare,Petaling Jaya Selangor,80000,,,,,+60300000002,https://example.org,https://example.org/source,90000,Autonomous floor cleaning,,

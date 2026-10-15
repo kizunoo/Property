@@ -28,6 +28,7 @@ import type { CatalogUnit, DashboardData, UnitFeedback } from "@/lib/portal-type
 import { fetchCatalog, saveUnitFeedback, requestDemo } from "@/lib/portal-api"
 import { useToast } from "@/hooks/use-toast"
 import { Skeleton } from "@/components/ui/skeleton"
+import { RoiPanel } from "@/components/portal/roi-panel"
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -336,11 +337,15 @@ function UnitRow({
 
 function DetailDrawer({
   unit,
+  clientId,
+  facilityProfile,
   onClose,
   onRequestDemo,
   onAskQuestion,
 }: {
   unit: CatalogUnit
+  clientId: string
+  facilityProfile?: Record<string, any> | null
   onClose: () => void
   onRequestDemo: (u: CatalogUnit) => void
   onAskQuestion: (u: CatalogUnit) => void
@@ -450,6 +455,13 @@ function DetailDrawer({
               <ExternalLink className="h-4 w-4" />
             </a>
           )}
+
+          {/* Interactive ROI Calculator & Quote Request Panel */}
+          <RoiPanel
+            unit={unit}
+            clientId={clientId}
+            facilityProfile={facilityProfile}
+          />
 
           {/* Actions */}
           <div className="flex flex-col gap-2 pt-2">
@@ -952,6 +964,8 @@ export function CatalogTab({
       {detailUnit && (
         <DetailDrawer
           unit={detailUnit}
+          clientId={clientId}
+          facilityProfile={(dashboardData as any)?.facility_profile}
           onClose={() => setDetailUnit(null)}
           onRequestDemo={handleRequestDemo}
           onAskQuestion={handleAskQuestion}

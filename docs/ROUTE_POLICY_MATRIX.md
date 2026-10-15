@@ -11,7 +11,7 @@
 - **`admin-only`**: Requires agent session with `role == 'admin'`. Applied to all global mutators, retraining, and system administration.
 - **LLM Rate Limited**: Subject to per-agent sliding-window limiter (10 requests / minute) to prevent model exhaustion.
 
-**Total Registered API Endpoints:** 102  
+**Total Registered API Endpoints:** 105  
 **Undeclared Policies:** 0
 
 | Method | Path | Security Policy | LLM Rate Limit | Purpose / Security Description |
@@ -93,6 +93,8 @@
 | `GET` | `/api/portal/{client_id}/demos` | **`portal-session`** | - | Portal client scheduled demos list |
 | `POST` | `/api/portal/{client_id}/demos/{demo_id}/cancel` | **`portal-session`** | - | Portal client cancel demo |
 | `POST` | `/api/portal/{client_id}/demos/{demo_id}/confirm` | **`portal-session`** | - | Portal client confirm demo slot |
+| `PATCH` | `/api/portal/{client_id}/demos/{demo_id}/poc_criteria` | **`portal-session`** | - | Portal client update POC success criteria |
+| `POST` | `/api/portal/{client_id}/demos/{demo_id}/poc_feedback` | **`portal-session`** | - | Portal client submit POC trial feedback |
 | `POST` | `/api/portal/{client_id}/demos/{demo_id}/reschedule` | **`portal-session`** | - | Portal client reschedule demo |
 | `GET` | `/api/portal/{client_id}/inquiries` | **`portal-session`** | - | Portal client inquiries list |
 | `POST` | `/api/portal/{client_id}/inquiries/{inquiry_id}/messages` | **`portal-session`** | - | Portal client submit inquiry message |
@@ -100,6 +102,7 @@
 | `POST` | `/api/portal/{client_id}/inquiry` | **`portal-session`** | - | Portal client submit inquiry |
 | `GET` | `/api/portal/{client_id}/my_viewings` | **`portal-session`** | - | Portal client scheduled viewings |
 | `GET` | `/api/portal/{client_id}/preferences` | **`portal-session`** | - | Portal client preferences get |
+| `PATCH` | `/api/portal/{client_id}/preferences` | **`portal-session`** | - | Portal client preferences patch |
 | `PUT` | `/api/portal/{client_id}/preferences` | **`portal-session`** | - | Portal client preferences update |
 | `GET` | `/api/portal/{client_id}/quotes` | **`portal-session`** | - | Portal client quotes list |
 | `POST` | `/api/portal/{client_id}/quotes` | **`portal-session`** | - | Portal client request quote |

@@ -120,6 +120,42 @@ export async function requestDemo(
   })
 }
 
+export async function updatePocCriteria(
+  clientId: string,
+  demoId: string,
+  criteria: string[],
+): Promise<{ success: boolean; demo_id: string; poc_criteria: string[] }> {
+  return apiFetch<{ success: boolean; demo_id: string; poc_criteria: string[] }>(
+    `/api/portal/${clientId}/demos/${demoId}/poc_criteria`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ criteria }),
+    }
+  )
+}
+
+export interface PocFeedbackPayload {
+  feedback: string
+  outcome?: "proceed" | "decline" | "undecided" | null
+  request_commercial_quote?: boolean
+}
+
+export async function submitPocFeedback(
+  clientId: string,
+  demoId: string,
+  payload: PocFeedbackPayload,
+): Promise<{ success: boolean; demo_id: string; poc_feedback: string; poc_outcome?: string | null; request_commercial_quote: boolean }> {
+  return apiFetch<{ success: boolean; demo_id: string; poc_feedback: string; poc_outcome?: string | null; request_commercial_quote: boolean }>(
+    `/api/portal/${clientId}/demos/${demoId}/poc_feedback`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  )
+}
+
 // ─── Activity ────────────────────────────────────────────────────────────────
 
 export async function fetchActivity(clientId: string): Promise<ActivityData> {
@@ -264,6 +300,17 @@ export async function savePreferences(
 ): Promise<PreferencesData> {
   return apiFetch<PreferencesData>(`/api/portal/${clientId}/preferences`, {
     method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function patchPreferences(
+  clientId: string,
+  payload: PreferencesPayload,
+): Promise<PreferencesData> {
+  return apiFetch<PreferencesData>(`/api/portal/${clientId}/preferences`, {
+    method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   })

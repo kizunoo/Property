@@ -19,6 +19,8 @@ from supabase import create_client, Client
 from groq import Groq
 from scoring_engine import score as score_pair
 from ml_inference import predict_probability, reload_model
+from roi import compute_roi
+from portal_models import RoiScenarioInputs, FacilityProfile
 import subprocess
 import sys
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -366,7 +368,11 @@ def check_whatsapp_delivery_guard(to_number: str) -> tuple[bool, str]:
     if os.getenv("WHATSAPP_DRY_RUN", "false").lower() in ("true", "1", "yes"):
         return False, "WHATSAPP_DRY_RUN=true is enabled"
 
-    # 2. Environment check: if not production, whitelist check
+    # 2. Fixed-line / Landline safety guard (03, 04, 05, 06, 07, 08, 09 cannot receive WhatsApp)
+    if clean_digits.startswith(("603", "604", "605", "606", "607", "608", "609")):
+        return False, f"Safety guard: {clean_digits} is a company landline, not an opted-in WhatsApp mobile"
+
+    # 3. Environment check: if not production, whitelist check
     env = os.getenv("ENV") or os.getenv("APP_ENV") or os.getenv("NODE_ENV") or "development"
     is_prod = env.lower() == "production"
 
@@ -2577,6 +2583,9 @@ def schedule_viewing_reminders(viewing_id: str) -> list[dict]:
             return []
         clean_phone = "".join(filter(str.isdigit, str(raw_phone)))
         if not clean_phone:
+            return []
+        if clean_phone.startswith(("603", "604", "605", "606", "607", "608", "609")):
+            print(f"[schedule_viewing_reminders] Skipped: {clean_phone} is a company landline, cannot receive WhatsApp.")
             return []
 
         agent_id = v.get("agent_id") or c_info.get("assigned_agent_id")
@@ -7811,7 +7820,9 @@ def _format_portal_demo_item(d: dict, session: PortalSession) -> dict:
     prop_id = d.get("property_id") or prop.get("id")
     sched_at = d.get("scheduled_at")
 
+    # POC criteria are editable by client until demo is completed/cancelled
     can_act = not is_legacy
+    can_edit_poc = can_act and eff_status not in ("completed", "cancelled")
     return {
         "id": viewing_id,
         "status": eff_status,
@@ -7825,6 +7836,11 @@ def _format_portal_demo_item(d: dict, session: PortalSession) -> dict:
         "can_confirm": (eff_status in DEMO_RULES["confirm"]) and can_act,
         "can_cancel": (eff_status in DEMO_RULES["cancel"]) and can_act,
         "can_reschedule": (eff_status in DEMO_RULES["reschedule"]) and can_act,
+        "poc_criteria": d.get("poc_criteria") or [],
+        "poc_feedback": d.get("poc_feedback"),
+        "poc_outcome": d.get("poc_outcome"),
+        "can_edit_poc_criteria": can_edit_poc,
+        "can_submit_poc_feedback": can_act and eff_status == "completed" and not d.get("poc_feedback"),
     }
 
 
@@ -7837,7 +7853,7 @@ def portal_my_viewings(client_id: str, session: PortalSession = Depends(get_curr
     require_company_access(session, client_id)
     try:
         res = supabase.table("scheduled_viewings") \
-            .select("id, status, scheduled_at, property_id, confirmation_status, client_confirmed_at, properties(id, address, neighborhood)") \
+            .select("id, status, scheduled_at, property_id, confirmation_status, client_confirmed_at, poc_criteria, poc_feedback, poc_outcome, properties(id, address, neighborhood)") \
             .eq("client_id", client_id) \
             .order("scheduled_at", desc=True) \
             .execute()
@@ -7859,7 +7875,7 @@ def portal_get_demos(client_id: str, session: PortalSession = Depends(get_curren
     require_company_access(session, client_id)
     try:
         res = supabase.table("scheduled_viewings") \
-            .select("id, status, scheduled_at, property_id, confirmation_status, client_confirmed_at, properties(id, address, neighborhood)") \
+            .select("id, status, scheduled_at, property_id, confirmation_status, client_confirmed_at, poc_criteria, poc_feedback, poc_outcome, properties(id, address, neighborhood)") \
             .eq("client_id", client_id) \
             .order("scheduled_at", desc=True) \
             .execute()
@@ -8189,6 +8205,166 @@ def portal_reschedule_demo(
     }
 
 
+_POC_CRITERIA_MAX = 3
+_POC_CRITERIA_MAX_LEN = 140
+
+
+@app.patch("/api/portal/{client_id}/demos/{demo_id}/poc_criteria")
+def portal_update_poc_criteria(
+    client_id: str,
+    demo_id: str,
+    body: dict,
+    request: Request,
+    session: PortalSession = Depends(get_current_portal_session),
+):
+    """
+    Update POC success criteria for a demo.
+    Criteria are a list of strings (max 3, max 140 chars each).
+    Only editable while the demo is not completed or cancelled.
+    """
+    require_company_access(session, client_id)
+    if session.is_legacy:
+        raise HTTPException(status_code=403, detail="Legacy session is read-only.")
+    check_portal_write_rate_limit(request, client_id, action="update_poc_criteria")
+
+    try:
+        res = supabase.table("scheduled_viewings") \
+            .select("id, client_id, status, confirmation_status") \
+            .eq("id", demo_id) \
+            .single() \
+            .execute()
+    except Exception:
+        raise HTTPException(status_code=404, detail="Demo not found")
+
+    demo = res.data[0] if isinstance(res.data, list) and res.data else res.data
+    if not demo or demo.get("client_id") != client_id:
+        raise HTTPException(status_code=403, detail="Forbidden: demo belongs to another company")
+
+    eff_status = get_demo_effective_status(demo)
+    if eff_status in ("completed", "cancelled"):
+        raise HTTPException(status_code=409, detail=f"Cannot edit POC criteria when demo is '{eff_status}'.")
+
+    criteria = body.get("criteria", [])
+    if not isinstance(criteria, list):
+        raise HTTPException(status_code=422, detail="criteria must be a list of strings")
+    if len(criteria) > _POC_CRITERIA_MAX:
+        raise HTTPException(status_code=422, detail=f"Maximum {_POC_CRITERIA_MAX} criteria allowed")
+    cleaned = []
+    for i, item in enumerate(criteria):
+        if not isinstance(item, str):
+            raise HTTPException(status_code=422, detail=f"criteria[{i}] must be a string")
+        s = item.strip()
+        if len(s) > _POC_CRITERIA_MAX_LEN:
+            raise HTTPException(status_code=422, detail=f"criteria[{i}] exceeds {_POC_CRITERIA_MAX_LEN} characters")
+        if s:
+            cleaned.append(s)
+
+    try:
+        supabase.table("scheduled_viewings") \
+            .update({"poc_criteria": cleaned}) \
+            .eq("id", demo_id) \
+            .execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to update POC criteria: {exc}")
+
+    return {"success": True, "demo_id": demo_id, "poc_criteria": cleaned}
+
+
+@app.post("/api/portal/{client_id}/demos/{demo_id}/poc_feedback")
+def portal_submit_poc_feedback(
+    client_id: str,
+    demo_id: str,
+    body: dict,
+    request: Request,
+    session: PortalSession = Depends(get_current_portal_session),
+):
+    """
+    Submit POC trial feedback after a completed demo.
+    Optionally creates a rep signal to request a commercial quote.
+    Only submittable once; re-submission returns 409.
+    """
+    require_company_access(session, client_id)
+    if session.is_legacy:
+        raise HTTPException(status_code=403, detail="Legacy session is read-only.")
+    check_portal_write_rate_limit(request, client_id, action="poc_feedback")
+
+    try:
+        res = supabase.table("scheduled_viewings") \
+            .select("id, client_id, status, confirmation_status, poc_feedback, property_id, properties(address)") \
+            .eq("id", demo_id) \
+            .single() \
+            .execute()
+    except Exception:
+        raise HTTPException(status_code=404, detail="Demo not found")
+
+    demo = res.data[0] if isinstance(res.data, list) and res.data else res.data
+    if not demo or demo.get("client_id") != client_id:
+        raise HTTPException(status_code=403, detail="Forbidden: demo belongs to another company")
+
+    eff_status = get_demo_effective_status(demo)
+    if eff_status != "completed":
+        raise HTTPException(status_code=409, detail=f"POC feedback can only be submitted after a completed demo (current: '{eff_status}').")
+
+    if demo.get("poc_feedback"):
+        raise HTTPException(status_code=409, detail="POC feedback has already been submitted for this demo.")
+
+    feedback_text = (body.get("feedback") or "").strip()
+    if not feedback_text:
+        raise HTTPException(status_code=422, detail="feedback is required")
+    if len(feedback_text) > 5000:
+        raise HTTPException(status_code=422, detail="feedback exceeds 5000 character limit")
+
+    outcome = body.get("outcome")  # optional: 'proceed' | 'decline' | 'undecided'
+    if outcome and outcome not in ("proceed", "decline", "undecided"):
+        raise HTTPException(status_code=422, detail="outcome must be one of: proceed, decline, undecided")
+
+    request_quote = bool(body.get("request_commercial_quote", False))
+
+    update_payload: dict[str, Any] = {"poc_feedback": feedback_text}
+    if outcome:
+        update_payload["poc_outcome"] = outcome
+
+    try:
+        supabase.table("scheduled_viewings") \
+            .update(update_payload) \
+            .eq("id", demo_id) \
+            .execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to save POC feedback: {exc}")
+
+    # Emit signal for sales rep
+    try:
+        c_res = supabase.table("clients").select("name, assigned_agent_id").eq("id", client_id).single().execute()
+        c_name = (c_res.data or {}).get("name") or "Client"
+        prop = demo.get("properties") or {}
+        prop_name = prop.get("address") or "robot unit"
+        signal_type = "portal_poc_feedback_quote_request" if request_quote else "portal_poc_feedback"
+        msg = f"{c_name} submitted POC feedback for {prop_name}"
+        if request_quote:
+            msg += " — and requested a commercial quote."
+        elif outcome:
+            outcome_labels = {"proceed": "wants to proceed", "decline": "chose to decline", "undecided": "is undecided"}
+            msg += f" ({outcome_labels.get(outcome, outcome)})."
+        else:
+            msg += "."
+        supabase.table("signals").insert({
+            "type": signal_type,
+            "client_id": client_id,
+            "property_id": demo.get("property_id"),
+            "message": msg,
+        }).execute()
+    except Exception as sig_exc:
+        print(f"[portal_submit_poc_feedback] Warning: signal insert failed: {sig_exc}")
+
+    return {
+        "success": True,
+        "demo_id": demo_id,
+        "poc_feedback": feedback_text,
+        "poc_outcome": outcome,
+        "request_commercial_quote": request_quote,
+    }
+
+
 @app.patch("/api/confirm_demo/{viewing_id}")
 def confirm_demo(viewing_id: str):
     """
@@ -8246,10 +8422,59 @@ def portal_submit_inquiry(
     check_portal_write_rate_limit(request, client_id, action="inquiry")
 
     property_id = body.get("property_id")
-    message = (body.get("message") or "").strip()
+    raw_roi = body.get("roi_scenario")
+    stored_roi = None
 
-    if not message or len(message) > 4000:
-        raise HTTPException(status_code=422, detail="message is required and must be 1 to 4000 characters")
+    if raw_roi is not None:
+        try:
+            roi_in = RoiScenarioInputs.model_validate(raw_roi)
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"Invalid ROI scenario inputs: {e}")
+
+        prop_price = 0.0
+        lease_monthly = 0.0
+        if property_id:
+            try:
+                p_res = supabase.table("properties").select("id, property_value, specs").eq("id", property_id).single().execute()
+                if p_res.data:
+                    prop_price = float(p_res.data.get("property_value") or 0)
+                    specs = p_res.data.get("specs") or {}
+                    lease_monthly = float(specs.get("lease_monthly") or (prop_price * 0.035 if prop_price > 0 else 0))
+            except Exception:
+                pass
+
+        computed = compute_roi(
+            {
+                "shifts": roi_in.shifts,
+                "headcountPerShift": roi_in.headcountPerShift,
+                "monthlyLaborCost": roi_in.monthlyLaborCost,
+            },
+            {
+                "purchasePrice": prop_price,
+                "leaseMonthly": lease_monthly,
+            },
+            roi_in.mode,
+        )
+        stored_roi = {
+            "inputs": {
+                "shifts": roi_in.shifts,
+                "headcountPerShift": roi_in.headcountPerShift,
+                "monthlyLaborCost": roi_in.monthlyLaborCost,
+                "mode": roi_in.mode,
+            },
+            "outputs": computed,
+        }
+
+    message = (body.get("message") or "").strip()
+    if not message:
+        if stored_roi:
+            mode_label = stored_roi["inputs"]["mode"].title()
+            savings = stored_roi["outputs"]["monthlySavings"]
+            message = f"ROI Scenario & Quote Request ({mode_label} mode, RM {savings:,.0f}/mo est. savings)"
+        else:
+            raise HTTPException(status_code=422, detail="message is required and must be 1 to 4000 characters")
+    elif len(message) > 4000:
+        raise HTTPException(status_code=422, detail="message must be 1 to 4000 characters")
 
     try:
         client_res = supabase.table("clients").select("id, name, assigned_agent_id").eq("id", client_id).single().execute()
@@ -8270,13 +8495,17 @@ def portal_submit_inquiry(
         except Exception:
             pass
 
+    inq_payload = {
+        "client_id": client_id,
+        "property_id": property_id,
+        "message": message,
+        "status": "open",
+    }
+    if stored_roi:
+        inq_payload["roi_scenario"] = stored_roi
+
     try:
-        res = supabase.table("client_inquiries").insert({
-            "client_id": client_id,
-            "property_id": property_id,
-            "message": message,
-            "status": "open",
-        }).execute()
+        res = supabase.table("client_inquiries").insert(inq_payload).execute()
         inq_row = res.data[0] if res.data else {}
         inquiry_id = inq_row.get("id")
     except Exception as exc:
@@ -8295,16 +8524,21 @@ def portal_submit_inquiry(
 
     # Emit rep signal
     try:
+        sig_msg = (
+            f"ROI scenario saved & quote requested by {client_name} regarding {unit_name}: RM {stored_roi['outputs']['monthlySavings']:,.0f}/mo savings"
+            if stored_roi
+            else f"New inquiry from {client_name} regarding {unit_name}: {message[:120]}"
+        )
         supabase.table("signals").insert({
             "type": "portal_inquiry",
             "client_id": client_id,
             "property_id": property_id,
-            "message": f"New inquiry from {client_name} regarding {unit_name}: {message[:120]}",
+            "message": sig_msg,
         }).execute()
     except Exception as sig_exc:
         print(f"[portal_submit_inquiry] Warning: signal insert failed: {sig_exc}")
 
-    return {
+    resp = {
         "id": inquiry_id,
         "client_id": client_id,
         "property_id": property_id,
@@ -8312,6 +8546,9 @@ def portal_submit_inquiry(
         "status": "open",
         "created_at": inq_row.get("created_at"),
     }
+    if stored_roi:
+        resp["roi_scenario"] = stored_roi
+    return resp
 
 
 @app.post("/api/portal/{client_id}/inquiries/{inquiry_id}/messages")
@@ -8430,7 +8667,7 @@ def portal_list_inquiries(client_id: str, session: PortalSession = Depends(get_c
     try:
         rows = (
             supabase.table("client_inquiries")
-            .select("id, property_id, message, status, agent_reply, created_at, properties(address)")
+            .select("id, property_id, message, status, agent_reply, created_at, roi_scenario, properties(address)")
             .eq("client_id", client_id)
             .order("created_at", desc=True)
             .execute()
@@ -8488,6 +8725,7 @@ def portal_list_inquiries(client_id: str, session: PortalSession = Depends(get_c
                 "property_id":   row.get("property_id"),
                 "messages":      thread,
                 "unread_count":  unread_count,
+                "roi_scenario":  row.get("roi_scenario"),
             })
 
         return {"inquiries": inquiries, "total_unread": total_unread}
@@ -9401,7 +9639,7 @@ def portal_get_preferences(client_id: str, session: PortalSession = Depends(get_
     try:
         res = (
             supabase.table("clients")
-            .select("id, stated_budget, preferred_neighborhood, secondary_neighborhood, financing_status, move_in_timeline, property_type_preference, industry, facility_type, facility_size_sqm, use_case, purchase_timeline, existing_automation, profile_updated_at")
+            .select("id, stated_budget, preferred_neighborhood, secondary_neighborhood, financing_status, move_in_timeline, property_type_preference, industry, facility_type, facility_size_sqm, use_case, purchase_timeline, existing_automation, profile_updated_at, facility_profile")
             .eq("id", client_id)
             .single()
             .execute()
@@ -9462,6 +9700,7 @@ def portal_get_preferences(client_id: str, session: PortalSession = Depends(get_
         "purchase_timeline":        c.get("purchase_timeline"),
         "existing_automation":      c.get("existing_automation"),
         "profile_updated_at":       c.get("profile_updated_at"),
+        "facility_profile":         c.get("facility_profile") or {},
         "contacts":                 contacts,
         "matches_refreshed_count":  0,
         "updated_fields":           [],
@@ -9471,6 +9710,7 @@ def portal_get_preferences(client_id: str, session: PortalSession = Depends(get_
 
 
 @app.put("/api/portal/{client_id}/preferences")
+@app.patch("/api/portal/{client_id}/preferences")
 def portal_save_preferences(
     client_id: str,
     body: dict,
@@ -9576,11 +9816,29 @@ def portal_save_preferences(
             else:
                 updates[s_field] = v.strip()
 
+    # 3. B2B Facility Profile (JSONB)
+    if "facility_profile" in body:
+        fp_raw = body["facility_profile"]
+        if not isinstance(fp_raw, dict):
+            errors.append("facility_profile must be a JSON object")
+        else:
+            try:
+                fp_model = FacilityProfile.model_validate(fp_raw)
+            except Exception as e:
+                errors.append(f"Invalid facility_profile: {e}")
+            else:
+                existing_fp = client.get("facility_profile") or {}
+                if not isinstance(existing_fp, dict):
+                    existing_fp = {}
+                fp_dict = fp_model.model_dump(exclude_unset=True)
+                merged_fp = {**existing_fp, **fp_dict}
+                updates["facility_profile"] = merged_fp
+
     allowed_keys = {
         "stated_budget", "preferred_neighborhood", "secondary_neighborhood",
         "financing_status", "move_in_timeline", "property_type_preference",
         "industry", "facility_type", "facility_size_sqm", "use_case",
-        "purchase_timeline", "existing_automation",
+        "purchase_timeline", "existing_automation", "facility_profile",
     }
     extra = set(body.keys()) - allowed_keys
     if extra:
@@ -9606,7 +9864,19 @@ def portal_save_preferences(
             if str(old_val or "") != str(new_val or ""):
                 profile_diffs.append((pf, old_val, new_val))
 
-    for pf, old_v, new_v in profile_diffs:
+    # Audit facility_profile field changes
+    fp_diffs = []
+    if "facility_profile" in updates:
+        existing_fp = client.get("facility_profile") or {}
+        if not isinstance(existing_fp, dict):
+            existing_fp = {}
+        new_fp = updates["facility_profile"]
+        for k, v in new_fp.items():
+            old_v = existing_fp.get(k)
+            if old_v != v:
+                fp_diffs.append((f"facility_profile.{k}", old_v, v))
+
+    for pf, old_v, new_v in profile_diffs + fp_diffs:
         try:
             supabase.table("portal_profile_audit").insert({
                 "client_id": client_id,
@@ -9619,7 +9889,7 @@ def portal_save_preferences(
         except Exception as aud_exc:
             print(f"[portal_save_preferences] Audit insert non-fatal: {aud_exc}")
 
-    if profile_diffs:
+    if profile_diffs or fp_diffs:
         updates["profile_updated_at"] = now_iso
 
     # Persist updates to clients table
@@ -9630,7 +9900,16 @@ def portal_save_preferences(
 
     # Emit signal if profile changed
     client_name = client.get("name", "Client")
-    if profile_diffs:
+    if fp_diffs:
+        try:
+            supabase.table("signals").insert({
+                "type": "portal_profile_updated",
+                "client_id": client_id,
+                "message": f"{client_name} updated deployment specs",
+            }).execute()
+        except Exception as sig_exc:
+            print(f"[portal_save_preferences] Signal insert non-fatal: {sig_exc}")
+    elif profile_diffs:
         try:
             diff_names = ", ".join(d[0] for d in profile_diffs)
             supabase.table("signals").insert({
@@ -9716,6 +9995,7 @@ def portal_save_preferences(
     return {
         "client_id": client_id,
         "updated_fields": list(updates.keys()),
+        "facility_profile": updates.get("facility_profile") or client.get("facility_profile") or {},
         "matches_refreshed_count": rescored,
         "profile_updated_at": updates.get("profile_updated_at"),
     }

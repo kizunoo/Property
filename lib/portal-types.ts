@@ -67,6 +67,11 @@ export interface Demo {
   can_confirm?: boolean
   can_cancel?: boolean
   can_reschedule?: boolean
+  poc_criteria?: string[]
+  poc_feedback?: string | null
+  poc_outcome?: "proceed" | "decline" | "undecided" | null
+  can_edit_poc_criteria?: boolean
+  can_submit_poc_feedback?: boolean
 }
 
 export interface DemosData {
@@ -190,6 +195,15 @@ export interface ContactPerson {
   email?: string | null
 }
 
+export interface FacilityProfileData {
+  facility_type?: "warehouse" | "manufacturing" | "healthcare" | "cleaning" | "retail_hospitality" | null
+  floor_area_sqm?: number | null
+  environment_notes?: string | null
+  primary_use_case?: "transport" | "cleaning" | "palletizing" | "security" | "delivery" | null
+  timeline?: "0-3m" | "3-6m" | "6-12m" | "12m+" | null
+  budget_band?: "<50k" | "50-150k" | "150-500k" | "500k+" | null
+}
+
 export interface PreferencesPayload {
   stated_budget?: number | null
   preferred_neighborhood?: string | null
@@ -203,11 +217,13 @@ export interface PreferencesPayload {
   use_case?: string | null
   purchase_timeline?: string | null
   existing_automation?: string | null
+  facility_profile?: FacilityProfileData | null
 }
 
 export interface PreferencesData extends PreferencesPayload {
   client_id: string
   profile_updated_at?: string | null
+  facility_profile?: FacilityProfileData | null
   contacts?: ContactPerson[]
   matches_refreshed_count: number
   updated_fields: string[]

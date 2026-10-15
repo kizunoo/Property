@@ -74,8 +74,11 @@ ROUTE_POLICY_DECLARATIONS: List[RoutePolicyDecl] = [
     RoutePolicyDecl("POST", "/api/portal/{client_id}/demos/{demo_id}/confirm", re.compile(r"^/api/portal/[^/]+/demos/[^/]+/confirm$"), RoutePolicy.PORTAL_SESSION, False, "Portal client confirm demo slot"),
     RoutePolicyDecl("POST", "/api/portal/{client_id}/demos/{demo_id}/cancel", re.compile(r"^/api/portal/[^/]+/demos/[^/]+/cancel$"), RoutePolicy.PORTAL_SESSION, False, "Portal client cancel demo"),
     RoutePolicyDecl("POST", "/api/portal/{client_id}/demos/{demo_id}/reschedule", re.compile(r"^/api/portal/[^/]+/demos/[^/]+/reschedule$"), RoutePolicy.PORTAL_SESSION, False, "Portal client reschedule demo"),
+    RoutePolicyDecl("PATCH", "/api/portal/{client_id}/demos/{demo_id}/poc_criteria", re.compile(r"^/api/portal/[^/]+/demos/[^/]+/poc_criteria$"), RoutePolicy.PORTAL_SESSION, False, "Portal client update POC success criteria"),
+    RoutePolicyDecl("POST", "/api/portal/{client_id}/demos/{demo_id}/poc_feedback", re.compile(r"^/api/portal/[^/]+/demos/[^/]+/poc_feedback$"), RoutePolicy.PORTAL_SESSION, False, "Portal client submit POC trial feedback"),
     RoutePolicyDecl("GET", "/api/portal/{client_id}/preferences", re.compile(r"^/api/portal/[^/]+/preferences$"), RoutePolicy.PORTAL_SESSION, False, "Portal client preferences get"),
     RoutePolicyDecl("PUT", "/api/portal/{client_id}/preferences", re.compile(r"^/api/portal/[^/]+/preferences$"), RoutePolicy.PORTAL_SESSION, False, "Portal client preferences update"),
+    RoutePolicyDecl("PATCH", "/api/portal/{client_id}/preferences", re.compile(r"^/api/portal/[^/]+/preferences$"), RoutePolicy.PORTAL_SESSION, False, "Portal client preferences patch"),
     RoutePolicyDecl("POST", "/api/portal/{client_id}/request_demo", re.compile(r"^/api/portal/[^/]+/request_demo$"), RoutePolicy.PORTAL_SESSION, False, "Portal client request viewing"),
 
     # ─── 3. ADMIN-ONLY ROUTES ────────────────────────────────────────────────

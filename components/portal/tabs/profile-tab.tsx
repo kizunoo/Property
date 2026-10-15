@@ -22,8 +22,9 @@ import type {
   MoveInTimeline,
   PreferencesData,
   PreferencesPayload,
+  FacilityProfileData,
 } from "@/lib/portal-types"
-import { fetchPreferences, savePreferences } from "@/lib/portal-api"
+import { fetchPreferences, savePreferences, patchPreferences } from "@/lib/portal-api"
 import { useToast } from "@/hooks/use-toast"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -52,6 +53,36 @@ const TIMELINE_OPTIONS: { value: MoveInTimeline; label: string }[] = [
   { value: "6-12 months", label: "6–12 months" },
   { value: "flexible", label: "Flexible / exploratory" },
 ]
+
+const FACILITY_TYPES = [
+  { value: "warehouse", label: "Warehouse / Logistics Hub" },
+  { value: "manufacturing", label: "Manufacturing / Plant" },
+  { value: "healthcare", label: "Healthcare / Hospital" },
+  { value: "cleaning", label: "Commercial Cleaning Site" },
+  { value: "retail_hospitality", label: "Retail & Hospitality" },
+] as const
+
+const PRIMARY_USE_CASES = [
+  { value: "transport", label: "Material Transport / AGV" },
+  { value: "cleaning", label: "Autonomous Floor Cleaning" },
+  { value: "palletizing", label: "Robotic Palletizing & Stacking" },
+  { value: "security", label: "Autonomous Security & Patrol" },
+  { value: "delivery", label: "Indoor / Last-Yard Delivery" },
+] as const
+
+const DEPLOYMENT_TIMELINES = [
+  { value: "0-3m", label: "Immediate (0–3 months)" },
+  { value: "3-6m", label: "Near-Term (3–6 months)" },
+  { value: "6-12m", label: "Medium-Term (6–12 months)" },
+  { value: "12m+", label: "Planning / Long-Term (12+ months)" },
+] as const
+
+const BUDGET_BANDS = [
+  { value: "<50k", label: "< RM 50,000" },
+  { value: "50-150k", label: "RM 50,000 – 150,000" },
+  { value: "150-500k", label: "RM 150,000 – 500,000" },
+  { value: "500k+", label: "RM 500,000+" },
+] as const
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "Never"
@@ -118,12 +149,14 @@ export function ProfileTab({
   const [timeline, setTimeline] = useState<MoveInTimeline | "">("")
   const [unitType, setUnitType] = useState("")
 
-  // New B2B Fields
+  // B2B Facility Profile (JSONB)
+  const [facilityType, setFacilityType] = useState<string>("")
+  const [floorAreaSqm, setFloorAreaSqm] = useState<string>("")
+  const [environmentNotes, setEnvironmentNotes] = useState<string>("")
+  const [primaryUseCase, setPrimaryUseCase] = useState<string>("")
+  const [deploymentTimeline, setDeploymentTimeline] = useState<string>("")
+  const [budgetBand, setBudgetBand] = useState<string>("")
   const [industry, setIndustry] = useState("")
-  const [facilityType, setFacilityType] = useState("")
-  const [facilitySizeSqm, setFacilitySizeSqm] = useState("")
-  const [useCase, setUseCase] = useState("")
-  const [purchaseTimeline, setPurchaseTimeline] = useState("")
   const [existingAutomation, setExistingAutomation] = useState("")
 
   const load = useCallback(async () => {
@@ -139,12 +172,15 @@ export function ProfileTab({
       setTimeline((d.move_in_timeline ?? "") as MoveInTimeline | "")
       setUnitType(d.property_type_preference ?? "")
 
-      // B2B fields
+      // B2B Facility Profile
+      const fp = d.facility_profile || {}
+      setFacilityType(fp.facility_type || d.facility_type || "")
+      setFloorAreaSqm(fp.floor_area_sqm != null ? String(fp.floor_area_sqm) : (d.facility_size_sqm != null ? String(d.facility_size_sqm) : ""))
+      setEnvironmentNotes(fp.environment_notes || "")
+      setPrimaryUseCase(fp.primary_use_case || d.use_case || "")
+      setDeploymentTimeline(fp.timeline || "")
+      setBudgetBand(fp.budget_band || "")
       setIndustry(d.industry ?? "")
-      setFacilityType(d.facility_type ?? "")
-      setFacilitySizeSqm(d.facility_size_sqm != null ? String(d.facility_size_sqm) : "")
-      setUseCase(d.use_case ?? "")
-      setPurchaseTimeline(d.purchase_timeline ?? "")
       setExistingAutomation(d.existing_automation ?? "")
 
       const raw = d as PreferencesData & { available_property_types?: string[] }
@@ -167,12 +203,13 @@ export function ProfileTab({
       ? "Enter a valid amount between RM 1 and RM 10,000,000"
       : null
 
-  const sizeNum = facilitySizeSqm ? parseFloat(facilitySizeSqm.replace(/,/g, "")) : null
+  const sizeNum = floorAreaSqm ? parseFloat(floorAreaSqm.replace(/,/g, "")) : null
   const sizeError =
-    facilitySizeSqm && (isNaN(sizeNum!) || sizeNum! <= 0)
-      ? "Enter a positive number for facility area"
+    floorAreaSqm && (isNaN(sizeNum!) || sizeNum! < 0 || sizeNum! > 10_000_000)
+      ? "Enter a valid floor area up to 10,000,000 sqm"
       : null
 
+  const fpPref = prefs?.facility_profile || {}
   const isDirty =
     (budgetNum != null && budgetNum !== (prefs?.stated_budget ?? null)) ||
     (budget === "" && prefs?.stated_budget != null) ||
@@ -182,12 +219,13 @@ export function ProfileTab({
     timeline !== (prefs?.move_in_timeline ?? "") ||
     unitType !== (prefs?.property_type_preference ?? "") ||
     industry !== (prefs?.industry ?? "") ||
-    facilityType !== (prefs?.facility_type ?? "") ||
-    (sizeNum != null && sizeNum !== (prefs?.facility_size_sqm ?? null)) ||
-    (facilitySizeSqm === "" && prefs?.facility_size_sqm != null) ||
-    useCase !== (prefs?.use_case ?? "") ||
-    purchaseTimeline !== (prefs?.purchase_timeline ?? "") ||
-    existingAutomation !== (prefs?.existing_automation ?? "")
+    existingAutomation !== (prefs?.existing_automation ?? "") ||
+    facilityType !== (fpPref.facility_type || prefs?.facility_type || "") ||
+    (sizeNum != null && sizeNum !== (fpPref.floor_area_sqm ?? prefs?.facility_size_sqm ?? null)) ||
+    environmentNotes !== (fpPref.environment_notes ?? "") ||
+    primaryUseCase !== (fpPref.primary_use_case ?? "") ||
+    deploymentTimeline !== (fpPref.timeline ?? "") ||
+    budgetBand !== (fpPref.budget_band ?? "")
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
@@ -203,21 +241,27 @@ export function ProfileTab({
     if (timeline) payload.move_in_timeline = timeline as MoveInTimeline
     if (unitType) payload.property_type_preference = unitType
 
-    // B2B fields
+    // Standard B2B fields
     payload.industry = industry || null
-    payload.facility_type = facilityType || null
-    payload.facility_size_sqm = sizeNum
-    payload.use_case = useCase || null
-    payload.purchase_timeline = purchaseTimeline || null
     payload.existing_automation = existingAutomation || null
 
+    // Facility Profile (JSONB)
+    payload.facility_profile = {
+      facility_type: (facilityType || null) as any,
+      floor_area_sqm: sizeNum,
+      environment_notes: environmentNotes ? environmentNotes.trim() : null,
+      primary_use_case: (primaryUseCase || null) as any,
+      timeline: (deploymentTimeline || null) as any,
+      budget_band: (budgetBand || null) as any,
+    }
+
     try {
-      const result = await savePreferences(clientId, payload)
+      const result = await patchPreferences(clientId, payload)
       setPrefs(result)
       onPreferencesSaved?.(result)
       toast({
         title: "Company profile updated",
-        description: "Your operational profile and preferences have been securely saved.",
+        description: "Your operational profile and deployment specs have been securely saved.",
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to save preferences."
@@ -292,9 +336,108 @@ export function ProfileTab({
           </div>
         </Section>
 
-        {/* ── B2B Facility & Industry ──────────────────────────────── */}
-        <Section title="Facility &amp; Operational Context">
+        {/* ── B2B Facility & Deployment Specifications ──────────────── */}
+        <Section title="Facility &amp; Deployment Specifications (B2B POC)">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <FieldLabel label="Facility Type" hint="Operating facility classification" />
+              <div className="relative">
+                <select
+                  id="pref-facility-type"
+                  value={facilityType}
+                  onChange={(e) => setFacilityType(e.target.value)}
+                  className="w-full border border-border bg-white px-3 pr-9 py-2 text-sm appearance-none focus:outline-none focus-visible:border-primary"
+                >
+                  <option value="">Select facility type…</option>
+                  {FACILITY_TYPES.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <FieldLabel label="Floor Area (sqm)" hint="Total operational floor space (up to 10,000,000)" />
+              <input
+                id="pref-facility-size"
+                type="number"
+                min={0}
+                max={10000000}
+                value={floorAreaSqm}
+                onChange={(e) => setFloorAreaSqm(e.target.value)}
+                placeholder="e.g. 15000"
+                className="border border-border bg-white px-3 py-2 text-sm focus:outline-none focus-visible:border-primary"
+              />
+              {sizeError && <p className="text-[10px] text-destructive">{sizeError}</p>}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <FieldLabel label="Primary Use Case" hint="Primary automation workflow" />
+              <div className="relative">
+                <select
+                  id="pref-primary-use-case"
+                  value={primaryUseCase}
+                  onChange={(e) => setPrimaryUseCase(e.target.value)}
+                  className="w-full border border-border bg-white px-3 pr-9 py-2 text-sm appearance-none focus:outline-none focus-visible:border-primary"
+                >
+                  <option value="">Select primary workflow…</option>
+                  {PRIMARY_USE_CASES.map((uc) => (
+                    <option key={uc.value} value={uc.value}>
+                      {uc.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <FieldLabel label="Target POC Timeline" hint="Expected deployment timeframe" />
+              <div className="relative">
+                <select
+                  id="pref-deployment-timeline"
+                  value={deploymentTimeline}
+                  onChange={(e) => setDeploymentTimeline(e.target.value)}
+                  className="w-full border border-border bg-white px-3 pr-9 py-2 text-sm appearance-none focus:outline-none focus-visible:border-primary"
+                >
+                  <option value="">Select deployment timeline…</option>
+                  {DEPLOYMENT_TIMELINES.map((tl) => (
+                    <option key={tl.value} value={tl.value}>
+                      {tl.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <FieldLabel label="Budget Band (MYR)" hint="Target investment envelope" />
+              <div className="relative">
+                <select
+                  id="pref-budget-band"
+                  value={budgetBand}
+                  onChange={(e) => setBudgetBand(e.target.value)}
+                  className="w-full border border-border bg-white px-3 pr-9 py-2 text-sm appearance-none focus:outline-none focus-visible:border-primary"
+                >
+                  <option value="">Select budget band…</option>
+                  {BUDGET_BANDS.map((bb) => (
+                    <option key={bb.value} value={bb.value}>
+                      {bb.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              </div>
+            </div>
+
             <div className="flex flex-col gap-1.5">
               <FieldLabel label="Industry Sector" hint="e.g. E-Commerce, Automotive, Cold Storage" />
               <input
@@ -306,54 +449,16 @@ export function ProfileTab({
                 className="border border-border bg-white px-3 py-2 text-sm focus:outline-none focus-visible:border-primary"
               />
             </div>
-
-            <div className="flex flex-col gap-1.5">
-              <FieldLabel label="Facility Type" hint="e.g. High-bay distribution center, Cleanroom" />
-              <input
-                id="pref-facility-type"
-                type="text"
-                value={facilityType}
-                onChange={(e) => setFacilityType(e.target.value)}
-                placeholder="e.g. Central Warehouse"
-                className="border border-border bg-white px-3 py-2 text-sm focus:outline-none focus-visible:border-primary"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <FieldLabel label="Facility Area (sqm)" hint="Total operational floor space" />
-              <input
-                id="pref-facility-size"
-                type="number"
-                value={facilitySizeSqm}
-                onChange={(e) => setFacilitySizeSqm(e.target.value)}
-                placeholder="e.g. 15000"
-                className="border border-border bg-white px-3 py-2 text-sm focus:outline-none focus-visible:border-primary"
-              />
-              {sizeError && <p className="text-[10px] text-destructive">{sizeError}</p>}
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <FieldLabel label="Existing Automation" hint="Current systems in place" />
-              <input
-                id="pref-existing-automation"
-                type="text"
-                value={existingAutomation}
-                onChange={(e) => setExistingAutomation(e.target.value)}
-                placeholder="e.g. Conveyors, SAP WMS, none"
-                className="border border-border bg-white px-3 py-2 text-sm focus:outline-none focus-visible:border-primary"
-              />
-            </div>
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <FieldLabel label="Primary Use Case &amp; Workflow" hint="Key problem to solve" />
+            <FieldLabel label="Facility &amp; Environment Notes" hint="Obstacles, ramps, lighting, flooring conditions, ceiling clearances (max 1000 chars)" />
             <textarea
-              id="pref-use-case"
-              value={useCase}
-              onChange={(e) => setUseCase(e.target.value)}
-              placeholder="e.g. Pallet transport between receiving dock and sorting racks during peak 2nd shift..."
+              id="pref-environment-notes"
+              value={environmentNotes}
+              maxLength={1000}
+              onChange={(e) => setEnvironmentNotes(e.target.value)}
+              placeholder="e.g. Smooth epoxy flooring, 4m aisle clearance, 2 ramp inclines at receiving dock..."
               rows={3}
               className="resize-none border border-border bg-white px-3 py-2 text-sm focus:outline-none focus-visible:border-primary"
             />

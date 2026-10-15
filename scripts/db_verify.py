@@ -257,10 +257,87 @@ for ptbl in portal_v2_tables:
         except Exception as e:
             print(f"       -> Service role status: Error ({str(e)[:45]}...)")
 
+print("\n--- 3c. B2B POC & ROI Columns Verification & Privilege Lockdown ---")
+poc_columns = [
+    ("client_inquiries", "roi_scenario"),
+    ("clients", "facility_profile"),
+    ("scheduled_viewings", "poc_criteria"),
+    ("scheduled_viewings", "poc_feedback"),
+    ("scheduled_viewings", "poc_outcome"),
+]
+
+for tbl, col in poc_columns:
+    # 1. Existence check via service role
+    if service_client:
+        try:
+            service_client.table(tbl).select(f"id, {col}").limit(1).execute()
+            print(f"  [EXISTS] {tbl}.{col:<18} Column present in schema (service_role accessible)")
+        except Exception as e:
+            print(f"  [MISSING] {tbl}.{col:<18} Column NOT found: {str(e)[:50]}")
+
+    # 2. Anon privilege check (Must be FALSE or rejected)
+    anon_exposed = False
+    try:
+        r = anon_client.table(tbl).select(f"id, {col}").limit(1).execute()
+        if service_client:
+            anon_exposed = service_client.rpc(
+                "check_column_privilege",
+                {"p_role": "anon", "p_table": tbl, "p_column": col, "p_privilege": "SELECT"}
+            ).execute().data
+        else:
+            anon_exposed = True
+    except Exception:
+        anon_exposed = False
+
+    if anon_exposed:
+        print(f"  [!] {tbl}.{col:<18} EXPOSED to 'anon' role!")
+    else:
+        print(f"  [OK] {tbl}.{col:<18} Protected against 'anon' role")
+
+    # 3. Authenticated privilege check (Must be FALSE)
+    if service_client:
+        try:
+            auth_exposed = service_client.rpc(
+                "check_column_privilege",
+                {"p_role": "authenticated", "p_table": tbl, "p_column": col, "p_privilege": "SELECT"}
+            ).execute().data
+            if auth_exposed:
+                print(f"  [!] {tbl}.{col:<18} EXPOSED to 'authenticated' role!")
+            else:
+                print(f"  [OK] {tbl}.{col:<18} Protected against 'authenticated' role")
+        except Exception as e:
+            print(f"  [ERROR] Checking {tbl}.{col}: {e}")
+
+
+print("\n--- 3d. Real Data Support Columns Verification (properties & clients) ---")
+real_data_cols = [
+    ("properties", "data_source"),
+    ("properties", "sku_code"),
+    ("properties", "manufacturer"),
+    ("properties", "specs"),
+    ("clients", "data_source"),
+    ("clients", "website"),
+    ("clients", "source_url"),
+    ("clients", "phone"),
+]
+
+for tbl, col in real_data_cols:
+    if service_client:
+        try:
+            service_client.table(tbl).select(f"id, {col}").limit(1).execute()
+            print(f"  [EXISTS] {tbl}.{col:<18} Column present in schema (service_role accessible)")
+        except Exception as e:
+            print(f"  [MISSING] {tbl}.{col:<18} Column NOT found: {str(e)[:50]}")
+    try:
+        anon_client.table(tbl).select(f"id, {col}").limit(1).execute()
+        print(f"  [OK]     {tbl}.{col:<18} Accessible to 'anon' role (as expected for rep console)")
+    except Exception as e:
+        print(f"  [WARN]   {tbl}.{col:<18} Not accessible to anon: {str(e)[:50]}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. Exact Dashboard Queries via Anon Key (from lib/fetch-pipeline-data.ts)
 # ─────────────────────────────────────────────────────────────────────────────
+
 print("\n--- 4. Dashboard Queries (lib/fetch-pipeline-data.ts via Anon Key) ---")
 
 CLIENT_RICH_COLS = "id, name, stated_budget, preferred_neighborhood, past_viewings, financing_status, move_in_timeline, property_type_preference, secondary_neighborhood, agent_notes, assigned_agent_id, relationship_stage, agents(id, name, initials)"

@@ -1,15 +1,12 @@
-"use client"
-
-import { useState } from "react"
-import { LoginScreen } from "@/components/pipeline/login-screen"
+/**
+ * app/page.tsx
+ * The root page now delegates authentication entirely to proxy.ts (middleware).
+ * - If no agent_session cookie is present, proxy.ts redirects to /login.
+ * - If authenticated, render the pipeline dashboard directly.
+ * No in-memory login state or LoginScreen here.
+ */
 import { PipelineDashboard } from "@/components/pipeline/pipeline-dashboard"
 
 export default function Home() {
-  const [authenticated, setAuthenticated] = useState(false)
-
-  if (!authenticated) {
-    return <LoginScreen onSignIn={() => setAuthenticated(true)} />
-  }
-
-  return <PipelineDashboard onLogout={() => setAuthenticated(false)} />
+  return <PipelineDashboard />
 }

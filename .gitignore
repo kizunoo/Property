@@ -35,3 +35,4 @@ scripts/active-tunnel.txt
 scripts/scenario_results.json
 supabase/.temp/
 scratch/
+data/real/
