@@ -6,11 +6,14 @@
 
 import type {
   DashboardData,
-  ViewingsData,
+  DemosData,
+  Demo,
   ActivityData,
   InquiriesData,
-  ClientProfile,
+  InquiryMessage,
   CatalogData,
+  Quote,
+  QuotesData,
   PreferencesPayload,
   PreferencesData,
 } from "@/lib/portal-types"
@@ -36,25 +39,62 @@ async function apiFetch<T>(url: string, opts?: RequestInit): Promise<T> {
   return data as T
 }
 
-// ─── GET endpoints ───────────────────────────────────────────────────────────
+// ─── Dashboard ───────────────────────────────────────────────────────────────
 
 export async function fetchDashboard(clientId: string): Promise<DashboardData> {
   return apiFetch<DashboardData>(`/api/portal/${clientId}/dashboard`)
 }
 
-export async function fetchMyViewings(clientId: string): Promise<ViewingsData> {
-  return apiFetch<ViewingsData>(`/api/portal/${clientId}/my_viewings`)
+// ─── Demos ───────────────────────────────────────────────────────────────────
+
+export async function fetchMyDemos(clientId: string): Promise<DemosData> {
+  return apiFetch<DemosData>(`/api/portal/${clientId}/demos`)
 }
 
-export async function fetchActivity(clientId: string): Promise<ActivityData> {
-  return apiFetch<ActivityData>(`/api/portal/${clientId}/activity`)
+export async function confirmDemo(
+  clientId: string,
+  demoId: string,
+): Promise<{ success: boolean; demo_id: string; status: string; ics_url?: string | null }> {
+  return apiFetch<{ success: boolean; demo_id: string; status: string; ics_url?: string | null }>(
+    `/api/portal/${clientId}/demos/${demoId}/confirm`,
+    { method: "POST" }
+  )
 }
 
-export async function fetchInquiries(clientId: string): Promise<InquiriesData> {
-  return apiFetch<InquiriesData>(`/api/portal/${clientId}/inquiries`)
+export async function cancelDemo(
+  clientId: string,
+  demoId: string,
+  reason?: string,
+): Promise<{ success: boolean; demo_id: string; status: string }> {
+  return apiFetch<{ success: boolean; demo_id: string; status: string }>(
+    `/api/portal/${clientId}/demos/${demoId}/cancel`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    }
+  )
 }
 
-// ─── POST endpoints ───────────────────────────────────────────────────────────
+export interface RescheduleDemoPayload {
+  preferred_date?: string | null
+  notes?: string | null
+}
+
+export async function rescheduleDemo(
+  clientId: string,
+  demoId: string,
+  payload: RescheduleDemoPayload,
+): Promise<{ success: boolean; old_demo_id: string; new_demo?: any; status: string; message: string }> {
+  return apiFetch<{ success: boolean; old_demo_id: string; new_demo?: any; status: string; message: string }>(
+    `/api/portal/${clientId}/demos/${demoId}/reschedule`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  )
+}
 
 export interface RequestDemoPayload {
   property_id: string
@@ -80,15 +120,102 @@ export async function requestDemo(
   })
 }
 
+// ─── Activity ────────────────────────────────────────────────────────────────
+
+export async function fetchActivity(clientId: string): Promise<ActivityData> {
+  return apiFetch<ActivityData>(`/api/portal/${clientId}/activity`)
+}
+
+// ─── Catalog & Feedback ──────────────────────────────────────────────────────
+
+export interface CatalogFilters {
+  category?: string
+  property_type?: string
+  min_price?: number | string
+  max_price?: number | string
+  max_lead_time_weeks?: number | string
+  min_payload_kg?: number | string
+  environment?: string
+  search?: string
+  sort?: string
+}
+
+export async function fetchCatalog(clientId: string, filters?: CatalogFilters): Promise<CatalogData> {
+  const params = new URLSearchParams()
+  if (filters) {
+    Object.entries(filters).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") {
+        params.set(k, String(v))
+      }
+    })
+  }
+  const qs = params.toString() ? `?${params.toString()}` : ""
+  return apiFetch<CatalogData>(`/api/portal/${clientId}/catalog${qs}`)
+}
+
+export async function saveUnitFeedback(
+  clientId: string,
+  propertyId: string,
+  feedback: { interest?: "interested" | "not_interested" | null; reason?: string | null; is_saved?: boolean }
+): Promise<{ property_id: string; interest: "interested" | "not_interested" | null; reason?: string | null; is_saved: boolean }> {
+  return apiFetch(`/api/portal/${clientId}/catalog/${propertyId}/feedback`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(feedback),
+  })
+}
+
+// ─── Quotes ──────────────────────────────────────────────────────────────────
+
+export async function fetchQuotes(clientId: string): Promise<QuotesData> {
+  return apiFetch<QuotesData>(`/api/portal/${clientId}/quotes`)
+}
+
+export async function requestQuote(
+  clientId: string,
+  payload: { property_id: string; quantity: number; notes?: string }
+): Promise<Quote> {
+  return apiFetch<Quote>(`/api/portal/${clientId}/quotes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function respondQuote(
+  clientId: string,
+  quoteId: string,
+  payload:
+    | { status?: "accepted" | "declined"; response?: "accepted" | "declined"; note?: string }
+    | ("accepted" | "declined"),
+  optionalNote?: string
+): Promise<Quote> {
+  const body =
+    typeof payload === "string"
+      ? { response: payload, note: optionalNote }
+      : { response: payload.response ?? payload.status, note: payload.note ?? optionalNote }
+  return apiFetch<Quote>(`/api/portal/${clientId}/quotes/${quoteId}/respond`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+}
+
+// ─── Inquiries & Messages ────────────────────────────────────────────────────
+
+export async function fetchInquiries(clientId: string): Promise<InquiriesData> {
+  return apiFetch<InquiriesData>(`/api/portal/${clientId}/inquiries`)
+}
+
 export interface SubmitInquiryPayload {
-  property_id: string
+  property_id?: string | null
   message: string
 }
 
 export interface SubmitInquiryResult {
   id: string
   client_id: string
-  property_id: string
+  property_id?: string | null
   message: string
   status: string
 }
@@ -104,29 +231,28 @@ export async function submitInquiry(
   })
 }
 
-// ─── Profile (from dashboard data — no separate endpoint needed) ──────────────
-
-export function extractProfile(data: DashboardData): ClientProfile {
-  return {
-    client_id: data.client_id,
-    client_name: data.client_name,
-    stated_budget: null,          // not returned by dashboard endpoint; show as unknown
-    preferred_neighborhood: null,
-    relationship_stage: data.relationship_stage ?? null,
-  }
+export async function postInquiryMessage(
+  clientId: string,
+  inquiryId: string,
+  body: string
+): Promise<InquiryMessage> {
+  return apiFetch<InquiryMessage>(`/api/portal/${clientId}/inquiries/${inquiryId}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  })
 }
 
-// ─── Re-export error class ───────────────────────────────────────────────────
-
-export { PortalApiError }
-
-// ─── Catalog ──────────────────────────────────────────────────────────────────
-
-export async function fetchCatalog(clientId: string): Promise<CatalogData> {
-  return apiFetch<CatalogData>(`/api/portal/${clientId}/catalog`)
+export async function markInquiryRead(
+  clientId: string,
+  inquiryId: string
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/api/portal/${clientId}/inquiries/${inquiryId}/read`, {
+    method: "POST",
+  })
 }
 
-// ─── Preferences ──────────────────────────────────────────────────────────────
+// ─── Preferences & Profile ───────────────────────────────────────────────────
 
 export async function fetchPreferences(clientId: string): Promise<PreferencesData> {
   return apiFetch<PreferencesData>(`/api/portal/${clientId}/preferences`)
@@ -164,3 +290,4 @@ export async function logoutPortal(): Promise<void> {
   await fetch("/api/portal/auth/logout", { method: "POST" })
 }
 
+export { PortalApiError }

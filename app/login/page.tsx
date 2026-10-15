@@ -1,13 +1,28 @@
 "use client"
 
-import { useState, type FormEvent } from "react"
+import { useState, Suspense, type FormEvent } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Bot, KeyRound, Lock, Mail, ShieldAlert, AlertCircle, Loader2 } from "lucide-react"
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <main className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="flex items-center gap-2 text-muted-foreground text-sm">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading login...
+        </div>
+      </main>
+    }>
+      <LoginForm />
+    </Suspense>
+  )
+}
+
+function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const returnUrl = searchParams.get("returnUrl") || "/"
+  const isSessionExpired = searchParams.get("session_expired") === "true"
 
   const [mode, setMode] = useState<"login" | "enroll">("login")
   const [email, setEmail] = useState("")
@@ -116,6 +131,13 @@ export default function LoginPage() {
               </button>
             </div>
           </div>
+
+          {isSessionExpired && !error && (
+            <div className="mb-4 flex items-start gap-2.5 rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 font-medium">
+              <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+              <span>Your session has expired. Please log in again to continue.</span>
+            </div>
+          )}
 
           {error && (
             <div className="mb-4 flex items-start gap-2.5 rounded border border-rose-300 bg-rose-50 p-3 text-xs text-rose-800">

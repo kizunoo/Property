@@ -2,11 +2,11 @@
 
 import { useState, useMemo, useEffect } from "react"
 import {
-  ArrowRight, Bot, ChevronRight, Clock, GitCompare, HelpCircle,
-  MapPin, MessageSquare, RotateCcw, Sparkles, TrendingUp, X, XCircle, Zap,
+  ArrowRight, Bookmark, BookmarkCheck, Bot, ChevronRight, Clock, GitCompare, HelpCircle,
+  MapPin, MessageSquare, RotateCcw, Sparkles, ThumbsDown, ThumbsUp, TrendingUp, X, XCircle, Zap,
 } from "lucide-react"
-import type { DashboardData, MatchUnit, PortalTab } from "@/lib/portal-types"
-import { requestDemo, submitInquiry } from "@/lib/portal-api"
+import type { DashboardData, MatchUnit, PortalTab, UnitFeedback } from "@/lib/portal-types"
+import { requestDemo, submitInquiry, saveUnitFeedback } from "@/lib/portal-api"
 import { useToast } from "@/hooks/use-toast"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -180,6 +180,9 @@ function ComparePanel({
     { label: "Unit cost",         getValue: u => formatCost(u.cost) },
     { label: "Environment",       getValue: u => u.environment ?? "—" },
     { label: "Category",          getValue: u => u.property_type ?? "—" },
+    { label: "Payload tier",      getValue: u => u.payload_tier != null ? `${u.payload_tier}/5` : "—" },
+    { label: "Nav sensors",       getValue: u => u.nav_sensors != null ? String(u.nav_sensors) : "—" },
+    { label: "Shift coverage",    getValue: u => u.operational_range_sqft != null ? `${u.operational_range_sqft.toLocaleString()} sqft` : "—" },
     { label: "Est. annual savings", getValue: u => u.estimated_annual_savings ? formatCost(u.estimated_annual_savings) + "/yr" : "—" },
     { label: "Payback period",    getValue: u => u.payback_months ? `~${u.payback_months} months` : "—" },
   ]
@@ -245,13 +248,14 @@ function ComparePanel({
 
 function MatchCard({
   unit, index, isRequested, isInquired, isCompared,
-  onRequestDemo, onAskQuestion, onToggleCompare,
+  onRequestDemo, onAskQuestion, onToggleCompare, onFeedback,
 }: {
   unit: MatchUnit; index: number
   isRequested: boolean; isInquired: boolean; isCompared: boolean
   onRequestDemo: (u: MatchUnit) => void
   onAskQuestion: (u: MatchUnit) => void
   onToggleCompare: (u: MatchUnit) => void
+  onFeedback: (u: MatchUnit, update: Partial<UnitFeedback>) => void
 }) {
   const rankLabels = ["Top match", "2nd match", "3rd match", "4th match", "5th match"]
 
@@ -293,6 +297,68 @@ function MatchCard({
               </span>
             )}
           </div>
+        </div>
+
+        {/* Specs */}
+        <div className="flex flex-wrap gap-1.5">
+          {unit.payload_tier != null && (
+            <span className="inline-flex items-center gap-1 border border-border bg-secondary px-2 py-0.5 text-[10px] font-bold">
+              <span className="text-muted-foreground">Payload</span>
+              <span>{unit.payload_tier}/5</span>
+            </span>
+          )}
+          {unit.nav_sensors != null && (
+            <span className="inline-flex items-center gap-1 border border-border bg-secondary px-2 py-0.5 text-[10px] font-bold">
+              <span className="text-muted-foreground">Sensors</span>
+              <span>{unit.nav_sensors}</span>
+            </span>
+          )}
+          {unit.operational_range_sqft != null && (
+            <span className="inline-flex items-center gap-1 border border-border bg-secondary px-2 py-0.5 text-[10px] font-bold">
+              <span className="text-muted-foreground">Coverage</span>
+              <span>{unit.operational_range_sqft.toLocaleString()} sqft</span>
+            </span>
+          )}
+        </div>
+
+        {/* Feedback Bar */}
+        <div className="flex items-center gap-1.5 pt-1">
+          <button
+            type="button"
+            onClick={() => onFeedback(unit, { interest: unit.my_feedback?.interest === "interested" ? null : "interested" })}
+            className={`flex items-center gap-1 border px-2 py-1 text-[10px] font-black uppercase tracking-wider transition-colors ${
+              unit.my_feedback?.interest === "interested"
+                ? "border-emerald-600 bg-emerald-50 text-emerald-700"
+                : "border-border bg-card text-muted-foreground hover:bg-secondary"
+            }`}
+          >
+            <ThumbsUp className="h-3 w-3" />
+            {unit.my_feedback?.interest === "interested" ? "Interested" : "Interest"}
+          </button>
+          <button
+            type="button"
+            onClick={() => onFeedback(unit, { interest: unit.my_feedback?.interest === "not_interested" ? null : "not_interested" })}
+            className={`flex items-center gap-1 border px-2 py-1 text-[10px] font-black uppercase tracking-wider transition-colors ${
+              unit.my_feedback?.interest === "not_interested"
+                ? "border-rose-600 bg-rose-50 text-rose-700"
+                : "border-border bg-card text-muted-foreground hover:bg-secondary"
+            }`}
+          >
+            <ThumbsDown className="h-3 w-3" />
+            {unit.my_feedback?.interest === "not_interested" ? "Passed" : "Pass"}
+          </button>
+          <button
+            type="button"
+            onClick={() => onFeedback(unit, { is_saved: !unit.my_feedback?.is_saved })}
+            className={`ml-auto flex items-center gap-1 border px-2 py-1 text-[10px] font-black uppercase tracking-wider transition-colors ${
+              unit.my_feedback?.is_saved
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-card text-muted-foreground hover:bg-secondary"
+            }`}
+          >
+            {unit.my_feedback?.is_saved ? <BookmarkCheck className="h-3 w-3" /> : <Bookmark className="h-3 w-3" />}
+            {unit.my_feedback?.is_saved ? "Saved" : "Save"}
+          </button>
         </div>
 
         {/* ROI strip */}
@@ -378,6 +444,22 @@ export function MatchesTab({
   const [showCompare,   setShowCompare]   = useState(false)
   const [sortKey,       setSortKey]       = useState<SortKey>("default")
   const [filterEnv,     setFilterEnv]     = useState<string>("all")
+  const [localFeedback, setLocalFeedback] = useState<Record<string, UnitFeedback>>({})
+
+  async function handleFeedback(unit: MatchUnit, update: Partial<UnitFeedback>) {
+    const prev = localFeedback[unit.property_id] ?? unit.my_feedback
+    const updated: UnitFeedback = {
+      interest: update.interest !== undefined ? update.interest : prev?.interest ?? null,
+      reason: update.reason !== undefined ? update.reason : prev?.reason ?? null,
+      is_saved: update.is_saved !== undefined ? update.is_saved : prev?.is_saved ?? false,
+    }
+    setLocalFeedback(p => ({ ...p, [unit.property_id]: updated }))
+    try {
+      await saveUnitFeedback(clientId, unit.property_id, updated)
+    } catch {
+      setLocalFeedback(p => ({ ...p, [unit.property_id]: prev as UnitFeedback }))
+    }
+  }
 
   const units = data?.matches ?? []
 
@@ -386,11 +468,11 @@ export function MatchesTab({
     if (!data) return
     setRequestedIds(new Set(
       data.scheduled_demos
-        .filter(d => d.status === "requested")
-        .map(d => d.property_name ?? "")
+        .filter(d => d.status === "requested" || d.status === "upcoming" || d.status === "offered")
+        .map(d => d.property_id || (units.find(u => u.name === d.property_name)?.property_id ?? ""))
         .filter(Boolean)
     ))
-  }, [data])
+  }, [data, units])
 
   // Unique environments for filter
   const environments = useMemo(() => {
@@ -568,7 +650,10 @@ export function MatchesTab({
           {displayed.map((unit, i) => (
             <MatchCard
               key={unit.property_id}
-              unit={unit}
+              unit={{
+                ...unit,
+                my_feedback: localFeedback[unit.property_id] !== undefined ? localFeedback[unit.property_id] : unit.my_feedback,
+              }}
               index={units.indexOf(unit)} // original rank index
               isRequested={requestedIds.has(unit.property_id)}
               isInquired={inquiredIds.has(unit.property_id)}
@@ -576,6 +661,7 @@ export function MatchesTab({
               onRequestDemo={setActiveModal}
               onAskQuestion={setInquiryModal}
               onToggleCompare={handleToggleCompare}
+              onFeedback={handleFeedback}
             />
           ))}
         </div>

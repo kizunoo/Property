@@ -13,10 +13,11 @@ const PORTAL_TABS: Array<{ key: PortalTab; label: string }> = [
   { key: "overview",  label: "Overview"  },
   { key: "matches",   label: "Matches"   },
   { key: "catalog",   label: "Catalog"   },
-  { key: "viewings",  label: "Viewings"  },
+  { key: "demos",     label: "Demos"     },
+  { key: "quotes",    label: "Quotes"    },
   { key: "activity",  label: "Activity"  },
   { key: "messages",  label: "Messages"  },
-  { key: "profile",   label: "Preferences" },
+  { key: "profile",   label: "Company profile" },
 ]
 
 // ─── Portal Tab Nav ───────────────────────────────────────────────────────────
@@ -208,7 +209,7 @@ export function PortalShell({
         {sessionInfo?.is_legacy && (
           <div className="border-t border-amber-300 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-900 flex items-center justify-between">
             <span>
-              ⚠️ Viewing via legacy company code. Read-only mode: pricing and team management are disabled. Ask your administrator for a personal login code.
+              ⚠️ Browsing via legacy company code. Read-only mode: pricing and team management are disabled. Ask your administrator for a personal login code.
             </span>
           </div>
         )}

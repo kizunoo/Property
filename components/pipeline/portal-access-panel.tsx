@@ -13,6 +13,8 @@ import {
   Loader2,
   Copy,
   Check,
+  FileText,
+  Send,
 } from "lucide-react"
 
 interface Contact {
@@ -42,7 +44,8 @@ interface AuditEntry {
   portal_contacts?: { name?: string; email?: string } | null
 }
 
-const FASTAPI_URL = process.env.NEXT_PUBLIC_FASTAPI_URL ?? "http://127.0.0.1:8000"
+// Rep console calls route via Next.js BFF (/api/console/...) with agent auth headers
+const FASTAPI_URL = ""
 
 export function PortalAccessPanel({ clientId, clientName }: { clientId: string; clientName: string }) {
   const [contacts, setContacts] = useState<Contact[]>([])
@@ -64,13 +67,21 @@ export function PortalAccessPanel({ clientId, clientName }: { clientId: string; 
   const [newRole, setNewRole] = useState<"admin" | "evaluator" | "finance_viewer">("evaluator")
   const [newIsPrimary, setNewIsPrimary] = useState(false)
 
+  // Quotes state
+  const [quotes, setQuotes] = useState<any[]>([])
+  const [quoteToSend, setQuoteToSend] = useState<any | null>(null)
+  const [sendAmount, setSendAmount] = useState("")
+  const [sendCustomerNote, setSendCustomerNote] = useState("")
+  const [sendRepNotes, setSendRepNotes] = useState("")
+
   const loadData = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [cRes, aRes] = await Promise.all([
+      const [cRes, aRes, qRes] = await Promise.all([
         fetch(`${FASTAPI_URL}/api/console/clients/${clientId}/portal/contacts`),
         fetch(`${FASTAPI_URL}/api/console/clients/${clientId}/portal/audit-log`),
+        fetch(`${FASTAPI_URL}/api/console/clients/${clientId}/quotes`),
       ])
       if (cRes.ok) {
         const cData = await cRes.json()
@@ -79,6 +90,10 @@ export function PortalAccessPanel({ clientId, clientName }: { clientId: string; 
       if (aRes.ok) {
         const aData = await aRes.json()
         setAuditLog(aData.audit_log || [])
+      }
+      if (qRes.ok) {
+        const qData = await qRes.json()
+        setQuotes(qData.quotes || [])
       }
     } catch (err) {
       setError("Failed to load portal access configuration.")
@@ -498,6 +513,121 @@ export function PortalAccessPanel({ clientId, clientName }: { clientId: string; 
           ))}
         </div>
       )}
+
+      {/* Quote Requests Section */}
+      <div className="rounded-[8px] border border-border bg-card p-3.5 flex flex-col gap-3">
+        <div className="flex items-center justify-between border-b border-border pb-2">
+          <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            <FileText className="h-3.5 w-3.5" /> Client Quotations ({quotes.length})
+          </span>
+          {quotes.filter((q) => q.status === "requested").length > 0 && (
+            <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded">
+              {quotes.filter((q) => q.status === "requested").length} awaiting pricing
+            </span>
+          )}
+        </div>
+
+        {quotes.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground">No quotation requests from this client.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {quotes.map((q) => (
+              <div key={q.id} className="border border-border/80 bg-muted/20 p-2.5 rounded flex flex-col gap-1.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold">{q.property_name || "Robot unit"} (Qty: {q.quantity})</span>
+                  <span className="text-[10px] uppercase font-black px-1.5 py-0.5 rounded border border-border">
+                    {q.status}
+                  </span>
+                </div>
+                {q.notes && <p className="text-[11px] text-muted-foreground">Client note: {q.notes}</p>}
+                {q.quoted_amount != null && (
+                  <p className="text-[11px] font-bold text-foreground">Quoted: {q.currency || "MYR"} {q.quoted_amount.toLocaleString()}</p>
+                )}
+
+                {q.status === "requested" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuoteToSend(q)
+                      setSendAmount("")
+                      setSendCustomerNote("")
+                      setSendRepNotes("")
+                    }}
+                    className="self-start mt-1 flex items-center gap-1 rounded border border-border bg-black text-white px-2.5 py-1 text-[10px] font-black uppercase tracking-wider"
+                  >
+                    <Send className="h-2.5 w-2.5 text-primary" /> Issue Formal Pricing
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Modal / form to send quote */}
+        {quoteToSend && (
+          <div className="border-t border-border pt-3 flex flex-col gap-2">
+            <span className="font-bold text-xs">Issue Quote for {quoteToSend.property_name} (Qty: {quoteToSend.quantity})</span>
+            <input
+              type="number"
+              placeholder="Total quoted amount (RM)"
+              value={sendAmount}
+              onChange={(e) => setSendAmount(e.target.value)}
+              className="border border-border p-1.5 text-xs bg-white rounded"
+            />
+            <input
+              type="text"
+              placeholder="Client-visible terms / scope note"
+              value={sendCustomerNote}
+              onChange={(e) => setSendCustomerNote(e.target.value)}
+              className="border border-border p-1.5 text-xs bg-white rounded"
+            />
+            <input
+              type="text"
+              placeholder="Internal sales notes (never shown to client)"
+              value={sendRepNotes}
+              onChange={(e) => setSendRepNotes(e.target.value)}
+              className="border border-border p-1.5 text-xs bg-white rounded"
+            />
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setQuoteToSend(null)}
+                className="rounded border border-border px-2 py-1 text-[10px] font-bold text-muted-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={actionLoading || !sendAmount}
+                onClick={async () => {
+                  setActionLoading(true)
+                  try {
+                    const res = await fetch(`${FASTAPI_URL}/api/console/clients/${clientId}/quotes/${quoteToSend.id}/send`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        quoted_amount: parseFloat(sendAmount),
+                        customer_note: sendCustomerNote.trim() || null,
+                        rep_notes: sendRepNotes.trim() || null,
+                        valid_until: new Date(Date.now() + 30 * 86400000).toISOString(),
+                      }),
+                    })
+                    if (res.ok) {
+                      setQuoteToSend(null)
+                      loadData()
+                    }
+                  } finally {
+                    setActionLoading(false)
+                  }
+                }}
+                className="rounded border border-black bg-black text-white px-3 py-1 text-[10px] font-black uppercase"
+              >
+                Send Quote
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Security Actions Toolbar */}
       <div className="flex flex-wrap items-center gap-2 pt-2 text-[10px]">

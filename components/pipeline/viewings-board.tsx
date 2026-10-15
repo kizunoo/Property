@@ -246,7 +246,11 @@ function ViewingCard({
       {/* Cancellation Tag (Cancelled column only) */}
       {viewing.status === "cancelled" && (
         <div className="border-t border-border bg-muted/20 px-4 py-2.5">
-          {viewing.confirmation_status === "cancelled_by_client" || viewing.cancellation_reason?.toLowerCase().includes("client") ? (
+          {viewing.confirmation_status === "rescheduled" ? (
+            <span className="inline-block rounded-[var(--radius-sm)] border border-amber-300 bg-amber-50 px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-400">
+              Rescheduled by client
+            </span>
+          ) : viewing.confirmation_status === "cancelled_by_client" || viewing.cancellation_reason?.toLowerCase().includes("client") ? (
             <span className="inline-block rounded-[var(--radius-sm)] border border-rose-300 bg-rose-50 px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-400">
               Cancelled by client
             </span>

@@ -26,9 +26,9 @@ const _spaceMono = Space_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'PIPELINE // Client Priority Console',
+  title: 'PIPELINE.EV // Industrial Robotics Sales Console',
   description:
-    'Internal B2B console for real estate agents to prioritize clients by Expected Value — buy probability x target property value.',
+    'B2B sales and buyer console for industrial robotics teams to prioritize accounts, evaluate robot models, and schedule hardware demos.',
   generator: 'v0.app',
 }
 

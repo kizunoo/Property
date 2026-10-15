@@ -60,14 +60,15 @@ export default function PortalLoginPage() {
         const res = await fetch("/api/portal/auth/legacy-login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ access_code: trimmedCode }),
+          body: JSON.stringify({ code: trimmedCode, access_code: trimmedCode }),
         })
         const data = await res.json()
         if (!res.ok) {
           setError(data.error ?? "Invalid access code or legacy logins disabled.")
           return
         }
-        router.push(`/portal/${data.company.id}`)
+        const targetId = data.client_id || data.company?.id
+        router.push(`/portal/${targetId}`)
       } catch {
         setError("Connection error. Please try again.")
       } finally {
@@ -96,7 +97,8 @@ export default function PortalLoginPage() {
         setError(data.error ?? "Invalid login code. Please verify and try again.")
         return
       }
-      router.push(`/portal/${data.company.id}`)
+      const targetId = data.client_id || data.company?.id
+      router.push(`/portal/${targetId}`)
     } catch {
       setError("Connection error. Please try again.")
     } finally {

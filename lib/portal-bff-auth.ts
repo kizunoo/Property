@@ -48,6 +48,8 @@ export function buildPortalUpstreamHeaders(req: NextRequest): Record<string, str
   const bffSecret = process.env.BFF_INTERNAL_SECRET
   if (bffSecret) {
     headers["X-BFF-Internal-Secret"] = bffSecret
+  } else {
+    console.warn("[BFF WARN] BFF_INTERNAL_SECRET is missing from environment. FastAPI will not trust forwarded client IPs.")
   }
 
   return headers

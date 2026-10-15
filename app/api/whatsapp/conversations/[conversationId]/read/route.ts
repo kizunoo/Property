@@ -5,7 +5,7 @@ export const maxDuration = 15
 const FASTAPI_URL = process.env.FASTAPI_URL ?? process.env.BACKEND_URL ?? "http://localhost:8000"
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ conversationId: string }> }
 ) {
   try {

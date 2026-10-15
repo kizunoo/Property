@@ -158,6 +158,73 @@ export function OverviewTab({ clientId, data, onNavigate }: OverviewTabProps) {
         </section>
       )}
 
+      {/* ── Needs your attention ────────────────────────────────────────────── */}
+      {((data.pending_demo_confirmations ?? 0) > 0 ||
+        (data.quotes_awaiting ?? 0) > 0 ||
+        (data.unread_messages ?? 0) > 0) && (
+        <section aria-label="Action items requiring attention" className="border-2 border-primary bg-primary/10 p-5 shadow-[var(--shadow-sm)]">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="flex h-2.5 w-2.5 rounded-full bg-primary animate-pulse" />
+            <h2 className="text-xs font-black uppercase tracking-wider text-foreground">
+              Needs your attention
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {(data.pending_demo_confirmations ?? 0) > 0 && (
+              <button
+                type="button"
+                onClick={() => onNavigate("demos")}
+                className="flex items-center justify-between border border-border bg-card p-3.5 hover:bg-muted text-left transition-colors"
+              >
+                <div>
+                  <p className="text-xs font-bold">Demo confirmations</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {data.pending_demo_confirmations} slot offer{data.pending_demo_confirmations === 1 ? "" : "s"} awaiting your confirmation
+                  </p>
+                </div>
+                <span className="ml-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-black">
+                  {data.pending_demo_confirmations}
+                </span>
+              </button>
+            )}
+            {(data.quotes_awaiting ?? 0) > 0 && (
+              <button
+                type="button"
+                onClick={() => onNavigate("quotes")}
+                className="flex items-center justify-between border border-border bg-card p-3.5 hover:bg-muted text-left transition-colors"
+              >
+                <div>
+                  <p className="text-xs font-bold">Quotes awaiting review</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {data.quotes_awaiting} quote{data.quotes_awaiting === 1 ? "" : "s"} ready for response
+                  </p>
+                </div>
+                <span className="ml-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-black">
+                  {data.quotes_awaiting}
+                </span>
+              </button>
+            )}
+            {(data.unread_messages ?? 0) > 0 && (
+              <button
+                type="button"
+                onClick={() => onNavigate("messages")}
+                className="flex items-center justify-between border border-border bg-card p-3.5 hover:bg-muted text-left transition-colors"
+              >
+                <div>
+                  <p className="text-xs font-bold">Unread messages</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {data.unread_messages} new message{data.unread_messages === 1 ? "" : "s"} from your rep
+                  </p>
+                </div>
+                <span className="ml-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-black">
+                  {data.unread_messages}
+                </span>
+              </button>
+            )}
+          </div>
+        </section>
+      )}
+
       {/* ── Stat cards ────────────────────────────────────────────────────── */}
       <section
         className="grid grid-cols-2 sm:grid-cols-4 gap-4"

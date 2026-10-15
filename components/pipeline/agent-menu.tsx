@@ -149,13 +149,26 @@ export function AgentSelector({
   onChange: (agentId: string | null) => void
 }) {
   const [agents, setAgents] = useState<Agent[]>([])
+  const [currentUser, setCurrentUser] = useState<{ id: string; name: string; role: string; is_admin: boolean } | null>(null)
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    fetch("/api/agents")
-      .then((r) => r.json())
-      .then((data) => { if (Array.isArray(data)) setAgents(data) })
+    // 1. Fetch current agent identity
+    fetch("/api/agent/me")
+      .then((r) => r.ok ? r.json() : null)
+      .then((me) => {
+        if (me) {
+          setCurrentUser(me)
+          // Only administrators may query the full agency directory
+          if (me.is_admin || me.role === "admin") {
+            fetch("/api/agents")
+              .then((r) => r.json())
+              .then((data) => { if (Array.isArray(data)) setAgents(data) })
+              .catch(() => {})
+          }
+        }
+      })
       .catch(() => {})
   }, [])
 
@@ -175,6 +188,26 @@ export function AgentSelector({
       document.removeEventListener("keydown", handleKeyDown)
     }
   }, [])
+
+  // For non-admin agents: show their own name and hide the selector
+  if (currentUser && !currentUser.is_admin) {
+    const initials = currentUser.name ? currentUser.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase() : "AG"
+    return (
+      <div className="flex items-center gap-3 border border-neutral-200 bg-white px-3 py-2 text-left shadow-[0px_2px_8px_rgba(0,0,0,0.08)] sm:px-4">
+        <div className="flex h-8 w-8 items-center justify-center border border-neutral-200 bg-primary text-xs font-black shrink-0">
+          {initials}
+        </div>
+        <div className="flex flex-col items-start min-w-0">
+          <span className="text-xs font-black uppercase tracking-wider sm:text-sm leading-tight truncate">
+            {currentUser.name}
+          </span>
+          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight">
+            Assigned Deals Only
+          </span>
+        </div>
+      </div>
+    )
+  }
 
   const current = selectedAgentId ? agents.find((a) => a.id === selectedAgentId) : null
   const displayLabel = current

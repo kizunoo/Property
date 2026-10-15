@@ -15,7 +15,8 @@ import { fetchDashboard, PortalApiError } from "@/lib/portal-api"
 import { OverviewTab }  from "@/components/portal/tabs/overview-tab"
 import { MatchesTab }   from "@/components/portal/tabs/matches-tab"
 import { CatalogTab }   from "@/components/portal/tabs/catalog-tab"
-import { ViewingsTab }  from "@/components/portal/tabs/viewings-tab"
+import { DemosTab }    from "@/components/portal/tabs/demos-tab"
+import { QuotesTab }   from "@/components/portal/tabs/quotes-tab"
 import { ActivityTab }  from "@/components/portal/tabs/activity-tab"
 import { MessagesTab }  from "@/components/portal/tabs/messages-tab"
 import { ProfileTab }   from "@/components/portal/tabs/profile-tab"
@@ -54,9 +55,10 @@ function usePortalAuth(clientId: string) {
 
 // ─── Tab routing ──────────────────────────────────────────────────────────────
 
-const VALID_TABS: PortalTab[] = ["overview", "matches", "catalog", "viewings", "activity", "messages", "profile"]
+const VALID_TABS: PortalTab[] = ["overview", "matches", "catalog", "demos", "quotes", "activity", "messages", "profile"]
 
 function resolveTab(raw: string | null): PortalTab {
+  if (raw === "viewings") return "demos"
   if (raw && VALID_TABS.includes(raw as PortalTab)) return raw as PortalTab
   return "overview"
 }
@@ -192,8 +194,11 @@ function PortalPageInner() {
           }}
         />
       )}
-      {activeTab === "viewings" && (
-        <ViewingsTab clientId={clientId} />
+      {activeTab === "demos" && (
+        <DemosTab clientId={clientId} />
+      )}
+      {activeTab === "quotes" && (
+        <QuotesTab clientId={clientId} />
       )}
       {activeTab === "activity" && (
         <ActivityTab clientId={clientId} />

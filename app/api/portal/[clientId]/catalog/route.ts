@@ -12,7 +12,8 @@ export async function GET(
 
   const { clientId } = await params
   try {
-    const upstream = await fetch(`${FASTAPI_URL}/api/portal/${clientId}/catalog`, {
+    const search = req.nextUrl.search ?? ""
+    const upstream = await fetch(`${FASTAPI_URL}/api/portal/${clientId}/catalog${search}`, {
       headers: buildPortalUpstreamHeaders(req),
     })
     const data = await upstream.json()

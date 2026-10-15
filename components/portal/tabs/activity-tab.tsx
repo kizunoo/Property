@@ -2,59 +2,95 @@
 
 import { useEffect, useState, useCallback } from "react"
 import {
-  CalendarCheck2, CheckCircle2, Clock, RefreshCw, XCircle,
+  CalendarCheck2,
+  CheckCircle2,
+  Clock,
+  FileText,
+  MessageSquare,
+  RefreshCw,
+  Settings2,
+  XCircle,
+  Zap,
 } from "lucide-react"
-import type { ActivityItem } from "@/lib/portal-types"
+import type { ActivityEventType, ActivityItem } from "@/lib/portal-types"
 import { fetchActivity } from "@/lib/portal-api"
 import { Skeleton } from "@/components/ui/skeleton"
 
-// ─── Status icon map ──────────────────────────────────────────────────────────
+// ─── Event Icons & Styling ───────────────────────────────────────────────────
 
-const STATUS_ICON: Record<string, React.ReactNode> = {
-  requested: <Clock       className="h-4 w-4 text-amber-600"      />,
-  upcoming:  <CalendarCheck2 className="h-4 w-4 text-black"       />,
-  completed: <CheckCircle2 className="h-4 w-4 text-muted-foreground" />,
-  cancelled: <XCircle     className="h-4 w-4 text-muted-foreground" />,
+const EVENT_CONFIG: Record<
+  ActivityEventType,
+  {
+    icon: React.ReactNode
+    badgeClass: string
+    dotClass: string
+    typeLabel: string
+  }
+> = {
+  demo: {
+    icon: <CalendarCheck2 className="h-4 w-4 text-primary" />,
+    badgeClass: "bg-primary/10 border-primary/30 text-primary-foreground",
+    dotClass: "bg-primary",
+    typeLabel: "Hardware Demo",
+  },
+  quote: {
+    icon: <FileText className="h-4 w-4 text-emerald-600" />,
+    badgeClass: "bg-emerald-50 border-emerald-200 text-emerald-700",
+    dotClass: "bg-emerald-500",
+    typeLabel: "Quotation",
+  },
+  message: {
+    icon: <MessageSquare className="h-4 w-4 text-sky-600" />,
+    badgeClass: "bg-sky-50 border-sky-200 text-sky-700",
+    dotClass: "bg-sky-500",
+    typeLabel: "Inquiry Message",
+  },
+  profile: {
+    icon: <Settings2 className="h-4 w-4 text-purple-600" />,
+    badgeClass: "bg-purple-50 border-purple-200 text-purple-700",
+    dotClass: "bg-purple-500",
+    typeLabel: "Profile Update",
+  },
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  requested: "Demo requested",
-  upcoming:  "Demo confirmed",
-  completed: "Demo completed",
-  cancelled: "Demo cancelled",
+function formatDate(iso: string | null): string {
+  if (!iso) return "Date TBC"
+  try {
+    return new Date(iso).toLocaleDateString("en-MY", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    })
+  } catch {
+    return iso
+  }
 }
 
-const STATUS_DOT: Record<string, string> = {
-  requested: "bg-amber-400",
-  upcoming:  "bg-primary",
-  completed: "bg-muted-foreground/40",
-  cancelled: "bg-muted-foreground/20",
-}
-
-function formatDate(s: string | null): string {
-  if (!s) return "Date TBC"
-  return new Date(s).toLocaleDateString("en-MY", {
-    weekday: "long", day: "numeric", month: "long", year: "numeric",
-  })
-}
-
-function formatTime(s: string | null): string {
-  if (!s) return ""
-  return new Date(s).toLocaleTimeString("en-MY", { hour: "2-digit", minute: "2-digit" })
+function formatTime(iso: string | null): string {
+  if (!iso) return ""
+  try {
+    return new Date(iso).toLocaleTimeString("en-MY", {
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  } catch {
+    return ""
+  }
 }
 
 // Group items by calendar day
 function groupByDay(items: ActivityItem[]): Map<string, ActivityItem[]> {
   const map = new Map<string, ActivityItem[]>()
   for (const item of items) {
-    const key = item.date ? new Date(item.date).toDateString() : "Date TBC"
+    const key = item.at ? formatDate(item.at) : "Date TBC"
     if (!map.has(key)) map.set(key, [])
     map.get(key)!.push(item)
   }
   return map
 }
 
-// ─── Activity Tab ─────────────────────────────────────────────────────────────
+// ─── Activity Tab Component ──────────────────────────────────────────────────
 
 export function ActivityTab({ clientId }: { clientId: string }) {
   const [items, setItems] = useState<ActivityItem[]>([])
@@ -62,10 +98,11 @@ export function ActivityTab({ clientId }: { clientId: string }) {
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true); setError(null)
+    setLoading(true)
+    setError(null)
     try {
       const d = await fetchActivity(clientId)
-      setItems(d.activity)
+      setItems(d.activity || [])
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load activity.")
     } finally {
@@ -73,7 +110,9 @@ export function ActivityTab({ clientId }: { clientId: string }) {
     }
   }, [clientId])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+  }, [load])
 
   if (loading) {
     return (
@@ -95,8 +134,10 @@ export function ActivityTab({ clientId }: { clientId: string }) {
         <div className="border border-border bg-card p-8 text-center shadow-[var(--shadow-sm)]">
           <XCircle className="mx-auto h-6 w-6 text-destructive mb-2" />
           <p className="text-sm font-semibold text-destructive mb-4">{error}</p>
-          <button onClick={load}
-            className="border border-border bg-black px-4 py-2 text-xs font-black uppercase tracking-wider text-white hover:shadow-[var(--shadow-sm)] transition-shadow">
+          <button
+            onClick={load}
+            className="border border-border bg-black px-4 py-2 text-xs font-black uppercase tracking-wider text-white hover:shadow-[var(--shadow-sm)] transition-shadow"
+          >
             Try again
           </button>
         </div>
@@ -108,8 +149,12 @@ export function ActivityTab({ clientId }: { clientId: string }) {
     return (
       <div className="mx-auto max-w-3xl px-4 sm:px-6 py-10">
         <div className="border border-border bg-card p-12 text-center shadow-[var(--shadow-sm)]">
-          <RefreshCw className="mx-auto h-6 w-6 text-muted-foreground opacity-40 mb-3" />
-          <p className="text-sm text-muted-foreground">No activity yet — your timeline will appear here once you start requesting demos.</p>
+          <RefreshCw className="mx-auto h-8 w-8 text-muted-foreground opacity-40 mb-3" />
+          <h3 className="font-bold text-base mb-1">No activity logged yet</h3>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            Your timeline records demonstration requests, quotations, inquiries, and specification
+            updates as your engagement progresses.
+          </p>
         </div>
       </div>
     )
@@ -119,17 +164,22 @@ export function ActivityTab({ clientId }: { clientId: string }) {
 
   return (
     <div className="mx-auto max-w-3xl px-4 sm:px-6 py-10 flex flex-col gap-8">
-      <h1 className="text-[10px] font-black uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-        <RefreshCw className="h-3.5 w-3.5" />
-        Activity timeline
-      </h1>
+      <div>
+        <h1 className="text-[10px] font-black uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+          <RefreshCw className="h-3.5 w-3.5" />
+          Activity timeline ({items.length} events)
+        </h1>
+        <p className="text-sm font-semibold mt-1">Audit log of your interactions and requests</p>
+      </div>
 
       {/* Timeline groups by day */}
       {[...grouped.entries()].map(([day, dayItems]) => (
         <section key={day} aria-label={`Activity on ${day}`}>
           {/* Day header */}
           <div className="flex items-center gap-3 mb-4">
-            <span className="text-xs font-black uppercase tracking-wider text-muted-foreground">{day}</span>
+            <span className="text-xs font-black uppercase tracking-wider text-muted-foreground">
+              {day}
+            </span>
             <div className="flex-1 h-px bg-border" />
           </div>
 
@@ -138,32 +188,38 @@ export function ActivityTab({ clientId }: { clientId: string }) {
             {/* Vertical line */}
             <div className="absolute left-4 top-2 bottom-2 w-px bg-border" aria-hidden="true" />
 
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-2">
               {dayItems.map((item, i) => {
-                const dot   = STATUS_DOT[item.status]   ?? "bg-border"
-                const icon  = STATUS_ICON[item.status]  ?? <Clock className="h-4 w-4 text-muted-foreground" />
-                const label = STATUS_LABEL[item.status] ?? item.status
+                const conf = EVENT_CONFIG[item.event_type] ?? EVENT_CONFIG.demo
 
                 return (
                   <div
-                    key={`${item.viewing_id}-${i}`}
-                    className="relative flex gap-4 items-start pl-10 pb-4 last:pb-0"
+                    key={`${item.ref_id}-${i}`}
+                    className="relative flex gap-4 items-start pl-10 pb-3 last:pb-0"
                   >
                     {/* Dot on the line */}
                     <span
-                      className={`absolute left-[11px] top-[7px] h-2.5 w-2.5 rounded-full border-2 border-background ${dot}`}
+                      className={`absolute left-[11px] top-[14px] h-2.5 w-2.5 rounded-full border-2 border-background ${conf.dotClass}`}
                       aria-hidden="true"
                     />
 
                     {/* Card */}
                     <div className="flex-1 border border-border bg-card shadow-[var(--shadow-xs)] p-4 flex items-start gap-3">
-                      <span className="shrink-0 mt-0.5">{icon}</span>
-                      <div className="flex flex-col gap-0.5 min-w-0">
-                        <p className="text-sm font-bold leading-snug truncate">{item.property_name}</p>
-                        <p className="text-xs text-muted-foreground font-medium">{label}</p>
-                        {item.date && (
-                          <p className="text-[11px] text-muted-foreground/70 mt-0.5">{formatTime(item.date)}</p>
-                        )}
+                      <span className="shrink-0 mt-0.5">{conf.icon}</span>
+                      <div className="flex flex-col gap-1 min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 text-[9px] font-black uppercase tracking-wider border ${conf.badgeClass}`}
+                          >
+                            {conf.typeLabel}
+                          </span>
+                          {item.at && (
+                            <span className="text-[11px] text-muted-foreground/70">
+                              {formatTime(item.at)}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm font-bold leading-snug">{item.label}</p>
                       </div>
                     </div>
                   </div>

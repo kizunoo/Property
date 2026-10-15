@@ -2,11 +2,30 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
-  ArrowRight, BookOpen, ChevronDown, Filter, HelpCircle,
-  LayoutGrid, List, RotateCcw, Search, Sparkles, X, XCircle, Zap,
+  ArrowRight,
+  Bookmark,
+  BookmarkCheck,
+  BookOpen,
+  CalendarPlus,
+  ChevronDown,
+  ExternalLink,
+  FileCheck,
+  Filter,
+  Heart,
+  HelpCircle,
+  LayoutGrid,
+  List,
+  RotateCcw,
+  Search,
+  Sparkles,
+  ThumbsDown,
+  ThumbsUp,
+  X,
+  XCircle,
+  Zap,
 } from "lucide-react"
-import type { CatalogUnit, DashboardData } from "@/lib/portal-types"
-import { fetchCatalog } from "@/lib/portal-api"
+import type { CatalogUnit, DashboardData, UnitFeedback } from "@/lib/portal-types"
+import { fetchCatalog, saveUnitFeedback, requestDemo } from "@/lib/portal-api"
 import { useToast } from "@/hooks/use-toast"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -46,6 +65,66 @@ function SpecPill({ label, value }: { label: string; value: string }) {
   )
 }
 
+// ─── Feedback buttons component ───────────────────────────────────────────────
+
+function UnitFeedbackBar({
+  feedback,
+  onFeedback,
+}: {
+  feedback?: UnitFeedback | null
+  onFeedback: (update: Partial<UnitFeedback>) => void
+}) {
+  const isInterested = feedback?.interest === "interested"
+  const isNotInterested = feedback?.interest === "not_interested"
+  const isSaved = Boolean(feedback?.is_saved)
+
+  return (
+    <div className="flex items-center gap-1.5 pt-1">
+      <button
+        type="button"
+        onClick={() => onFeedback({ interest: isInterested ? null : "interested" })}
+        className={`flex items-center gap-1 border px-2 py-1 text-[10px] font-black uppercase tracking-wider transition-colors ${
+          isInterested
+            ? "border-emerald-600 bg-emerald-50 text-emerald-700"
+            : "border-border bg-card text-muted-foreground hover:bg-secondary"
+        }`}
+        title="Mark as interested"
+      >
+        <ThumbsUp className="h-3 w-3" />
+        {isInterested ? "Interested" : "Interest"}
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onFeedback({ interest: isNotInterested ? null : "not_interested" })}
+        className={`flex items-center gap-1 border px-2 py-1 text-[10px] font-black uppercase tracking-wider transition-colors ${
+          isNotInterested
+            ? "border-rose-600 bg-rose-50 text-rose-700"
+            : "border-border bg-card text-muted-foreground hover:bg-secondary"
+        }`}
+        title="Mark as not interested"
+      >
+        <ThumbsDown className="h-3 w-3" />
+        {isNotInterested ? "Passed" : "Pass"}
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onFeedback({ is_saved: !isSaved })}
+        className={`ml-auto flex items-center gap-1 border px-2 py-1 text-[10px] font-black uppercase tracking-wider transition-colors ${
+          isSaved
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-border bg-card text-muted-foreground hover:bg-secondary"
+        }`}
+        title={isSaved ? "Saved to your list" : "Save for later"}
+      >
+        {isSaved ? <BookmarkCheck className="h-3 w-3" /> : <Bookmark className="h-3 w-3" />}
+        {isSaved ? "Saved" : "Save"}
+      </button>
+    </div>
+  )
+}
+
 // ─── Unit card (grid view) ────────────────────────────────────────────────────
 
 function UnitCard({
@@ -53,11 +132,13 @@ function UnitCard({
   onRequestDemo,
   onAskQuestion,
   onViewDetails,
+  onFeedback,
 }: {
   unit: CatalogUnit
   onRequestDemo: (u: CatalogUnit) => void
   onAskQuestion: (u: CatalogUnit) => void
   onViewDetails: (u: CatalogUnit) => void
+  onFeedback: (unit: CatalogUnit, update: Partial<UnitFeedback>) => void
 }) {
   return (
     <div
@@ -129,6 +210,12 @@ function UnitCard({
           )}
         </div>
 
+        {/* Feedback buttons */}
+        <UnitFeedbackBar
+          feedback={unit.my_feedback}
+          onFeedback={(update) => onFeedback(unit, update)}
+        />
+
         {/* Actions */}
         <div className="mt-auto pt-2 flex flex-col gap-1.5">
           <button
@@ -166,11 +253,13 @@ function UnitRow({
   onRequestDemo,
   onAskQuestion,
   onViewDetails,
+  onFeedback,
 }: {
   unit: CatalogUnit
   onRequestDemo: (u: CatalogUnit) => void
   onAskQuestion: (u: CatalogUnit) => void
   onViewDetails: (u: CatalogUnit) => void
+  onFeedback: (unit: CatalogUnit, update: Partial<UnitFeedback>) => void
 }) {
   return (
     <div
@@ -211,6 +300,11 @@ function UnitRow({
           {unit.estimated_annual_savings != null && <SpecPill label="Savings" value={formatSavings(unit.estimated_annual_savings)} />}
           {unit.operational_range_sqft != null && <SpecPill label="Coverage" value={`${unit.operational_range_sqft.toLocaleString()} sqft`} />}
         </div>
+
+        <UnitFeedbackBar
+          feedback={unit.my_feedback}
+          onFeedback={(update) => onFeedback(unit, update)}
+        />
       </div>
 
       {/* Actions */}
@@ -336,7 +430,26 @@ function DetailDrawer({
                 <span className="text-xs font-black">{unit.environment}</span>
               </div>
             )}
+            {unit.lead_time_weeks != null && (
+              <div className="flex justify-between px-4 py-3">
+                <span className="text-xs font-bold text-muted-foreground">Lead time</span>
+                <span className="text-xs font-black">{unit.lead_time_weeks} weeks</span>
+              </div>
+            )}
           </div>
+
+          {/* Spec Sheet Link */}
+          {unit.spec_sheet_url && (
+            <a
+              href={unit.spec_sheet_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-between border border-border bg-secondary px-4 py-3 text-xs font-black uppercase tracking-wider hover:bg-muted"
+            >
+              <span>Download Engineering Spec Sheet</span>
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          )}
 
           {/* Actions */}
           <div className="flex flex-col gap-2 pt-2">
@@ -356,6 +469,168 @@ function DetailDrawer({
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Reason Modal for Not Interested ──────────────────────────────────────────
+
+function ReasonModal({
+  unit,
+  onClose,
+  onSubmit,
+}: {
+  unit: CatalogUnit
+  onClose: () => void
+  onSubmit: (reason: string) => void
+}) {
+  const [reason, setReason] = useState("")
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+      <div className="w-full max-w-md border border-border bg-card p-6 shadow-[var(--shadow-xl)] flex flex-col gap-4">
+        <div className="flex items-start justify-between">
+          <h3 className="text-base font-bold">Feedback on {unit.name}</h3>
+          <button onClick={onClose} className="border border-border p-1 hover:bg-muted">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Let your representative know why this unit doesn&apos;t fit your requirements:
+        </p>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="e.g. Dimensions exceed doorway clearance, requires outdoor waterproofing..."
+          rows={3}
+          className="border border-border p-2.5 text-xs focus:outline-none focus-visible:border-primary"
+        />
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 border border-border bg-muted py-2 text-xs font-black uppercase tracking-wider"
+          >
+            Skip
+          </button>
+          <button
+            type="button"
+            onClick={() => onSubmit(reason.trim())}
+            className="flex-1 border border-border bg-black py-2 text-xs font-black uppercase tracking-wider text-white"
+          >
+            Save Feedback
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Direct Demo Request Modal ────────────────────────────────────────────────
+
+function DirectDemoModal({
+  unit,
+  clientId,
+  onClose,
+  onSuccess,
+}: {
+  unit: CatalogUnit
+  clientId: string
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const { toast } = useToast()
+  const [preferredDate, setPreferredDate] = useState("")
+  const [notes, setNotes] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSubmitting(true)
+    setError(null)
+    try {
+      const res = await requestDemo(clientId, {
+        property_id: unit.property_id,
+        preferred_date: preferredDate ? new Date(preferredDate).toISOString() : null,
+        notes: notes.trim() || null,
+      })
+      if (!res.success && res.existing_id) {
+        toast({ title: "Already requested", description: "A demo for this unit is already pending." })
+        onClose()
+        return
+      }
+      toast({
+        title: "Demo requested!",
+        description: `Your demonstration for ${unit.name} has been requested.`,
+      })
+      onSuccess()
+    } catch (err: any) {
+      setError(err?.message || "Failed to submit demo request.")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+      <div className="w-full max-w-lg border border-border bg-card shadow-[var(--shadow-xl)]">
+        <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-5">
+          <div>
+            <span className="inline-flex items-center gap-1.5 border border-border bg-primary px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider mb-2">
+              <CalendarPlus className="h-3 w-3" strokeWidth={3} /> Hardware Demo
+            </span>
+            <h2 className="text-lg font-bold tracking-tight">{unit.name}</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              A PIPELINE.EV engineer will coordinate bringing the unit on-site.
+            </p>
+          </div>
+          <button onClick={onClose} className="border border-border p-1.5 hover:bg-muted">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4 px-6 py-5">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-black uppercase tracking-wider">Preferred Date &amp; Time (optional)</span>
+            <input
+              type="datetime-local"
+              value={preferredDate}
+              onChange={(e) => setPreferredDate(e.target.value)}
+              className="border border-border p-2.5 text-xs focus:outline-none focus-visible:border-primary"
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-black uppercase tracking-wider">Site details / Scope</span>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="e.g. Loading dock inspection, battery endurance run..."
+              className="border border-border p-2.5 text-xs focus:outline-none focus-visible:border-primary"
+            />
+          </label>
+
+          {error && <p className="text-xs font-semibold text-destructive">{error}</p>}
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 border border-border bg-muted py-2.5 text-xs font-black uppercase tracking-wider"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex-1 border border-border bg-black py-2.5 text-xs font-black uppercase tracking-wider text-white"
+            >
+              {submitting ? "Submitting…" : "Confirm Request"}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   )
@@ -384,22 +659,63 @@ export function CatalogTab({
   const [showMatched, setShowMatched]   = useState(false)
   const [viewMode, setViewMode]         = useState<ViewMode>("grid")
   const [detailUnit, setDetailUnit]     = useState<CatalogUnit | null>(null)
-  const [requestUnit, setRequestUnit]   = useState<CatalogUnit | null>(null)
-  const [questionUnit, setQuestionUnit] = useState<CatalogUnit | null>(null)
+  const [reasonModalUnit, setReasonModalUnit] = useState<CatalogUnit | null>(null)
+  const [demoModalUnit, setDemoModalUnit] = useState<CatalogUnit | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const d = await fetchCatalog(clientId)
+      const d = await fetchCatalog(clientId, {
+        environment: filterEnv !== "all" ? filterEnv : undefined,
+        property_type: filterType !== "all" ? filterType : undefined,
+        sort: sortKey !== "default" ? sortKey : undefined,
+      })
       setUnits(d.units)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load catalog.")
     } finally {
       setLoading(false)
     }
-  }, [clientId])
+  }, [clientId, filterEnv, filterType, sortKey])
 
   useEffect(() => { load() }, [load])
+
+  // Feedback handler with optimistic update and rollback
+  async function handleFeedback(targetUnit: CatalogUnit, update: Partial<UnitFeedback>) {
+    const prevFeedback = targetUnit.my_feedback
+    const newFeedback: UnitFeedback = {
+      interest: update.interest !== undefined ? update.interest : prevFeedback?.interest ?? null,
+      reason: update.reason !== undefined ? update.reason : prevFeedback?.reason ?? null,
+      is_saved: update.is_saved !== undefined ? update.is_saved : prevFeedback?.is_saved ?? false,
+    }
+
+    // Optimistic UI update
+    setUnits((prev) =>
+      prev.map((u) => (u.property_id === targetUnit.property_id ? { ...u, my_feedback: newFeedback } : u))
+    )
+
+    if (update.interest === "not_interested" && !update.reason) {
+      setReasonModalUnit(targetUnit)
+    }
+
+    try {
+      await saveUnitFeedback(clientId, targetUnit.property_id, newFeedback)
+      toast({
+        title: "Preferences updated",
+        description: `Feedback recorded for ${targetUnit.name}.`,
+      })
+    } catch (err) {
+      // Rollback
+      setUnits((prev) =>
+        prev.map((u) => (u.property_id === targetUnit.property_id ? { ...u, my_feedback: prevFeedback } : u))
+      )
+      toast({
+        title: "Could not save feedback",
+        description: "Please check your connection and try again.",
+        variant: "destructive",
+      })
+    }
+  }
 
   // Derived filter options
   const environments = useMemo(() =>
@@ -410,24 +726,20 @@ export function CatalogTab({
     [...new Set(units.map(u => u.property_type).filter(Boolean) as string[])].sort(),
   [units])
 
-  // Filter + sort
+  // Client-side text filter on top of server data
   const displayed = useMemo(() => {
     let list = [...units]
-    if (showMatched)      list = list.filter(u => u.matched)
-    if (filterEnv !== "all") list = list.filter(u => u.environment === filterEnv)
-    if (filterType !== "all") list = list.filter(u => u.property_type === filterType)
-    if (search.trim())    list = list.filter(u =>
-      (u.name ?? "").toLowerCase().includes(search.toLowerCase()) ||
-      (u.property_type ?? "").toLowerCase().includes(search.toLowerCase()) ||
-      (u.environment ?? "").toLowerCase().includes(search.toLowerCase())
-    )
-    switch (sortKey) {
-      case "cost_asc":    list.sort((a, b) => (a.cost ?? Infinity) - (b.cost ?? Infinity)); break
-      case "cost_desc":   list.sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0)); break
-      case "payback_asc": list.sort((a, b) => (a.payback_months ?? 999) - (b.payback_months ?? 999)); break
+    if (showMatched) list = list.filter(u => u.matched)
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      list = list.filter(u =>
+        (u.name ?? "").toLowerCase().includes(q) ||
+        (u.property_type ?? "").toLowerCase().includes(q) ||
+        (u.environment ?? "").toLowerCase().includes(q)
+      )
     }
     return list
-  }, [units, search, sortKey, filterEnv, filterType, showMatched])
+  }, [units, search, showMatched])
 
   const matchedCount = useMemo(() => units.filter(u => u.matched).length, [units])
   const activeFilters = [
@@ -441,13 +753,8 @@ export function CatalogTab({
     setSearch(""); setFilterEnv("all"); setFilterType("all"); setShowMatched(false)
   }
 
-  // Request demo: navigate to messages tab with unit pre-selected
   function handleRequestDemo(unit: CatalogUnit) {
-    toast({
-      title: "Request a demo",
-      description: `Use the Messages tab to ask about a demo for ${unit.name}.`,
-    })
-    onNavigateToMessages(unit)
+    setDemoModalUnit(unit)
   }
 
   function handleAskQuestion(unit: CatalogUnit) {
@@ -604,17 +911,6 @@ export function CatalogTab({
         )}
       </div>
 
-      {/* Active filter chips */}
-      {activeFilters.length > 0 && (
-        <div className="flex flex-wrap gap-2 -mt-2">
-          {activeFilters.map(f => (
-            <span key={f} className="inline-flex items-center gap-1 border border-border bg-secondary px-2.5 py-1 text-[10px] font-bold">
-              {f}
-            </span>
-          ))}
-        </div>
-      )}
-
       {/* Results */}
       {displayed.length === 0 ? (
         <div className="border border-border bg-card p-10 text-center">
@@ -633,6 +929,7 @@ export function CatalogTab({
               onRequestDemo={handleRequestDemo}
               onAskQuestion={handleAskQuestion}
               onViewDetails={setDetailUnit}
+              onFeedback={handleFeedback}
             />
           ))}
         </div>
@@ -645,6 +942,7 @@ export function CatalogTab({
               onRequestDemo={handleRequestDemo}
               onAskQuestion={handleAskQuestion}
               onViewDetails={setDetailUnit}
+              onFeedback={handleFeedback}
             />
           ))}
         </div>
@@ -657,6 +955,28 @@ export function CatalogTab({
           onClose={() => setDetailUnit(null)}
           onRequestDemo={handleRequestDemo}
           onAskQuestion={handleAskQuestion}
+        />
+      )}
+
+      {/* Reason Modal */}
+      {reasonModalUnit && (
+        <ReasonModal
+          unit={reasonModalUnit}
+          onClose={() => setReasonModalUnit(null)}
+          onSubmit={(reason) => {
+            handleFeedback(reasonModalUnit, { reason })
+            setReasonModalUnit(null)
+          }}
+        />
+      )}
+
+      {/* Direct Demo Modal */}
+      {demoModalUnit && (
+        <DirectDemoModal
+          unit={demoModalUnit}
+          clientId={clientId}
+          onClose={() => setDemoModalUnit(null)}
+          onSuccess={() => setDemoModalUnit(null)}
         />
       )}
     </div>
