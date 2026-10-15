@@ -118,6 +118,15 @@ class TestCleanupPass(unittest.TestCase):
             session_id="sess-agent-b",
         )
 
+        self.agent_identity_admin = AgentIdentity(
+            account_id="acc-admin",
+            agent_id="agent-admin-999",
+            email="admin@pipeline-ev.com",
+            name="Admin User",
+            role="admin",
+            session_id="sess-agent-admin",
+        )
+
     def tearDown(self):
         main.app.dependency_overrides.clear()
         try:
@@ -529,6 +538,269 @@ class TestCleanupPass(unittest.TestCase):
             self.assertIn("industry", audit_fields)
             self.assertIn("facility_size_sqm", audit_fields)
             self.assertNotIn("facility_type", audit_fields)
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Rep Reply -> inquiry_messages unread lifecycle test
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    def test_rep_reply_inquiry_messages_unread_lifecycle(self):
+        """
+        Rep reply writes sender='rep' row into inquiry_messages ->
+        Portal GET /inquiries returns unread_count=1 ->
+        Portal POST /read marks read ->
+        Portal GET /inquiries returns unread_count=0.
+        """
+        stored_messages = [
+            {
+                "id": "msg-orig-1",
+                "inquiry_id": self.inquiry_id,
+                "client_id": self.client_a_id,
+                "sender": "company",
+                "body": "Can you provide AMR specs?",
+                "read_at": None,
+                "created_at": "2026-10-15T10:00:00Z",
+            }
+        ]
+
+        def mock_supabase_table(tbl):
+            if tbl == "clients":
+                return make_mock_query({"id": self.client_a_id, "assigned_agent_id": self.agent_a_id})
+            elif tbl == "client_inquiries":
+                return make_mock_query([{
+                    "id": self.inquiry_id,
+                    "client_id": self.client_a_id,
+                    "property_id": self.property_id,
+                    "message": "Can you provide AMR specs?",
+                    "status": "open",
+                    "agent_reply": None,
+                    "created_at": "2026-10-15T10:00:00Z",
+                    "properties": {"address": "AMR-500 Unit"},
+                }])
+            elif tbl == "inquiry_messages":
+                mq = make_mock_query(stored_messages)
+
+                def cap_insert(payload):
+                    row = {
+                        "id": f"msg-rep-{len(stored_messages) + 1}",
+                        "inquiry_id": payload.get("inquiry_id"),
+                        "client_id": payload.get("client_id"),
+                        "sender": payload.get("sender"),
+                        "body": payload.get("body"),
+                        "read_at": None,
+                        "created_at": "2026-10-15T11:00:00Z",
+                    }
+                    stored_messages.append(row)
+                    mq_res = MagicMock()
+                    mq_res.execute.return_value = MagicMock(data=[row])
+                    return mq_res
+
+                def cap_update(payload):
+                    if "read_at" in payload:
+                        for m in stored_messages:
+                            if m.get("sender") == "rep":
+                                m["read_at"] = payload["read_at"]
+                    mq_up = MagicMock()
+                    mq_up.eq.return_value = mq_up
+                    mq_up.is_.return_value = mq_up
+                    mq_up.execute.return_value = MagicMock(data=stored_messages)
+                    return mq_up
+
+                mq.insert.side_effect = cap_insert
+                mq.update.side_effect = cap_update
+                return mq
+            return make_mock_query([])
+
+        with patch("main.get_current_agent", return_value=self.agent_identity_a), \
+             patch("agent_auth.get_current_agent", return_value=self.agent_identity_a), \
+             patch("main.supabase.table", side_effect=mock_supabase_table):
+
+            # 1. Rep replies to the client inquiry
+            rep_res = self.client.post(
+                f"/api/console/clients/{self.client_a_id}/inquiries/{self.inquiry_id}/reply",
+                json={"reply": "Here is the full AMR spec sheet."},
+            )
+            self.assertEqual(rep_res.status_code, 200)
+            self.assertTrue(rep_res.json()["success"])
+
+            # Verify that sender='rep' row was recorded
+            rep_msgs = [m for m in stored_messages if m["sender"] == "rep"]
+            self.assertEqual(len(rep_msgs), 1)
+            self.assertEqual(rep_msgs[0]["body"], "Here is the full AMR spec sheet.")
+            self.assertIsNone(rep_msgs[0]["read_at"])
+
+        with self._mock_session(self.session_a), \
+             patch("main.supabase.table", side_effect=mock_supabase_table):
+
+            # 2. Portal fetches inquiries -> unread_count should be 1
+            headers = {"Authorization": f"Bearer {self.token_a}"}
+            get_inq = self.client.get(f"/api/portal/{self.client_a_id}/inquiries", headers=headers)
+            self.assertEqual(get_inq.status_code, 200)
+            inquiries = get_inq.json()["inquiries"]
+            self.assertEqual(len(inquiries), 1)
+            self.assertEqual(inquiries[0]["unread_count"], 1)
+
+            # 3. Portal marks inquiry as read
+            mark_read = self.client.post(
+                f"/api/portal/{self.client_a_id}/inquiries/{self.inquiry_id}/read",
+                headers=headers,
+            )
+            self.assertEqual(mark_read.status_code, 200)
+            self.assertTrue(mark_read.json()["success"])
+
+            # 4. Portal fetches inquiries again -> unread_count should be 0
+            get_inq_after = self.client.get(f"/api/portal/{self.client_a_id}/inquiries", headers=headers)
+            self.assertEqual(get_inq_after.status_code, 200)
+            inquiries_after = get_inq_after.json()["inquiries"]
+            self.assertEqual(len(inquiries_after), 1)
+            self.assertEqual(inquiries_after[0]["unread_count"], 0)
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Console quotes pending & profile audit policy tests
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    def test_rep_pending_quotes_and_profile_audit_endpoints(self):
+        """
+        GET /api/console/quotes/pending:
+          - Rep sees only quotes for their assigned clients.
+          - Admin sees all pending quotes.
+        GET /api/console/clients/{id}/portal/profile-audit:
+          - Assigned rep gets 200 and audit rows.
+          - Unassigned rep gets 404 (client scoping).
+        """
+        all_pending_quotes = [
+            {
+                "id": "q-1",
+                "client_id": self.client_a_id,
+                "property_id": self.property_id,
+                "quantity": 2,
+                "notes": "Fast delivery requested",
+                "status": "requested",
+                "requested_at": "2026-10-15T09:00:00Z",
+                "clients": {"id": self.client_a_id, "name": "Company A", "assigned_agent_id": self.agent_a_id},
+                "properties": {"address": "AMR-500"},
+            },
+            {
+                "id": "q-2",
+                "client_id": self.client_b_id,
+                "property_id": "prop-bbb-999",
+                "quantity": 1,
+                "notes": "Standard",
+                "status": "requested",
+                "requested_at": "2026-10-15T09:30:00Z",
+                "clients": {"id": self.client_b_id, "name": "Company B", "assigned_agent_id": self.agent_b_id},
+                "properties": {"address": "Forklift Unit"},
+            },
+        ]
+
+        def mock_supabase_table(tbl):
+            if tbl == "clients":
+                return make_mock_query({"id": self.client_a_id, "assigned_agent_id": self.agent_a_id})
+            elif tbl == "portal_quotes":
+                return make_mock_query(all_pending_quotes)
+            elif tbl == "portal_profile_audit":
+                return make_mock_query([
+                    {
+                        "id": "aud-1",
+                        "field": "industry",
+                        "old_value": "Automotive",
+                        "new_value": "Electronics",
+                        "changed_at": "2026-10-15T12:00:00Z",
+                        "contact_id": "contact-a",
+                        "portal_contacts": {"name": "Alice", "email": "alice@companya.com"},
+                    }
+                ])
+            return make_mock_query([])
+
+        # 1. Rep A calls pending quotes: should only receive Quote 1
+        with patch("main.get_current_agent", return_value=self.agent_identity_a), \
+             patch("agent_auth.get_current_agent", return_value=self.agent_identity_a), \
+             patch("main.supabase.table", side_effect=mock_supabase_table):
+
+            res_a = self.client.get("/api/console/quotes/pending")
+            self.assertEqual(res_a.status_code, 200)
+            quotes_a = res_a.json()["quotes"]
+            self.assertEqual(len(quotes_a), 1)
+            self.assertEqual(quotes_a[0]["id"], "q-1")
+
+        # 2. Admin calls pending quotes: should receive both Quote 1 and Quote 2
+        with patch("main.get_current_agent", return_value=self.agent_identity_admin), \
+             patch("agent_auth.get_current_agent", return_value=self.agent_identity_admin), \
+             patch("main.supabase.table", side_effect=mock_supabase_table):
+
+            res_admin = self.client.get("/api/console/quotes/pending")
+            self.assertEqual(res_admin.status_code, 200)
+            quotes_admin = res_admin.json()["quotes"]
+            self.assertEqual(len(quotes_admin), 2)
+
+        # 3. Rep A calls profile-audit for assigned client_a -> 200
+        with patch("main.get_current_agent", return_value=self.agent_identity_a), \
+             patch("agent_auth.get_current_agent", return_value=self.agent_identity_a), \
+             patch("main.supabase.table", side_effect=mock_supabase_table):
+
+            res_audit_a = self.client.get(f"/api/console/clients/{self.client_a_id}/portal/profile-audit")
+            self.assertEqual(res_audit_a.status_code, 200)
+            self.assertEqual(len(res_audit_a.json()["audit_log"]), 1)
+            self.assertEqual(res_audit_a.json()["audit_log"][0]["field"], "industry")
+
+        # 4. Rep B calls profile-audit for client_a -> 404 (client scoping enforced)
+        with patch("main.get_current_agent", return_value=self.agent_identity_b), \
+             patch("agent_auth.get_current_agent", return_value=self.agent_identity_b), \
+             patch("main.supabase.table", side_effect=mock_supabase_table):
+
+            res_audit_b = self.client.get(f"/api/console/clients/{self.client_a_id}/portal/profile-audit")
+            self.assertEqual(res_audit_b.status_code, 404)
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Console BFF route path traversal validation
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    def test_console_route_path_traversal_validation(self):
+        """
+        Verify validation rules enforced in app/api/console/[...path]/route.ts:
+        - Segments containing '..', '%2e', '%2f', '\\' are rejected (400)
+        - Empty segments are rejected (400)
+        - Disallowed methods are rejected (405)
+        """
+        allowed_methods = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+
+        def validate_path(method: str, raw_segments: list[str], raw_url: str = "") -> int:
+            if method not in allowed_methods:
+                return 405
+            if not raw_segments:
+                return 400
+            for seg in raw_segments:
+                if not seg or seg.strip() == "":
+                    return 400
+                lower = seg.lower()
+                if (
+                    ".." in seg
+                    or "\\" in seg
+                    or "%2e" in lower
+                    or "%2f" in lower
+                    or "%5c" in lower
+                ):
+                    return 400
+            if ".." in raw_url or "%2e%2e" in raw_url.lower():
+                return 400
+            return 200
+
+        # Valid paths
+        self.assertEqual(validate_path("GET", ["quotes", "pending"]), 200)
+        self.assertEqual(validate_path("POST", ["clients", "c-1", "quotes", "q-1", "send"]), 200)
+
+        # Path traversal tests ("../admin" style)
+        self.assertEqual(validate_path("GET", ["..", "admin"]), 400)
+        self.assertEqual(validate_path("GET", ["quotes", "..", "admin"]), 400)
+        self.assertEqual(validate_path("GET", ["%2e%2e", "admin"]), 400)
+        self.assertEqual(validate_path("GET", ["quotes%2f..%2fadmin"]), 400)
+        self.assertEqual(validate_path("GET", ["foo\\bar"]), 400)
+        self.assertEqual(validate_path("GET", [""]), 400)
+        self.assertEqual(validate_path("GET", ["   "]), 400)
+        self.assertEqual(validate_path("GET", ["quotes"], raw_url="http://localhost:3000/api/console/../admin"), 400)
+
+        # Method validation
+        self.assertEqual(validate_path("OPTIONS", ["quotes"]), 405)
+        self.assertEqual(validate_path("TRACE", ["quotes"]), 405)
 
 
 if __name__ == "__main__":

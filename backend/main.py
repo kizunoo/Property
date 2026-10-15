@@ -9183,7 +9183,7 @@ def rep_reply_inquiry(client_id: str, inquiry_id: str, body: dict, request: Requ
     if hasattr(request.state, "agent"):
         require_client_access(request.state.agent, client_id, supabase)
 
-    reply_body = (body.get("body") or "").strip()
+    reply_body = (body.get("body") or body.get("reply") or "").strip()
     if not reply_body or len(reply_body) > 4000:
         raise HTTPException(status_code=422, detail="Reply body must be between 1 and 4000 characters")
 
