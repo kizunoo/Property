@@ -199,6 +199,8 @@ from agent_auth import (
 from route_policies import RoutePolicy, match_policy, ROUTE_POLICY_DECLARATIONS
 import agent_routes
 app.include_router(agent_routes.router)
+from copilot_routes import router as copilot_router
+app.include_router(copilot_router)
 
 import re
 from fastapi.responses import JSONResponse
@@ -5148,6 +5150,12 @@ def start_scheduler():
     if not _scheduler.running:
         _scheduler.start()
         print("[scheduler] background price ticker started (every 12 min)")
+
+    try:
+        import copilot_agent
+        copilot_agent.set_db(supabase)
+    except ImportError:
+        print("google-adk not installed; copilot disabled")
 
 
 @app.on_event("shutdown")

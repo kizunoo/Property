@@ -9,3 +9,4 @@ joblib
 pandas
 numpy
 argon2-cffi>=25.1.0
+google-adk>=2.0.0

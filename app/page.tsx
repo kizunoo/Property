@@ -6,7 +6,14 @@
  * No in-memory login state or LoginScreen here.
  */
 import { PipelineDashboard } from "@/components/pipeline/pipeline-dashboard"
+import { CopilotPanel } from "@/components/pipeline/copilot-panel"
 
 export default function Home() {
+  return (
+    <>
+      <PipelineDashboard />
+      <CopilotPanel />
+    </>
+  )
   return <PipelineDashboard />
 }
