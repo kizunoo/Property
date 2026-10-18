@@ -334,6 +334,30 @@ for tbl, col in real_data_cols:
     except Exception as e:
         print(f"  [WARN]   {tbl}.{col:<18} Not accessible to anon: {str(e)[:50]}")
 
+print("\n--- 3e. Inquiry Triage Columns Verification & Privilege Lockdown ---")
+triage_cols = [
+    "triage_status",
+    "triage_priority",
+    "triage_category",
+    "triage_summary",
+    "triage_reasons",
+    "triage_alerted",
+    "triaged_at",
+]
+
+for col in triage_cols:
+    if service_client:
+        try:
+            service_client.table("client_inquiries").select(f"id, {col}").limit(1).execute()
+            print(f"  [EXISTS] client_inquiries.{col:<18} Column present in schema (service_role accessible)")
+        except Exception as e:
+            print(f"  [MISSING] client_inquiries.{col:<18} Column NOT found in schema: {str(e)[:50]}")
+    try:
+        res = anon_client.table("client_inquiries").select(f"id, {col}").limit(1).execute()
+        print(f"  [!] client_inquiries.{col:<18} EXPOSED TO ANON KEY! (Select succeeded)")
+    except Exception as e:
+        print(f"  [OK] client_inquiries.{col:<18} Protected against 'anon' role")
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. Exact Dashboard Queries via Anon Key (from lib/fetch-pipeline-data.ts)
 # ─────────────────────────────────────────────────────────────────────────────

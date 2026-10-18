@@ -143,6 +143,7 @@ ROUTE_POLICY_DECLARATIONS: List[RoutePolicyDecl] = [
     RoutePolicyDecl("POST", "/api/agent/logout", re.compile(r"^/api/agent/logout$"), RoutePolicy.ANY_AGENT, False, "Agent session logout and revocation"),
     RoutePolicyDecl("GET", "/api/console/quotes/pending", re.compile(r"^/api/console/quotes/pending$"), RoutePolicy.ANY_AGENT, True, "List pending quote requests for rep"),
     RoutePolicyDecl("POST", "/api/console/copilot", re.compile(r"^/api/console/copilot$"), RoutePolicy.ANY_AGENT, True, "Rep copilot (Google ADK agent)"),
+    RoutePolicyDecl("GET", "/api/console/inquiries/priority", re.compile(r"^/api/console/inquiries/priority$"), RoutePolicy.ANY_AGENT, False, "Priority client inquiries for rep"),
     RoutePolicyDecl("GET", "/api/daily_worklist", re.compile(r"^/api/daily_worklist$"), RoutePolicy.ANY_AGENT, False, "Daily prioritize tasks (scoped to agent)"),
     RoutePolicyDecl("GET", "/api/dashboard_briefing", re.compile(r"^/api/dashboard_briefing$"), RoutePolicy.ANY_AGENT, True, "Dashboard VIP narrative (LLM, scoped to agent)"),
     RoutePolicyDecl("GET", "/api/scheduled_viewings", re.compile(r"^/api/scheduled_viewings$"), RoutePolicy.ANY_AGENT, False, "Scheduled viewings list (scoped to agent)"),

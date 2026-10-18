@@ -7,10 +7,12 @@
  */
 import { PipelineDashboard } from "@/components/pipeline/pipeline-dashboard"
 import { CopilotPanel } from "@/components/pipeline/copilot-panel"
+import { PriorityInquiries } from "@/components/pipeline/priority-inquiries"
 
 export default function Home() {
   return (
     <>
+      <PriorityInquiries />
       <PipelineDashboard />
       <CopilotPanel />
     </>

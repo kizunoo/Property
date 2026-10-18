@@ -201,6 +201,9 @@ import agent_routes
 app.include_router(agent_routes.router)
 from copilot_routes import router as copilot_router
 app.include_router(copilot_router)
+import triage_service
+from triage_routes import router as triage_router
+app.include_router(triage_router)
 
 import re
 from fastapi.responses import JSONResponse
@@ -5093,6 +5096,18 @@ _scheduler.add_job(auto_market_tick, "interval", minutes=12, id="auto_market_tic
 _scheduler.add_job(process_due_whatsapp_reminders, "interval", minutes=1, id="process_due_whatsapp_reminders")
 
 
+def _triage_signal_hook(client_id: str, title: str, body: str, priority: str) -> None:
+    try:
+        sig_msg = f"{title}: {body}" if title else body
+        supabase.table("signals").insert({
+            "type": "portal_inquiry",
+            "client_id": client_id,
+            "message": sig_msg,
+        }).execute()
+    except Exception as sig_exc:
+        print(f"[_triage_signal_hook] Warning: signal insert failed: {sig_exc}")
+
+
 @app.on_event("startup")
 def start_scheduler():
     ALLOWED_ENVIRONMENTS = ("development", "testing", "staging", "production")
@@ -5156,6 +5171,8 @@ def start_scheduler():
         copilot_agent.set_db(supabase)
     except ImportError:
         print("google-adk not installed; copilot disabled")
+    triage_service.set_db(supabase)
+    triage_service.set_signal_hook(_triage_signal_hook)
 
 
 @app.on_event("shutdown")
@@ -8585,6 +8602,12 @@ def portal_submit_inquiry(
         }).execute()
     except Exception as sig_exc:
         print(f"[portal_submit_inquiry] Warning: signal insert failed: {sig_exc}")
+
+    try:  # triage must never break inquiry submission
+        triage_service.triage_new_inquiry(supabase, client_id=client_id,
+                                          inquiry_id=inquiry_id, text=message)
+    except Exception as _e:
+        print("triage failed to start:", type(_e).__name__)
 
     resp = {
         "id": inquiry_id,
