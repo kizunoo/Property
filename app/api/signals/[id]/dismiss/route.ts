@@ -10,6 +10,7 @@ export async function POST(
   try {
     const res = await fetch(`${backendUrl}/api/signals/${resolvedParams.id}/dismiss`, {
       method: "POST",
+      headers: buildAgentUpstreamHeaders(_req),
     });
     const data = await res.json();
     return NextResponse.json(data);

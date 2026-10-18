@@ -36,3 +36,4 @@ scripts/scenario_results.json
 supabase/.temp/
 scratch/
 data/real/
+.scope_snapshot.json

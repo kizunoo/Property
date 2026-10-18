@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
 
     const res = await fetch(url.toString(), {
       cache: "no-store",
+      headers: buildAgentUpstreamHeaders(req),
     })
 
     if (!res.ok) {

@@ -16,7 +16,10 @@ export async function GET(req: NextRequest) {
     if (client_id) url.searchParams.set("client_id", client_id)
     if (agent_id)  url.searchParams.set("agent_id",  agent_id)
 
-    const upstream = await fetch(url.toString(), { method: "GET" })
+    const upstream = await fetch(url.toString(), {
+      method: "GET",
+      headers: buildAgentUpstreamHeaders(req),
+    })
     const data = await upstream.json().catch(() => ({ messages: [] }))
     return NextResponse.json(data)
   } catch (err: any) {

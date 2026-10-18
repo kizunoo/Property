@@ -13,6 +13,7 @@ export async function PATCH(
     const { id } = await params
     const upstream = await fetch(`${FASTAPI_URL}/api/complete_viewing/${id}`, {
       method: "PATCH",
+      headers: buildAgentUpstreamHeaders(_req),
     })
     const data = await upstream.json()
     if (!upstream.ok) {

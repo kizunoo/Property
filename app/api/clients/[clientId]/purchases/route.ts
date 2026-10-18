@@ -13,6 +13,7 @@ export async function GET(
   try {
     const upstream = await fetch(`${FASTAPI_URL}/api/clients/${clientId}/purchases`, {
       method: "GET",
+      headers: buildAgentUpstreamHeaders(_req),
     })
     const data = await upstream.json()
     return NextResponse.json(data)

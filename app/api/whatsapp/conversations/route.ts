@@ -12,7 +12,10 @@ export async function GET(req: NextRequest) {
     const url = new URL(`${FASTAPI_URL}/api/whatsapp/conversations`)
     if (agent_id) url.searchParams.set("agent_id", agent_id)
 
-    const upstream = await fetch(url.toString(), { method: "GET" })
+    const upstream = await fetch(url.toString(), {
+      method: "GET",
+      headers: buildAgentUpstreamHeaders(req),
+    })
     const data = await upstream.json().catch(() => ({ conversations: [] }))
     return NextResponse.json(data, { status: upstream.status })
   } catch (err: any) {

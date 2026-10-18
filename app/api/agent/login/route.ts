@@ -12,7 +12,14 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify(body),
     })
 
-    const data = await res.json()
+    const rawText = await res.text()
+    let data: any
+    try {
+      data = JSON.parse(rawText)
+    } catch {
+      data = { detail: rawText || "Upstream auth service returned invalid response" }
+    }
+
     if (!res.ok) {
       return NextResponse.json({ detail: data.detail || "Authentication failed" }, { status: res.status })
     }
@@ -29,7 +36,8 @@ export async function POST(req: NextRequest) {
     }
 
     return response
-  } catch (err) {
-    return NextResponse.json({ detail: "Internal error connecting to auth service" }, { status: 500 })
+  } catch (err: any) {
+    console.error("[AGENT LOGIN ERROR]", err)
+    return NextResponse.json({ detail: err?.message ? `Internal error: ${err.message}` : "Internal error connecting to auth service" }, { status: 500 })
   }
 }

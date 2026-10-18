@@ -11,7 +11,7 @@ export async function POST(_req: NextRequest) {
   try {
     const upstream = await fetch(
       FASTAPI_URL + "/api/simulate_market_day",
-      { method: "POST", signal: controller.signal }
+      { method: "POST", signal: controller.signal, headers: buildAgentUpstreamHeaders(_req) }
     )
     clearTimeout(timer)
     const data = await upstream.json()

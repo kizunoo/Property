@@ -18,7 +18,10 @@ export async function GET(
     const url = new URL(`${FASTAPI_URL}/api/shortlist/${propertyId}`)
     if (agentId) url.searchParams.set("agent_id", agentId)
 
-    const upstream = await fetch(url.toString(), { signal: controller.signal })
+    const upstream = await fetch(url.toString(), {
+      signal: controller.signal,
+      headers: buildAgentUpstreamHeaders(req),
+    })
     clearTimeout(timer)
 
     const data = await upstream.json()
