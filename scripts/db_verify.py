@@ -328,11 +328,18 @@ for tbl, col in real_data_cols:
             print(f"  [EXISTS] {tbl}.{col:<18} Column present in schema (service_role accessible)")
         except Exception as e:
             print(f"  [MISSING] {tbl}.{col:<18} Column NOT found: {str(e)[:50]}")
-    try:
-        anon_client.table(tbl).select(f"id, {col}").limit(1).execute()
-        print(f"  [OK]     {tbl}.{col:<18} Accessible to 'anon' role (as expected for rep console)")
-    except Exception as e:
-        print(f"  [WARN]   {tbl}.{col:<18} Not accessible to anon: {str(e)[:50]}")
+    if (tbl, col) == ("clients", "phone"):
+        try:
+            anon_client.table(tbl).select(f"id, {col}").limit(1).execute()
+            print(f"  [!]      {tbl}.{col:<18} EXPOSED to 'anon' role!")
+        except Exception:
+            print(f"  [OK]     {tbl}.{col:<18} Protected against 'anon' role")
+    else:
+        try:
+            anon_client.table(tbl).select(f"id, {col}").limit(1).execute()
+            print(f"  [OK]     {tbl}.{col:<18} Accessible to 'anon' role (as expected for rep console)")
+        except Exception as e:
+            print(f"  [WARN]   {tbl}.{col:<18} Not accessible to anon: {str(e)[:50]}")
 
 print("\n--- 3e. Inquiry Triage Columns Verification & Privilege Lockdown ---")
 triage_cols = [

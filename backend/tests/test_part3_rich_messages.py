@@ -266,7 +266,7 @@ class TestPart3RichMessages(unittest.TestCase):
                 "to_number": phone,
                 "attach_image": True,
                 "slots": [
-                    {"index": 1, "date": "2026-10-16", "time": "10:00", "label": "Fri 16 Oct, 10:00 AM"},
+                    {"index": 1, "date": (datetime.now(KL_TZ) + timedelta(days=(1 if datetime.now(KL_TZ).weekday() < 4 else 7 - datetime.now(KL_TZ).weekday()))).strftime("%Y-%m-%d"), "time": "10:00", "label": (datetime.now(KL_TZ) + timedelta(days=(1 if datetime.now(KL_TZ).weekday() < 4 else 7 - datetime.now(KL_TZ).weekday()))).strftime("%a %d %b, 10:00 AM")},
                 ],
             })
             self.assertTrue(res.get("image_sent"))
@@ -284,7 +284,7 @@ class TestPart3RichMessages(unittest.TestCase):
                 "to_number": phone,
                 "attach_image": True,
                 "slots": [
-                    {"index": 1, "date": "2026-10-16", "time": "10:00", "label": "Fri 16 Oct, 10:00 AM"},
+                    {"index": 1, "date": (datetime.now(KL_TZ) + timedelta(days=(1 if datetime.now(KL_TZ).weekday() < 4 else 7 - datetime.now(KL_TZ).weekday()))).strftime("%Y-%m-%d"), "time": "10:00", "label": (datetime.now(KL_TZ) + timedelta(days=(1 if datetime.now(KL_TZ).weekday() < 4 else 7 - datetime.now(KL_TZ).weekday()))).strftime("%a %d %b, 10:00 AM")},
                 ],
             })
             self.assertFalse(res_outside.get("image_sent"))
@@ -435,7 +435,7 @@ class TestPart3RichMessages(unittest.TestCase):
                 "to_number": phone,
                 "attach_image": True,
                 "slots": [
-                    {"index": 1, "date": "2026-10-16", "time": "10:00", "label": "Fri 16 Oct, 10:00 AM"},
+                    {"index": 1, "date": (datetime.now(KL_TZ) + timedelta(days=(1 if datetime.now(KL_TZ).weekday() < 4 else 7 - datetime.now(KL_TZ).weekday()))).strftime("%Y-%m-%d"), "time": "10:00", "label": (datetime.now(KL_TZ) + timedelta(days=(1 if datetime.now(KL_TZ).weekday() < 4 else 7 - datetime.now(KL_TZ).weekday()))).strftime("%a %d %b, 10:00 AM")},
                 ],
             })
 
