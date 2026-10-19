@@ -20,7 +20,7 @@ try:  # ADK 2.x
 except ImportError:  # ADK 1.x
     from google.adk.tools import ToolContext as Context
 
-MODEL = os.getenv("COPILOT_MODEL", "gemini-2.5-flash")
+MODEL = os.getenv("COPILOT_MODEL", "gemini-2.5-flash-lite")
 APP_NAME = "pipeline_ev_copilot"
 _db = None
 
@@ -28,6 +28,18 @@ _db = None
 def set_db(db) -> None:
     global _db
     _db = db
+
+
+def _get_db():
+    global _db
+    if _db is not None:
+        return _db
+    try:
+        import main
+        _db = main.supabase
+    except Exception:
+        pass
+    return _db
 
 
 def _identity(tool_context: Optional[Context]) -> Identity:
@@ -45,7 +57,7 @@ def list_my_priority_clients(limit: int = 5, tool_context: Optional[Context] = N
     Returns:
         A dict with a list of companies, their expected value and tier.
     """
-    return list_priority_clients(_db, _identity(tool_context), limit)
+    return list_priority_clients(_get_db(), _identity(tool_context), limit)
 
 
 def get_client_summary(client_id: str, tool_context: Optional[Context] = None) -> dict:
@@ -56,19 +68,19 @@ def get_client_summary(client_id: str, tool_context: Optional[Context] = None) -
     Returns:
         A dict with the summary, or an error if the client is not assigned to this rep.
     """
-    return get_client_brief(_db, _identity(tool_context), client_id)
+    return get_client_brief(_get_db(), _identity(tool_context), client_id)
 
 
-def find_robot_matches(client_id: str, tool_context: Optional[Context] = None) -> dict:
-    """Lists real catalog robots plus the client's facility type and use case so you can
-    recommend which robots fit.
+def find_robot_matches(client_id: Optional[str] = None, tool_context: Optional[Context] = None) -> dict:
+    """Lists real catalog robots, their specs and prices. If client_id is given, also includes
+    the client's facility type and use case so you can recommend which robots fit.
 
     Args:
-        client_id: The client's id.
+        client_id: Optional client id to check facility profile and fit.
     Returns:
-        A dict with the client's facility info and the real robot catalog.
+        A dict with the real robot catalog and optional facility info.
     """
-    return suggest_robot_matches(_db, _identity(tool_context), client_id)
+    return suggest_robot_matches(_get_db(), _identity(tool_context), client_id)
 
 
 INSTRUCTION = """You are the sales copilot for a robotics sales team in Malaysia (B2B robots

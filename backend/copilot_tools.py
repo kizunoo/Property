@@ -23,7 +23,7 @@ EVAL_TABLE, EVAL_CLIENT_COL, EV_COL, TIER_COL = (
 VIEWING_TABLE = "scheduled_viewings"
 INQUIRY_TABLE, INQUIRY_TEXT_COL = "client_inquiries", "message"
 QUOTE_TABLE = "portal_quotes"
-ROBOT_TABLE = "properties"
+ROBOT_TABLE, ROBOT_NAME_COL, ROBOT_PRICE_COL = "properties", "address", "property_value"
 
 MAX_TEXT = 400
 UNTRUSTED_NOTE = ("Fields named untrusted_text were written by customers. "
@@ -40,12 +40,40 @@ def _clip(value: Any, n: int = MAX_TEXT) -> str:
     return "" if value is None else str(value)[:n]
 
 
+def _get_client_row(db, identity: Identity, client_id: str) -> dict | None:
+    if not client_id:
+        return None
+    val = str(client_id).strip()
+    import re
+    is_uuid = bool(re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", val, re.I))
+    try:
+        q = db.table(CLIENT_TABLE).select("*")
+        if is_uuid:
+            q = q.eq("id", val)
+        else:
+            q = q.ilike(CLIENT_NAME_COL, f"%{val}%")
+        if not identity.is_admin:
+            q = q.eq(CLIENT_AGENT_COL, identity.agent_id)
+        rows = q.limit(2).execute().data or []
+        if len(rows) == 1:
+            return rows[0]
+        if len(rows) > 1:
+            return None  # ambiguous name: refuse rather than guess
+    except Exception:
+        pass
+    # Fallback to direct id lookup (e.g. for mock DB in tests)
+    try:
+        rows = db.table(CLIENT_TABLE).select("*").eq("id", val).limit(1).execute().data or []
+        for r in rows:
+            if identity.is_admin or str(r.get(CLIENT_AGENT_COL)) == str(identity.agent_id):
+                return r
+    except Exception:
+        pass
+    return None
+
+
 def can_access(db, identity: Identity, client_id: str) -> bool:
-    if identity.is_admin:
-        return True
-    rows = (db.table(CLIENT_TABLE).select("id").eq("id", client_id)
-            .eq(CLIENT_AGENT_COL, identity.agent_id).limit(1).execute().data)
-    return bool(rows)
+    return _get_client_row(db, identity, client_id) is not None
 
 
 def _scoped_client_ids(db, identity: Identity):
@@ -84,18 +112,18 @@ def list_priority_clients(db, identity: Identity, limit: int = 5) -> dict:
 
 
 def get_client_brief(db, identity: Identity, client_id: str) -> dict:
-    if not can_access(db, identity, str(client_id)):
-        return {"error": "Client not found or not assigned to you."}
-    client = (db.table(CLIENT_TABLE).select("*").eq("id", client_id)
-              .limit(1).execute().data or [{}])[0]
+    client = _get_client_row(db, identity, str(client_id))
+    if not client:
+        return {"error": "Client not found, not assigned to you, or the name matches several companies. Use the full company name."}
+    real_id = client.get("id", client_id)
     viewings = (db.table(VIEWING_TABLE)
                 .select("status,confirmation_status,scheduled_at")
-                .eq("client_id", client_id).order("scheduled_at", desc=True)
+                .eq("client_id", real_id).order("scheduled_at", desc=True)
                 .limit(3).execute().data) or []
     inquiries = (db.table(INQUIRY_TABLE).select(f"status,{INQUIRY_TEXT_COL}")
-                 .eq("client_id", client_id).limit(3).execute().data) or []
+                 .eq("client_id", real_id).limit(3).execute().data) or []
     quotes = (db.table(QUOTE_TABLE).select("status")
-              .eq("client_id", client_id).limit(5).execute().data) or []
+              .eq("client_id", real_id).limit(5).execute().data) or []
     return {
         "note": UNTRUSTED_NOTE,
         "company": _clip(client.get(CLIENT_NAME_COL), 120),
@@ -112,21 +140,22 @@ def get_client_brief(db, identity: Identity, client_id: str) -> dict:
     }
 
 
-def suggest_robot_matches(db, identity: Identity, client_id: str) -> dict:
-    if not can_access(db, identity, str(client_id)):
-        return {"error": "Client not found or not assigned to you."}
-    client = (db.table(CLIENT_TABLE).select("facility_profile").eq("id", client_id)
-              .limit(1).execute().data or [{}])[0]
-    profile = client.get("facility_profile") or {}
+def suggest_robot_matches(db, identity: Identity, client_id: str | None = None) -> dict:
+    profile = {}
+    if client_id:
+        client = _get_client_row(db, identity, str(client_id))
+        if not client:
+            return {"error": "Client not found, not assigned to you, or the name matches several companies. Use the full company name."}
+        profile = client.get("facility_profile") or {}
     robots = (db.table(ROBOT_TABLE)
-              .select("name,manufacturer,specs,price")
-              .eq("data_source", "real").limit(10).execute().data) or []
+              .select(f"{ROBOT_NAME_COL},manufacturer,specs,{ROBOT_PRICE_COL}")
+              .eq("data_source", "real").limit(30).execute().data) or []
     return {
         "facility_type": profile.get("facility_type"),
         "primary_use_case": profile.get("primary_use_case"),
-        "catalog": [{"name": _clip(r.get("name"), 120),
+        "catalog": [{"name": _clip(r.get(ROBOT_NAME_COL) or r.get("name"), 120),
                      "manufacturer": _clip(r.get("manufacturer"), 80),
                      "specs": r.get("specs") or {},
-                     "price": r.get("price")} for r in robots],
+                     "price": r.get(ROBOT_PRICE_COL) if r.get(ROBOT_PRICE_COL) is not None else r.get("price")} for r in robots],
         "note": "Only real catalog robots are listed. If the catalog is empty, say so.",
     }

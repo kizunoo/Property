@@ -12,6 +12,7 @@ Part D: Agent Authentication API Router
 - POST /api/agent/reset-password: Reset password using one-time reset code.
 """
 
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, Request, Response, HTTPException, Depends
@@ -128,186 +129,192 @@ def agent_login(body: dict, request: Request, response: Response):
     """
     import main
     supabase = main.supabase
-
-    email = (body.get("email") or "").strip().lower()
-    password = body.get("password") or ""
-
-    if not email or not password:
-        raise HTTPException(status_code=400, detail="Email and password are required.")
-
-    client_ip = get_trusted_client_ip(request)
-    now = datetime.now(timezone.utc)
-
-    # 1. Rate limit IP attempts (15 attempts / 15m) - DB-backed fail-closed (Item 3)
-    ip_key = hash_rate_limit_key("agent_ip", client_ip)
-    if not is_sqlite_rate_limiting_enabled():
-        attempts, _ = execute_rpc_rate_limit(ip_key, 900)
-        if attempts > 15:
-            raise HTTPException(status_code=429, detail="Too many failed requests from this IP. Please wait 15 minutes.")
-    else:
-        allowed, _, _ = rate_limit_store.increment_and_check(
-            key_hash=ip_key,
-            bucket_type="agent_ip",
-            window_seconds=900,
-            max_attempts=15,
-            lockout_seconds=900,
-        )
-        if not allowed:
-            raise HTTPException(status_code=429, detail="Too many failed requests from this IP. Please wait 15 minutes.")
-
-    # 2. Look up agent account
     try:
-        res = (
-            supabase.table("agent_accounts")
-            .select("id, email, name, role, password_hash, status, failed_login_attempts, locked_until")
-            .ilike("email", email)
-            .limit(1)
-            .execute()
-        )
-        accounts = res.data or []
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Database query error: {exc}")
+        email = (body.get("email") or "").strip().lower()
+        password = body.get("password") or ""
 
-    if not accounts:
-        raise HTTPException(status_code=401, detail="Invalid credentials.")
+        if not email or not password:
+            raise HTTPException(status_code=400, detail="Email and password are required.")
 
-    acc = accounts[0]
+        client_ip = get_trusted_client_ip(request)
+        now = datetime.now(timezone.utc)
 
-    # 3. Check account lockout (Item 6: per-account lockout with window and reset-on-expiry)
-    if acc.get("locked_until"):
-        locked_until = datetime.fromisoformat(acc["locked_until"].replace("Z", "+00:00"))
-        if now < locked_until:
+        # 1. Rate limit IP attempts (15 attempts / 15m) - DB-backed fail-closed (Item 3)
+        ip_key = hash_rate_limit_key("agent_ip", client_ip)
+        if not is_sqlite_rate_limiting_enabled():
+            attempts, _ = execute_rpc_rate_limit(ip_key, 900)
+            if attempts > 15:
+                raise HTTPException(status_code=429, detail="Too many failed requests from this IP. Please wait 15 minutes.")
+        else:
+            allowed, _, _ = rate_limit_store.increment_and_check(
+                key_hash=ip_key,
+                bucket_type="agent_ip",
+                window_seconds=900,
+                max_attempts=15,
+                lockout_seconds=900,
+            )
+            if not allowed:
+                raise HTTPException(status_code=429, detail="Too many failed requests from this IP. Please wait 15 minutes.")
+
+        # 2. Look up agent account
+        try:
+            res = (
+                supabase.table("agent_accounts")
+                .select("id, email, name, role, password_hash, status, failed_login_attempts, locked_until")
+                .ilike("email", email)
+                .limit(1)
+                .execute()
+            )
+            accounts = res.data or []
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Database query error: {exc}")
+
+        if not accounts:
+            raise HTTPException(status_code=401, detail="Invalid credentials.")
+
+        acc = accounts[0]
+
+        # 3. Check account lockout (Item 6: per-account lockout with window and reset-on-expiry)
+        if acc.get("locked_until"):
+            locked_until = datetime.fromisoformat(acc["locked_until"].replace("Z", "+00:00"))
+            if now < locked_until:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Account locked due to multiple failed attempts. Try again after {locked_until.strftime('%H:%M:%S UTC')}."
+                )
+            else:
+                # Lockout expired; reset for new window
+                supabase.table("agent_accounts").update({
+                    "failed_login_attempts": 0,
+                    "locked_until": None,
+                }).eq("id", acc["id"]).execute()
+                acc["failed_login_attempts"] = 0
+
+        if acc.get("status") == "pending_enrollment" or not acc.get("password_hash"):
             raise HTTPException(
                 status_code=403,
-                detail=f"Account locked due to multiple failed attempts. Try again after {locked_until.strftime('%H:%M:%S UTC')}."
+                detail="Account enrollment is pending. Please redeem your enrollment invitation code first."
             )
-        else:
-            # Lockout expired; reset for new window
+
+        if acc.get("status") != "active":
+            raise HTTPException(status_code=403, detail="Account is suspended or deactivated.")
+
+        # 4. Verify Argon2id password
+        pwd_valid = verify_password(acc["password_hash"], password)
+        if not pwd_valid:
+            # Atomic RPC failure recording (lockout non-extension & 15m window reset)
+            is_locked = False
+            failed_count = (acc.get("failed_login_attempts") or 0) + 1
+            new_lock = None
+            try:
+                rpc_res = supabase.rpc("agent_record_failed_login", {
+                    "p_account_id": acc["id"],
+                    "p_max_attempts": AGENT_MAX_FAILED_LOGINS,
+                    "p_lockout_seconds": AGENT_LOCKOUT_MINUTES * 60,
+                    "p_window_seconds": 900,
+                }).execute()
+                if rpc_res.data:
+                    row = rpc_res.data[0]
+                    failed_count = row.get("out_failed_attempts", failed_count)
+                    is_locked = row.get("out_is_locked", False)
+                    new_lock = row.get("out_locked_until")
+            except Exception as exc:
+                print(f"[SECURITY] agent_record_failed_login RPC error: {exc}")
+                if failed_count >= AGENT_MAX_FAILED_LOGINS:
+                    new_lock = (now + timedelta(minutes=AGENT_LOCKOUT_MINUTES)).isoformat()
+                    is_locked = True
+                supabase.table("agent_accounts").update({
+                    "failed_login_attempts": failed_count,
+                    "locked_until": new_lock,
+                }).eq("id", acc["id"]).execute()
+
+            log_agent_audit_event(
+                supabase,
+                agent_id=acc["id"],
+                action="login_failed",
+                object_type="agent_account",
+                details={"attempt": failed_count, "locked": is_locked},
+                ip_hash=hash_rate_limit_key("ip", client_ip),
+            )
+
+            if is_locked:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Too many failed login attempts. Account locked for {AGENT_LOCKOUT_MINUTES} minutes."
+                )
+            raise HTTPException(status_code=401, detail="Invalid credentials.")
+
+        # 5. Success! Clear lockout counters atomically
+        try:
+            supabase.rpc("agent_reset_failed_login", {"p_account_id": acc["id"]}).execute()
+        except Exception:
             supabase.table("agent_accounts").update({
                 "failed_login_attempts": 0,
                 "locked_until": None,
             }).eq("id", acc["id"]).execute()
-            acc["failed_login_attempts"] = 0
 
-    if acc.get("status") == "pending_enrollment" or not acc.get("password_hash"):
-        raise HTTPException(
-            status_code=403,
-            detail="Account enrollment is pending. Please redeem your enrollment invitation code first."
+        supabase.table("agent_accounts").update({
+            "last_login_at": now.isoformat(),
+        }).eq("id", acc["id"]).execute()
+
+        # 6. Issue opaque 32-byte session token
+        raw_token = generate_agent_session_token()
+        token_h = hash_agent_token(raw_token)
+
+        idle_exp = now + timedelta(hours=AGENT_IDLE_TIMEOUT_HOURS)
+        abs_exp = now + timedelta(days=AGENT_ABSOLUTE_TIMEOUT_DAYS)
+
+        session_row = {
+            "account_id": acc["id"],
+            "token_hash": token_h,
+            "idle_expires_at": idle_exp.isoformat(),
+            "absolute_expires_at": abs_exp.isoformat(),
+            "last_active_at": now.isoformat(),
+            "ip_hash": hash_rate_limit_key("ip", client_ip),
+            "user_agent": request.headers.get("user-agent", "")[:255],
+        }
+
+        sess_res = supabase.table("agent_sessions").insert(session_row).execute()
+        session_id = sess_res.data[0]["id"] if sess_res.data else "new"
+
+        # Set secure HTTP-only cookie
+        is_prod = os.getenv("ENVIRONMENT", "").lower() in ("production", "prod")
+        response.set_cookie(
+            key="agent_session",
+            value=raw_token,
+            httponly=True,
+            secure=is_prod,
+            samesite="lax",
+            max_age=AGENT_IDLE_TIMEOUT_HOURS * 3600,
+            path="/",
         )
-
-    if acc.get("status") != "active":
-        raise HTTPException(status_code=403, detail="Account is suspended or deactivated.")
-
-    # 4. Verify Argon2id password
-    pwd_valid = verify_password(acc["password_hash"], password)
-    if not pwd_valid:
-        # Atomic RPC failure recording (lockout non-extension & 15m window reset)
-        is_locked = False
-        failed_count = (acc.get("failed_login_attempts") or 0) + 1
-        new_lock = None
-        try:
-            rpc_res = supabase.rpc("agent_record_failed_login", {
-                "p_account_id": acc["id"],
-                "p_max_attempts": AGENT_MAX_FAILED_LOGINS,
-                "p_lockout_seconds": AGENT_LOCKOUT_MINUTES * 60,
-                "p_window_seconds": 900,
-            }).execute()
-            if rpc_res.data:
-                row = rpc_res.data[0]
-                failed_count = row.get("out_failed_attempts", failed_count)
-                is_locked = row.get("out_is_locked", False)
-                new_lock = row.get("out_locked_until")
-        except Exception as exc:
-            print(f"[SECURITY] agent_record_failed_login RPC error: {exc}")
-            if failed_count >= AGENT_MAX_FAILED_LOGINS:
-                new_lock = (now + timedelta(minutes=AGENT_LOCKOUT_MINUTES)).isoformat()
-                is_locked = True
-            supabase.table("agent_accounts").update({
-                "failed_login_attempts": failed_count,
-                "locked_until": new_lock,
-            }).eq("id", acc["id"]).execute()
 
         log_agent_audit_event(
             supabase,
             agent_id=acc["id"],
-            action="login_failed",
-            object_type="agent_account",
-            details={"attempt": failed_count, "locked": is_locked},
+            action="login_success",
+            object_type="session",
+            object_id=session_id,
             ip_hash=hash_rate_limit_key("ip", client_ip),
         )
 
-        if is_locked:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Too many failed login attempts. Account locked for {AGENT_LOCKOUT_MINUTES} minutes."
-            )
-        raise HTTPException(status_code=401, detail="Invalid credentials.")
-
-    # 5. Success! Clear lockout counters atomically
-    try:
-        supabase.rpc("agent_reset_failed_login", {"p_account_id": acc["id"]}).execute()
-    except Exception:
-        supabase.table("agent_accounts").update({
-            "failed_login_attempts": 0,
-            "locked_until": None,
-        }).eq("id", acc["id"]).execute()
-
-    supabase.table("agent_accounts").update({
-        "last_login_at": now.isoformat(),
-    }).eq("id", acc["id"]).execute()
-
-    # 6. Issue opaque 32-byte session token
-    raw_token = generate_agent_session_token()
-    token_h = hash_agent_token(raw_token)
-
-    idle_exp = now + timedelta(hours=AGENT_IDLE_TIMEOUT_HOURS)
-    abs_exp = now + timedelta(days=AGENT_ABSOLUTE_TIMEOUT_DAYS)
-
-    session_row = {
-        "account_id": acc["id"],
-        "token_hash": token_h,
-        "idle_expires_at": idle_exp.isoformat(),
-        "absolute_expires_at": abs_exp.isoformat(),
-        "last_active_at": now.isoformat(),
-        "ip_hash": hash_rate_limit_key("ip", client_ip),
-        "user_agent": request.headers.get("user-agent", "")[:255],
-    }
-
-    sess_res = supabase.table("agent_sessions").insert(session_row).execute()
-    session_id = sess_res.data[0]["id"] if sess_res.data else "new"
-
-    # Set secure HTTP-only cookie
-    is_prod = os.getenv("ENVIRONMENT", "").lower() in ("production", "prod")
-    response.set_cookie(
-        key="agent_session",
-        value=raw_token,
-        httponly=True,
-        secure=is_prod,
-        samesite="lax",
-        max_age=AGENT_IDLE_TIMEOUT_HOURS * 3600,
-        path="/",
-    )
-
-    log_agent_audit_event(
-        supabase,
-        agent_id=acc["id"],
-        action="login_success",
-        object_type="session",
-        object_id=session_id,
-        ip_hash=hash_rate_limit_key("ip", client_ip),
-    )
-
-    return {
-        "success": True,
-        "token": raw_token,
-        "agent": {
-            "id": acc["id"],
-            "email": acc["email"],
-            "name": acc["name"],
-            "role": acc["role"],
-        },
-        "expires_at": idle_exp.isoformat(),
-    }
+        return {
+            "success": True,
+            "token": raw_token,
+            "agent": {
+                "id": acc["id"],
+                "email": acc["email"],
+                "name": acc["name"],
+                "role": acc["role"],
+            },
+            "expires_at": idle_exp.isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Login failed due to a server error.")
 
 
 @router.post("/api/agent/logout")
