@@ -44,6 +44,9 @@ HINTS = [
      "You hit the Gemini usage limit. Wait a minute and retry, or enable billing on the project."),
     (("no module named", "modulenotfounderror", "importerror"),
      "A Python package is missing. Run: backend\\venv\\Scripts\\pip install -r backend\\requirements.txt"),
+    (("event loop is closed", "attached to a different loop"),
+     "The AI works once but breaks when run again (a new event loop each time). "
+     "Run: backend\\venv\\Scripts\\python scripts\\apply_fixes_v2.py"),
     (("timeout", "timed out"),
      "The model call timed out. Check your internet connection and retry."),
 ]
@@ -123,7 +126,9 @@ def main() -> int:
     def _raw():
         from google import genai
         key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-        reply = genai.Client(api_key=key).models.generate_content(
+        client = genai.Client(api_key=key)   # keep a reference: a temporary client gets closed mid-call
+        state["client"] = client
+        reply = client.models.generate_content(
             model=state["agent"].MODEL, contents="Reply with the single word OK.")
         return f"model said: {(reply.text or '').strip()[:60]!r}"
 
@@ -152,6 +157,19 @@ def main() -> int:
             rows[0]["id"], "How much is the cleaning robot? We need a quote ASAP.")
         if result is None:
             raise RuntimeError("The model replied, but not in the required JSON format")
+        return f"category={result.category} time_sensitive={result.time_sensitive}"
+
+    @step("Run triage a second time (must keep working on every new inquiry)",
+          requires=("Run the inquiry triage agent on a sample message",))
+    def _triage_again():
+        import triage_agent
+        import triage_service
+        sb = triage_service.get_db()
+        rows = sb.table("clients").select("id").limit(1).execute().data
+        result = triage_agent.run_triage_sync(
+            rows[0]["id"], "Can we book a demo of the pallet robot next week?")
+        if result is None:
+            raise RuntimeError("The second run returned no valid answer")
         return f"category={result.category} time_sensitive={result.time_sensitive}"
 
     print("\n=== Summary ===")

@@ -64,9 +64,17 @@ triage_agent = Agent(
 )
 
 
+def _make_agent() -> Agent:
+    """A fresh agent per run: asyncio.run() creates a new event loop each time, and a shared agent
+    can keep a network client tied to a loop that has already been closed."""
+    return Agent(name="inquiry_triage", model=MODEL,
+                 description="Classifies inbound customer inquiries for the rep team.",
+                 instruction=INSTRUCTION, tools=[get_account_context])
+
+
 async def _run(client_id: str, text: str) -> Optional[AiTriage]:
     sessions = InMemorySessionService()  # fresh per run: no state shared between customers
-    runner = Runner(agent=triage_agent, app_name=APP_NAME, session_service=sessions)
+    runner = Runner(agent=_make_agent(), app_name=APP_NAME, session_service=sessions)
     sid = uuid.uuid4().hex
     await sessions.create_session(app_name=APP_NAME, user_id="system-triage", session_id=sid,
                                   state={"client_id": client_id})
