@@ -19,7 +19,7 @@ CATEGORY_LABEL = {
     "pricing_quote": "Pricing / quote question",
     "demo_request": "Demo request",
     "technical_question": "Technical question",
-    "complaint_issue": "Complaint or problem",
+    "complaint_issue": "Problem or safety concern",
     "general": "General message",
     "unclear": "Unclear message",
 }
@@ -45,6 +45,11 @@ _URGENT = re.compile(
     r"by (mon|tue|wed|thu|fri|sat|sun)\w*|segera)\b", re.I)
 
 
+_SAFETY = re.compile(
+    r"\b(hazard\w*|danger\w*|unsafe|safety|injur\w*|accident\w*|harm\w*|fire|smok\w*|burn\w*|"
+    r"spark\w*|overheat\w*|explo\w*|electric shock|toxic|bahaya)\b", re.I)
+
+
 @dataclass(frozen=True)
 class Facts:
     has_open_quote: bool = False
@@ -64,6 +69,8 @@ def classify_by_rules(text: str) -> tuple[str, bool]:
     t = (text or "").strip()
     if len(re.sub(r"[\W_]+", "", t)) < 5:
         return "unclear", False
+    if _SAFETY.search(t):  # safety concerns always reach a human quickly
+        return "complaint_issue", bool(_URGENT.search(t))
     category = "general"
     for name, pattern in _RULES:
         if pattern.search(t):

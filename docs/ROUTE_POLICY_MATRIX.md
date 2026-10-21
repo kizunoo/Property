@@ -11,7 +11,7 @@
 - **`admin-only`**: Requires agent session with `role == 'admin'`. Applied to all global mutators, retraining, and system administration.
 - **LLM Rate Limited**: Subject to per-agent sliding-window limiter (10 requests / minute) to prevent model exhaustion.
 
-**Total Registered API Endpoints:** 107  
+**Total Registered API Endpoints:** 108  
 **Undeclared Policies:** 0
 
 | Method | Path | Security Policy | LLM Rate Limit | Purpose / Security Description |
@@ -35,6 +35,7 @@
 | `GET` | `/api/agent/me` | **`any-agent`** | - | Current agent account identity and permissions |
 | `POST` | `/api/console/copilot` | **`any-agent`** | Yes | Rep copilot (Google ADK agent) |
 | `GET` | `/api/console/inquiries/priority` | **`any-agent`** | - | Priority client inquiries for rep |
+| `GET` | `/api/console/inquiry/{inquiry_id}` | **`any-agent`** | - | Rep inquiry detail view |
 | `GET` | `/api/console/quotes/pending` | **`any-agent`** | Yes | List pending quote requests for rep |
 | `GET` | `/api/daily_worklist` | **`any-agent`** | - | Daily prioritize tasks (scoped to agent) |
 | `GET` | `/api/dashboard_briefing` | **`any-agent`** | Yes | Dashboard VIP narrative (LLM, scoped to agent) |

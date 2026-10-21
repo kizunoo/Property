@@ -204,6 +204,8 @@ app.include_router(copilot_router)
 import triage_service
 from triage_routes import router as triage_router
 app.include_router(triage_router)
+from inquiry_routes import router as inquiry_router
+app.include_router(inquiry_router)
 
 import re
 from fastapi.responses import JSONResponse

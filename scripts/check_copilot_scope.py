@@ -30,6 +30,11 @@ FREE_EDIT = [  # may be created or edited freely
     "backend/tests/test_triage_service.py", "backend/tests/test_triage_routes.py",
     "backend/tests/test_triage_portal_leak.py", "components/pipeline/priority-inquiries.tsx",
     "supabase/migrations/20261017100000_inquiry_triage.sql", "docs/TRIAGE_BLUEPRINT.md",
+    # rep-side inquiry view
+    "backend/inquiry_detail.py", "backend/inquiry_routes.py",
+    "backend/tests/test_inquiry_detail.py", "backend/tests/test_inquiry_routes.py",
+    "components/pipeline/inquiry-detail-modal.tsx", "components/pipeline/priority-inquiries.tsx",
+    "backend/tests/test_triage_safety.py", "scripts/apply_fixes_v3.py",
     ".scope_snapshot.json",
 ]
 ADD_ONLY = [  # existing files: lines may be ADDED, none deleted or changed

@@ -53,14 +53,14 @@ export function CopilotPanel() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="fixed bottom-4 right-4 z-50 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg"
+        className="fixed bottom-4 right-24 z-50 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg"
         aria-expanded={open}
       >
         {open ? "Close Copilot" : "Ask Copilot"}
       </button>
 
       {open && (
-        <div className="fixed bottom-16 right-4 z-50 flex h-[28rem] w-[22rem] max-w-[calc(100vw-2rem)] flex-col rounded-lg border bg-background text-foreground shadow-xl">
+        <div className="fixed bottom-16 right-24 z-50 flex h-[28rem] w-[22rem] max-w-[calc(100vw-2rem)] flex-col rounded-lg border bg-background text-foreground shadow-xl">
           <div className="border-b px-3 py-2 text-sm font-medium">
             Rep Copilot
             <span className="block text-xs font-normal text-muted-foreground">
