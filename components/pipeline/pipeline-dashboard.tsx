@@ -29,6 +29,7 @@ import { MarketMovementsPanel } from "./market-movements-panel"
 import { ModelTrainingPanel } from "./model-training-panel"
 import { PipelineProjectionCard } from "./pipeline-projection-card"
 import { WhatsAppFloatingPanel } from "./whatsapp-floating-panel"
+import { PriorityInquiries } from "./priority-inquiries"
 
 interface PipelineDashboardProps {
   onLogout?: () => void
@@ -337,6 +338,14 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                   agentId={selectedAgentId}
                   agentName={selectedAgent?.name}
                   syncTimestamp={syncTimestamp}
+                />
+                <PriorityInquiries
+                  onOpenClient={(clientId) => {
+                    const found = dedupClients.find((c) => c.clientId === clientId)
+                    if (found) {
+                      setSelectedClient(found)
+                    }
+                  }}
                 />
                 <DailyWorklistPanel
                   agentId={selectedAgentId}
