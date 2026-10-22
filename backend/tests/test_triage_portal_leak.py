@@ -28,12 +28,15 @@ from portal_auth import PersistentRateLimitStore
 
 
 def assert_no_triage_leaks(obj, path=""):
-    """Recursively assert that no dictionary key anywhere in the response starts with 'triage'."""
+    """Recursively assert that no dictionary key anywhere in the response starts with 'triage' or 'resolv'."""
     if isinstance(obj, dict):
         for k, v in obj.items():
             curr = f"{path}.{k}" if path else k
             assert not k.lower().startswith("triage"), (
                 f"Leaked triage key '{k}' found in portal response at path '{curr}'"
+            )
+            assert not k.lower().startswith("resolv"), (
+                f"Leaked resolution key '{k}' found in portal response at path '{curr}'"
             )
             assert_no_triage_leaks(v, curr)
     elif isinstance(obj, list):

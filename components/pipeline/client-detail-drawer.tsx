@@ -28,6 +28,7 @@ import { logViewing, type ViewingResult } from "@/lib/log-viewing"
 import { scheduleViewing } from "@/lib/schedule-viewing"
 import { StageBadge } from "@/components/pipeline/stage-badge"
 import { PortalAccessPanel } from "@/components/pipeline/portal-access-panel"
+import { CompanyInquiryHistory } from "@/components/pipeline/inquiry-detail-modal"
 
 // ─── Probability decomposition ────────────────────────────────────────────────
 interface ScoreRow { label: string; points: number; max: number; earned: boolean }
@@ -1139,6 +1140,11 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
           {/* Portal Access Panel (Rep Console) */}
           <div className="px-5 pb-2 sm:px-6">
             <PortalAccessPanel clientId={client.clientId} clientName={client.name} />
+          </div>
+
+          {/* Inquiry history (Rep Console) */}
+          <div className="px-5 pb-2 sm:px-6">
+            <CompanyInquiryHistory clientId={client.clientId} />
           </div>
 
           {/* Action buttons row */}

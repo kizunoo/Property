@@ -350,6 +350,9 @@ triage_cols = [
     "triage_reasons",
     "triage_alerted",
     "triaged_at",
+    "resolved_at",
+    "resolved_by",
+    "resolution_note",
 ]
 
 for col in triage_cols:

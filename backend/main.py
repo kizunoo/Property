@@ -206,6 +206,8 @@ from triage_routes import router as triage_router
 app.include_router(triage_router)
 from inquiry_routes import router as inquiry_router
 app.include_router(inquiry_router)
+from inquiry_actions_routes import router as inquiry_actions_router
+app.include_router(inquiry_actions_router)
 
 import re
 from fastapi.responses import JSONResponse
