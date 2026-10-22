@@ -85,7 +85,12 @@ async def _run(client_id: str, text: str) -> Optional[AiTriage]:
     async for event in runner.run_async(user_id="system-triage", session_id=sid, new_message=content):
         if event.is_final_response() and event.content and event.content.parts:
             final = "".join(p.text or "" for p in event.content.parts)
-    return parse_ai_output(final)
+    result = parse_ai_output(final)
+    if result is None:
+        import logging
+        logging.getLogger("triage").warning(
+            "triage model reply was not valid JSON (%d chars)", len(final))
+    return result
 
 
 def run_triage_sync(client_id: str, text: str) -> Optional[AiTriage]:

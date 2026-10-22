@@ -156,7 +156,7 @@ export function InquiryDetailModal({
                   {inq.priority}
                 </span>
                 <span className="rounded bg-neutral-100 px-2 py-0.5 text-[10px] uppercase text-neutral-500">
-                  {inq.triage_status === "ai" ? "AI-labelled" : "Rule-labelled"}
+                  {inq.triage_status === "ai" ? "AI-labelled" : inq.triage_status === "failed" ? "Rules only · AI unavailable" : "Rule-labelled · AI not finished"}
                 </span>
               </div>
             )}

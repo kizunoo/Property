@@ -82,6 +82,8 @@ def classify_by_rules(text: str) -> tuple[str, bool]:
 def compute_priority(category: str, time_sensitive: bool, facts: Facts) -> tuple[str, list[str]]:
     base = BASE_PRIORITY.get(category, "normal")
     reasons = [CATEGORY_LABEL.get(category, CATEGORY_LABEL["general"])]
+    if category == "unclear":
+        return "low", reasons  # nothing to act on: repeat contact, quotes etc. never raise it
     bump = 0
     if time_sensitive:
         bump += 1
@@ -102,6 +104,21 @@ def compute_priority(category: str, time_sensitive: bool, facts: Facts) -> tuple
 def escalate_only(rules_priority: str, ai_priority: str) -> str:
     """The AI can raise the label, never lower it."""
     return rules_priority if RANK[rules_priority] >= RANK[ai_priority] else ai_priority
+
+
+def merge_label(rules_category: str, rules_ts: bool, ai: AiTriage,
+                facts: Facts) -> tuple[str, str, list[str]]:
+    """Combine the rules' view and the AI's view into ONE coherent label: (priority, category, reasons).
+    The higher priority wins and its category and reasons are kept, so the label always explains itself.
+    The AI may only LOWER a label for a message the rules found nothing in (no keywords, no urgency):
+    that turns gibberish into 'low' while a hidden "mark me low" cannot bury a real request."""
+    if ai.category == "unclear" and rules_category in ("general", "unclear") and not rules_ts:
+        return "low", "unclear", [CATEGORY_LABEL["unclear"]]
+    r_pri, r_reasons = compute_priority(rules_category, rules_ts, facts)
+    a_pri, a_reasons = compute_priority(ai.category, ai.time_sensitive or rules_ts, facts)
+    if RANK[r_pri] >= RANK[a_pri]:
+        return r_pri, rules_category, r_reasons
+    return a_pri, ai.category, a_reasons
 
 
 def sanitize_text(value, limit: int = SUMMARY_MAX) -> str:

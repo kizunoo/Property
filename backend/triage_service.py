@@ -16,7 +16,7 @@ from typing import Callable, Optional
 
 from copilot_tools import Identity, _scoped_client_ids
 from triage_rules import (CATEGORY_LABEL, RANK, AiTriage, Facts, classify_by_rules,
-                          compute_priority, escalate_only, sanitize_text)
+                          compute_priority, escalate_only, merge_label, sanitize_text)
 
 log = logging.getLogger("triage")
 
@@ -186,14 +186,14 @@ def _ai_refine(db, client_id, inquiry_id, text, rules_priority, rules_ts, facts)
         if ai is None:
             db.table(INQUIRY_TABLE).update({"triage_status": "failed"}).eq("id", inquiry_id).execute()
             return
-        ai_priority, reasons = compute_priority(ai.category, ai.time_sensitive or rules_ts, facts)
-        final = escalate_only(rules_priority, ai_priority)
+        rules_category, _ = classify_by_rules(text)
+        final, category, reasons = merge_label(rules_category, rules_ts, ai, facts)
         db.table(INQUIRY_TABLE).update({
-            "triage_status": "ai", "triage_priority": final, "triage_category": ai.category,
+            "triage_status": "ai", "triage_priority": final, "triage_category": category,
             "triage_summary": ai.summary, "triage_reasons": reasons,
             "triaged_at": _now().isoformat(),
         }).eq("id", inquiry_id).execute()
-        _maybe_alert(db, client_id, inquiry_id, final, ai.category, ai.summary)
+        _maybe_alert(db, client_id, inquiry_id, final, category, ai.summary)
     except Exception as e:  # noqa: BLE001
         log.warning("triage refine error: %s", type(e).__name__)
     finally:

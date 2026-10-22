@@ -46,6 +46,15 @@ function ago(iso: string | null): string {
   return `${Math.round(mins / 1440)}d ago`
 }
 
+// Which engine produced the label: the AI, or only the rules (AI still reading, or unavailable).
+function labelTag(i: Inquiry): { text: string; cls: string } {
+  const mins = i.created_at ? (Date.now() - new Date(i.created_at).getTime()) / 60000 : 99
+  if (i.triage_status === "ai") return { text: "AI", cls: "border-[#FFD600] text-[#FFD600]" }
+  if (i.triage_status === "rules" && mins < 2)
+    return { text: "AI reviewing…", cls: "animate-pulse border-neutral-600 text-neutral-400" }
+  return { text: "Rules only", cls: "border-neutral-700 text-neutral-500" }
+}
+
 // Rep-console only. Place inside the dashboard's centered content column, above the outreach worklist.
 // Polls so new company inquiries appear without a refresh. All text is rendered as plain text.
 export function PriorityInquiries({ onOpenClient }: { onOpenClient?: (clientId: string) => void }) {
@@ -66,18 +75,26 @@ export function PriorityInquiries({ onOpenClient }: { onOpenClient?: (clientId: 
     }
   }, [])
 
+  // Poll every 5s while a fresh inquiry is still being read by the AI, otherwise every 30s.
+  const aiPending = items.some(
+    (i) => i.triage_status === "rules" && i.created_at && Date.now() - new Date(i.created_at).getTime() < 120000,
+  )
+
   useEffect(() => {
     load()
+  }, [load])
+
+  useEffect(() => {
     const tick = () => {
       if (document.visibilityState === "visible") load()
     }
-    const timer = setInterval(tick, 30000)
+    const timer = setInterval(tick, aiPending ? 5000 : 30000)
     document.addEventListener("visibilitychange", tick)
     return () => {
       clearInterval(timer)
       document.removeEventListener("visibilitychange", tick)
     }
-  }, [load])
+  }, [load, aiPending])
 
   const hot = items.filter((i) => i.priority === "urgent" || i.priority === "high").length
   const visible = showAll ? items : items.slice(0, COLLAPSED_COUNT)
@@ -91,7 +108,7 @@ export function PriorityInquiries({ onOpenClient }: { onOpenClient?: (clientId: 
             : `Priority inquiries — ${hot > 0 ? `${hot} need attention` : `${items.length} open`}`}
         </h2>
         <span className="text-[10px] uppercase tracking-wide text-neutral-400">
-          AI-labelled · review before acting
+          AI-assisted labels · review before acting
         </span>
       </div>
 
@@ -121,6 +138,12 @@ export function PriorityInquiries({ onOpenClient }: { onOpenClient?: (clientId: 
                   <span className="text-sm font-bold">{i.company}</span>
                   <span className="font-mono text-[11px] text-neutral-400">
                     {CATEGORY[i.category ?? ""] ?? "Message"} · {ago(i.created_at)}
+                  </span>
+                  <span
+                    className={`rounded border px-1.5 py-px font-mono text-[9px] uppercase ${labelTag(i).cls}`}
+                    title="Which engine produced this label"
+                  >
+                    {labelTag(i).text}
                   </span>
                 </div>
                 <p className="mt-0.5 line-clamp-2 font-mono text-xs text-neutral-200">{i.summary}</p>
