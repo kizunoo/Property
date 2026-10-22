@@ -1,3 +1,3 @@
-sku_code,name,manufacturer,category,price,lease_monthly,payload_kg,battery_hours,key_specs,target_industries,image_url
-EXAMPLE-AMR-1,Example Industrial Delivery AMR,Example Robotics,AMR / Material Handling,68000,2200,300,12,Visual SLAM + LiDAR; 60cm narrow aisle passability,Manufacturing; Warehouse,
-EXAMPLE-SCRUB-1,Example Autonomous Scrubber,Example Cleaning Co,Commercial Cleaning,85000,2800,,4,4-in-1 vacuum/scrub/sweep; auto spot-cleaning,Malls; Hospitals; Offices,
+sku_code,name,manufacturer,category,price,lease_monthly,payload_kg,battery_hours,weight_kg,dimensions,speed_mps,warranty_months,key_specs,target_industries,image_url
+EXAMPLE-AMR-1,Example Industrial Delivery AMR,Example Robotics,AMR / Material Handling,68000,2200,300,12,,,,,Visual SLAM + LiDAR; 60cm narrow aisle passability,Manufacturing; Warehouse,
+EXAMPLE-SCRUB-1,Example Autonomous Scrubber,Example Cleaning Co,Commercial Cleaning,85000,2800,,4,,,,,4-in-1 vacuum/scrub/sweep; auto spot-cleaning,Malls; Hospitals; Offices,

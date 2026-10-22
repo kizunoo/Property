@@ -14,6 +14,7 @@ from triage_rules import CATEGORY_LABEL, sanitize_text
 INQUIRY_TABLE = "client_inquiries"
 MESSAGE_TABLE = "inquiry_messages"
 CLIENT_TABLE, CLIENT_NAME_COL = "clients", "name"
+AGENT_TABLE, AGENT_NAME_COL = "agent_accounts", "name"
 MAX_BODY = 4000
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 
@@ -22,6 +23,18 @@ def clean_message(value, limit: int = MAX_BODY) -> str:
     s = "" if value is None else str(value)
     s = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", s)  # keep newlines and tabs
     return s.strip()[:limit]
+
+
+def agent_names(db, ids) -> dict:
+    """Best-effort id -> display name for reps (never raises)."""
+    ids = [str(i) for i in ids if i]
+    if not ids:
+        return {}
+    try:
+        rows = db.table(AGENT_TABLE).select(f"id,{AGENT_NAME_COL}").in_("id", ids).execute().data or []
+        return {str(r["id"]): sanitize_text(r.get(AGENT_NAME_COL), 80) for r in rows}
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def get_inquiry_detail(db, identity: Identity, inquiry_id: str) -> Optional[dict]:
@@ -51,6 +64,7 @@ def get_inquiry_detail(db, identity: Identity, inquiry_id: str) -> Optional[dict
         messages = messages[1:]  # the first stored message just repeats the original
 
     category = inq.get("triage_category")
+    resolver = agent_names(db, [inq.get("resolved_by")]).get(str(inq.get("resolved_by")))
     return {
         "inquiry": {
             "inquiry_id": inq.get("id"),
@@ -64,6 +78,9 @@ def get_inquiry_detail(db, identity: Identity, inquiry_id: str) -> Optional[dict
             "reasons": [sanitize_text(r, 80) for r in (inq.get("triage_reasons") or [])][:5],
             "summary": sanitize_text(inq.get("triage_summary"), 200),
             "triage_status": inq.get("triage_status"),
+            "resolved_at": inq.get("resolved_at"),
+            "resolved_by": resolver,
+            "resolution_note": clean_message(inq.get("resolution_note"), 500) or None,
         },
         "original_message": original,
         "messages": messages,

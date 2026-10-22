@@ -77,13 +77,15 @@ def gather_facts(db, client_id: str, inquiry_id: str) -> Facts:
     quotes = db.table(QUOTE_TABLE).select("status").eq("client_id", client_id).execute().data or []
     demos = (db.table(VIEWING_TABLE).select("confirmation_status")
              .eq("client_id", client_id).execute().data) or []
-    inquiries = (db.table(INQUIRY_TABLE).select("id,status,created_at")
+    inquiries = (db.table(INQUIRY_TABLE).select("id,status,created_at,resolved_at")
                  .eq("client_id", client_id).limit(200).execute().data) or []
     last_7d = sum(1 for i in inquiries
-                  if (d := _parse(i.get("created_at"))) and d >= now - timedelta(days=7))
+                  if not i.get("resolved_at")
+                  and (d := _parse(i.get("created_at"))) and d >= now - timedelta(days=7))
     stale = now - timedelta(hours=48)
     prior_unanswered = any(
         i.get("id") != inquiry_id and i.get("status") in UNANSWERED_STATUSES
+        and not i.get("resolved_at")
         and (d := _parse(i.get("created_at"))) and d < stale
         for i in inquiries)
     return Facts(
@@ -207,11 +209,12 @@ def list_priority_inquiries(db, identity: Identity, limit: int = 20) -> list[dic
         return []
     q = db.table(INQUIRY_TABLE).select(
         "id,client_id,status,created_at,triage_priority,triage_category,"
-        "triage_summary,triage_reasons,triage_status")
+        "triage_summary,triage_reasons,triage_status,resolved_at")
     if ids is not None:
         q = q.in_("client_id", ids)
     rows = q.order("created_at", desc=True).limit(200).execute().data or []
-    rows = [r for r in rows if r.get("triage_priority") and r.get("status") in INQUIRY_OPEN_STATUSES]
+    rows = [r for r in rows if r.get("triage_priority") and r.get("status") in INQUIRY_OPEN_STATUSES
+            and not r.get("resolved_at")]
     rows.sort(key=lambda r: RANK.get(r["triage_priority"], 0), reverse=True)  # stable: newest first within rank
     rows = rows[:limit]
     names = {}

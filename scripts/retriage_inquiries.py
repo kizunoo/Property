@@ -7,6 +7,7 @@ and status for rows it re-ran). Creates NO alerts. Prints company names and ids 
     backend\\venv\\Scripts\\python scripts\\retriage_inquiries.py              # preview only
     backend\\venv\\Scripts\\python scripts\\retriage_inquiries.py --apply      # write changes
     ... --apply --ai       # also re-run the AI for rows that were rules-only (max 20, 1 per second)
+    ... --apply --ai --all # re-run the AI for every open inquiry
 """
 from __future__ import annotations
 
@@ -38,7 +39,7 @@ def main() -> int:
     import triage_service
     from copilot_tools import INQUIRY_TEXT_COL
 
-    apply, use_ai = "--apply" in sys.argv, "--ai" in sys.argv
+    apply, use_ai, rerun_all = "--apply" in sys.argv, "--ai" in sys.argv, "--all" in sys.argv
     sb = app_main.supabase
     triage_service.set_db(sb)
     rows = (sb.table("client_inquiries").select("*").order("created_at", desc=True)
@@ -53,7 +54,7 @@ def main() -> int:
         text = r.get(INQUIRY_TEXT_COL) or ""
         facts = triage_service.gather_facts(sb, r["client_id"], r["id"])
         ai = None
-        if use_ai and r.get("triage_status") != "ai" and ai_budget > 0:
+        if use_ai and (rerun_all or r.get("triage_status") != "ai") and ai_budget > 0:
             ai_budget -= 1
             time.sleep(1)
             try:

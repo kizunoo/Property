@@ -37,7 +37,7 @@ _RULES = [
     ("pricing_quote", re.compile(
         r"\b(price\w*|pricing|quote\w*|quotation|cost\w*|lease|leasing|how much|budget|rm ?\d+|harga|sebut harga)\b", re.I)),
     ("technical_question", re.compile(
-        r"\b(spec\w*|payload|battery|aisle\w*|integrat\w*|wi-?fi|5g|api|compatib\w*|elevator|lift|"
+        r"\b(spec\w*|payload|weigh\w*|dimension\w*|warranty|speed|battery|aisle\w*|integrat\w*|wi-?fi|5g|api|compatib\w*|elevator|lift|"
         r"navigation|lidar|sensor\w*|capacity)\b", re.I)),
 ]
 _URGENT = re.compile(
@@ -116,7 +116,8 @@ def merge_label(rules_category: str, rules_ts: bool, ai: AiTriage,
         return "low", "unclear", [CATEGORY_LABEL["unclear"]]
     r_pri, r_reasons = compute_priority(rules_category, rules_ts, facts)
     a_pri, a_reasons = compute_priority(ai.category, ai.time_sensitive or rules_ts, facts)
-    if RANK[r_pri] >= RANK[a_pri]:
+    # On a tie the AI's category is usually the more informative one, except for problems/safety.
+    if RANK[r_pri] > RANK[a_pri] or (RANK[r_pri] == RANK[a_pri] and rules_category == "complaint_issue"):
         return r_pri, rules_category, r_reasons
     return a_pri, ai.category, a_reasons
 

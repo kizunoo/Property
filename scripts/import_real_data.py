@@ -51,7 +51,8 @@ PROTECTED_TABLES = {"agent_accounts", "agent_sessions", "agent_audit_log"}
 
 # ---------------------------------------------------------------------------
 ROBOT_REQUIRED = ["sku_code", "name", "manufacturer", "category", "price"]
-ROBOT_OPTIONAL_NUM = ["lease_monthly", "payload_kg", "battery_hours"]
+ROBOT_OPTIONAL_NUM = ["lease_monthly", "payload_kg", "battery_hours", "weight_kg", "speed_mps",
+                      "warranty_months"]
 COMPANY_REQUIRED = ["company_name", "industry", "assigned_agent_email"]
 # Contact person fields are OPTIONAL (public sources only give a company main line).
 # Without contact_email no portal contact is created: add it after you speak to someone.
@@ -162,7 +163,7 @@ def keyword_map(text: str, table):
 
 def build_robot_row(r):
     specs = {k: (num(r[k]) if k in ROBOT_OPTIONAL_NUM else r[k])
-             for k in ROBOT_OPTIONAL_NUM + ["key_specs", "target_industries"] if r.get(k)}
+             for k in ROBOT_OPTIONAL_NUM + ["key_specs", "target_industries", "dimensions"] if r.get(k)}
     return {
         PROPERTY_COLS["name"]: r["name"],
         PROPERTY_COLS["price"]: num(r["price"]),
