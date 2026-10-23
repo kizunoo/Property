@@ -8,6 +8,7 @@ class RoiScenarioInputs(BaseModel):
     headcountPerShift: float = Field(0, ge=0, le=500)
     monthlyLaborCost: float = Field(0, ge=0, le=1_000_000)
     mode: Literal["purchase", "lease"] = "purchase"
+    enteredPrice: Optional[float] = Field(None, ge=0, le=100_000_000)
 
     @model_validator(mode="before")
     @classmethod
@@ -18,6 +19,8 @@ class RoiScenarioInputs(BaseModel):
                 d["headcountPerShift"] = d["headcount_per_shift"]
             if "monthly_labor_cost" in d and "monthlyLaborCost" not in d:
                 d["monthlyLaborCost"] = d["monthly_labor_cost"]
+            if "entered_price" in d and "enteredPrice" not in d:
+                d["enteredPrice"] = d["entered_price"]
             return d
         return data
 

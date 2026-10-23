@@ -19,6 +19,7 @@ import inquiry_detail
 from copilot_tools import (CLIENT_NAME_COL, CLIENT_TABLE, EV_COL, EVAL_CLIENT_COL, EVAL_TABLE,
                            ROBOT_NAME_COL, ROBOT_PRICE_COL, ROBOT_TABLE, UNTRUSTED_NOTE, Identity)
 from inquiry_detail import clean_message
+from price_utils import NOT_IN_CATALOG, ev_rank_key, price_fact_value, to_price
 from triage_rules import sanitize_text
 
 # ADAPT-ME: column on pipeline_evaluations that points at the product (properties.id)
@@ -40,6 +41,8 @@ MAX_FACT_VALUE = 200
 def _fmt(value) -> str:
     if value is None or value == "":
         return ""
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
     if isinstance(value, (list, tuple)):
         value = ", ".join(str(v) for v in value)
     if isinstance(value, dict):
@@ -47,7 +50,7 @@ def _fmt(value) -> str:
     return sanitize_text(value, MAX_FACT_VALUE)
 
 
-def product_sheet(row: dict, why: str = "") -> dict:
+def product_sheet(row: dict, why: str = "", entered_price: Optional[float] = None) -> dict:
     facts: list[dict] = []
 
     def add(label: str, value) -> None:
@@ -57,7 +60,16 @@ def product_sheet(row: dict, why: str = "") -> dict:
 
     for col, label in SCALAR_FACTS:
         add(label, row.get(col))
-    add("Unit cost (RM)", row.get(ROBOT_PRICE_COL))
+
+    price_val = to_price(row.get(ROBOT_PRICE_COL))
+    if price_val is not None:
+        int_price = int(price_val) if price_val.is_integer() else price_val
+        add("Unit cost (RM)", price_fact_value(int_price, _fmt))
+    elif entered_price is not None:
+        add("Unit cost (RM)", f"RM {entered_price:,.0f} (price entered by company)")
+    else:
+        add("Unit cost (RM)", NOT_IN_CATALOG)
+
     specs = row.get("specs") if isinstance(row.get("specs"), dict) else {}
     for key, value in specs.items():
         add(SPEC_LABELS.get(key, str(key).replace("_", " ").capitalize()), value)
@@ -85,11 +97,16 @@ def candidate_products(db, client_id: str, conversation_text: str, roi=None, lim
     picked: list = []
     seen: set = set()
 
+    entered_price = None
+    if isinstance(roi, dict):
+        ep = roi.get("entered_price") or roi.get("inputs", {}).get("entered_price")
+        entered_price = to_price(ep)
+
     def add(row, why):
         pid = str(row.get("id"))
         if pid not in seen and len(picked) < limit:
             seen.add(pid)
-            picked.append(product_sheet(row, why))
+            picked.append(product_sheet(row, why, entered_price=entered_price))
 
     text = (conversation_text or "").lower()
     for r in catalog:
@@ -100,10 +117,19 @@ def candidate_products(db, client_id: str, conversation_text: str, roi=None, lim
             if roi.get(key) and str(roi[key]) in by_id:
                 add(by_id[str(roi[key])], "selected in the customer's ROI scenario")
     try:
-        best = (db.table(EVAL_TABLE).select(EVAL_PROPERTY_COL).eq(EVAL_CLIENT_COL, client_id)
-                .order(EV_COL, desc=True).limit(1).execute().data) or []
-        if best and str(best[0].get(EVAL_PROPERTY_COL)) in by_id:
-            add(by_id[str(best[0][EVAL_PROPERTY_COL])], "closest match on file for this company")
+        try:
+            best_evals = (db.table(EVAL_TABLE).select(f"{EVAL_PROPERTY_COL},{EV_COL},ai_probability")
+                          .eq(EVAL_CLIENT_COL, client_id)
+                          .order(EV_COL, desc=True, nullsfirst=False).limit(5).execute().data) or []
+        except TypeError:
+            best_evals = (db.table(EVAL_TABLE).select(f"{EVAL_PROPERTY_COL},{EV_COL},ai_probability")
+                          .eq(EVAL_CLIENT_COL, client_id)
+                          .order(EV_COL, desc=True).limit(5).execute().data) or []
+        if best_evals:
+            best_evals.sort(key=lambda r: ev_rank_key(r.get("ai_probability"), r.get(EV_COL)), reverse=True)
+            best_pid = str(best_evals[0].get(EVAL_PROPERTY_COL))
+            if best_pid in by_id:
+                add(by_id[best_pid], "closest match on file for this company")
     except Exception:  # noqa: BLE001
         pass
     return picked

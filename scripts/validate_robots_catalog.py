@@ -11,11 +11,11 @@ from pathlib import Path
 EXPECTED = ("sku_code,name,manufacturer,category,price,lease_monthly,payload_kg,"
             "battery_hours,weight_kg,dimensions,speed_mps,warranty_months,"
             "key_specs,target_industries,image_url").split(",")
-REQUIRED = ("sku_code", "name", "manufacturer", "category", "price")
+REQUIRED = ("sku_code", "name", "manufacturer", "category")
 NUMERIC = ("price", "lease_monthly", "payload_kg", "battery_hours",
            "weight_kg", "speed_mps", "warranty_months")
 # Columns whose absence only weakens AI answers ("Not in the catalog"), not blockers.
-WANTED = ("weight_kg", "dimensions")
+WANTED = ("weight_kg", "dimensions", "price")
 
 
 def main(path: str) -> int:

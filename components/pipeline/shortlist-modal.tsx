@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react"
 import { currency, percent, TIER_SHORT, type Property, type Tier } from "@/lib/pipeline-data"
+import { compareByEvThenProbability, evLabel, priceLabel } from "@/lib/price"
 import { fetchShortlist, type ShortlistEntry } from "@/lib/fetch-shortlist"
 
 // ─── Filter + sort types ──────────────────────────────────────────────────────
@@ -218,14 +219,14 @@ function ShortlistRow({
       {/* Blended E(x) & Formula E(x) */}
       <div className="shrink-0 flex flex-col items-end w-[130px] mt-0.5">
         <span className="rounded-[var(--radius-sm)] border border-border px-2 py-0.5 font-mono text-[10px] font-bold bg-card text-foreground inline-flex justify-end shadow-[var(--shadow-xs)]">
-          {currency(entry.blendedExpectedValue)}
+          {evLabel(entry.blendedExpectedValue, currency)}
         </span>
         {entry.mlProbability !== null ? (
           <span
             className="font-mono text-[9px] text-muted-foreground mt-0.5 pr-0.5"
             title="Rule-based formula expected value"
           >
-            formula: {currency(entry.expectedValue)}
+            formula: {evLabel(entry.expectedValue, currency)}
           </span>
         ) : (
           <span className="font-mono text-[8px] text-muted-foreground/60 mt-0.5 pr-0.5">
@@ -261,7 +262,7 @@ function ComparePanel({
   onRemove,
 }: {
   entries: ShortlistEntry[]
-  propertyValue: number
+  propertyValue: number | null
   onInvite?: (e: ShortlistEntry) => void
   onRemove: (id: string) => void
 }) {
@@ -282,11 +283,13 @@ function ComparePanel({
       </div>
       <div className={`grid gap-0 divide-x divide-border border-t border-border`} style={{ gridTemplateColumns: `repeat(${entries.length}, 1fr)` }}>
         {entries.map((e) => {
-          const budgetVsPrice = e.statedBudget != null && e.statedBudget > 0
-            ? e.statedBudget >= propertyValue
-              ? "✓ Covers unit cost"
-              : `${Math.round((e.statedBudget / propertyValue) * 100)}% of unit cost`
-            : "Budget not set"
+          const budgetVsPrice = propertyValue == null
+            ? "Price on request"
+            : e.statedBudget != null && e.statedBudget > 0
+              ? e.statedBudget >= propertyValue
+                ? "✓ Covers unit cost"
+                : `${Math.round((e.statedBudget / propertyValue) * 100)}% of unit cost`
+              : "Budget not set"
           return (
             <div key={e.clientId} className="p-4 flex flex-col gap-2.5 relative">
               <button
@@ -314,7 +317,7 @@ function ComparePanel({
                 </div>
                 <div className="flex justify-between gap-2">
                   <span className="text-muted-foreground font-medium">Budget vs Unit Cost</span>
-                  <span className={`font-mono font-bold ${e.statedBudget != null && e.statedBudget >= propertyValue ? "text-emerald-700" : "text-neutral-500"}`}>
+                  <span className={`font-mono font-bold ${propertyValue != null && e.statedBudget != null && e.statedBudget >= propertyValue ? "text-emerald-700" : "text-neutral-500"}`}>
                     {budgetVsPrice}
                   </span>
                 </div>
@@ -354,12 +357,12 @@ function ComparePanel({
                 </div>
                 <div className="flex justify-between gap-2">
                   <span className="text-muted-foreground font-medium">Blended E(x)</span>
-                  <span className="font-mono font-bold">{currency(e.blendedExpectedValue)}</span>
+                  <span className="font-mono font-bold">{evLabel(e.blendedExpectedValue, currency)}</span>
                 </div>
                 {e.mlProbability !== null && (
                   <div className="flex justify-between gap-2 -mt-1">
                     <span className="text-muted-foreground text-[10px]">Formula E(x)</span>
-                    <span className="font-mono text-[10px] text-muted-foreground">{currency(e.expectedValue)}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">{evLabel(e.expectedValue, currency)}</span>
                   </div>
                 )}
               </div>
@@ -474,8 +477,11 @@ export function ShortlistModal({ property, open, onClose, agentId, onGenerateInv
     // Sort
     return [...f].sort((a, b) => {
       if (sortMode === "formula")  return b.formulaScore - a.formulaScore
-      if (sortMode === "budget")   return b.budgetRatio - a.budgetRatio
-      return b.blendedExpectedValue - a.blendedExpectedValue  // default: blended E(x)
+      if (sortMode === "budget")   return (b.budgetRatio ?? 0) - (a.budgetRatio ?? 0)
+      return compareByEvThenProbability(
+        { expectedValue: a.blendedExpectedValue, probability: a.blendedProbability },
+        { expectedValue: b.blendedExpectedValue, probability: b.blendedProbability },
+      )
     })
   }, [entries, tierFilter, confidenceFilter, sortMode])
 
@@ -534,7 +540,7 @@ export function ShortlistModal({ property, open, onClose, agentId, onGenerateInv
               </button>
               <div className="flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-border bg-muted px-3 py-1 font-display text-xs font-bold text-foreground">
                 <Wallet className="h-3 w-3 text-muted-foreground" strokeWidth={2.5} />
-                {currency(property.value)}
+                {priceLabel(property.value, currency)}
               </div>
             </div>
           </div>

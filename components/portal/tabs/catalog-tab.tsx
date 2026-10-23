@@ -33,7 +33,7 @@ import { RoiPanel } from "@/components/portal/roi-panel"
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatCost(n: number | null): string {
-  if (!n) return "—"
+  if (n == null || n <= 0) return "Price on request"
   if (n >= 1_000_000) return `RM ${(n / 1_000_000).toFixed(2)}M`
   if (n >= 1_000)     return `RM ${(n / 1_000).toFixed(0)}K`
   return `RM ${n.toLocaleString()}`

@@ -31,6 +31,9 @@ def reload_model():
 
 
 def predict_probability(client: dict, prop: dict) -> float | None:
+    from price_utils import should_use_ml
+    if not should_use_ml(prop):
+        return None
     model = get_model()
     if model is None:
         return None  # no model trained yet — caller should handle gracefully

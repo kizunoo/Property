@@ -35,13 +35,16 @@ from __future__ import annotations
 from typing import TypedDict
 
 
+from price_utils import compute_expected_value, has_price, tier_without_price, to_price
+
+
 # ─── Output type ──────────────────────────────────────────────────────────────
 
 class ScoringResult(TypedDict):
-    probability:    float   # 0.0–1.0
-    tier:           str     # "TIER_1" | "TIER_2" | "TIER_3"
-    expected_value: float   # probability × property_value (RM)
-    confidence:     str     # "HIGH" | "MEDIUM" | "LOW"
+    probability:    float          # 0.0–1.0
+    tier:           str            # "TIER_1" | "TIER_2" | "TIER_3"
+    expected_value: float | None   # probability × property_value (RM) or None if unpriced
+    confidence:     str            # "HIGH" | "MEDIUM" | "LOW"
 
 
 # ─── Score component breakdown ────────────────────────────────────────────────
@@ -96,9 +99,9 @@ def _score_breakdown(client: dict, prop: dict) -> ScoreBreakdown:
 
     # Financial Fit: up to +40%
     budget     = client.get("budget")
-    prop_value = prop.get("property_value", 0)
+    prop_value = to_price(prop.get("property_value"))
     financial  = 0.0
-    if budget is not None and budget > 0 and prop_value > 0:
+    if budget is not None and budget > 0 and prop_value is not None:
         if budget >= prop_value:
             ratio = prop_value / budget
             financial = 0.40 * (0.5 + 0.5 * min(1.0, ratio))
@@ -188,6 +191,23 @@ def _probability(client: dict, prop: dict) -> float:
         Repeat Area Owner         +5%   (previously bought in target neighborhood)
     """
     bd = _score_breakdown(client, prop)
+    if not has_price(prop):
+        # When price is None, the financial component is excluded and the
+        # remaining non-financial weights (summing to 0.60 core) are renormalized
+        # so a missing price neither helps nor hurts.
+        non_financial = (
+            bd["base"]
+            + bd["geo_primary"]
+            + bd["engagement"]
+            + bd["financing"]
+            + bd["timeline"]
+            + bd["type_match"]
+            + bd["geo_secondary"]
+            + bd["track_record"]
+            + bd["repeat_area"]
+        )
+        return round(min(non_financial / 0.60, 1.0), 4)
+
     total = (
         bd["base"]
         + bd["financial"]
@@ -205,7 +225,7 @@ def _probability(client: dict, prop: dict) -> float:
 
 # ─── Tier assignment ──────────────────────────────────────────────────────────
 
-def _tier(probability: float, expected_value: float) -> str:
+def _tier(probability: float, expected_value: float | None) -> str:
     """
     Classify client–property pair into a segment tier.
 
@@ -213,11 +233,13 @@ def _tier(probability: float, expected_value: float) -> str:
     TIER_2  — Warm lead:      P(Buy) ≥ 35%
     TIER_3  — Cold / monitor: everything else
     """
-    if expected_value > 50_000 and probability >= 0.65:
-        return "TIER_1"
-    if probability >= 0.35:
-        return "TIER_2"
-    return "TIER_3"
+    if expected_value is not None:
+        if expected_value > 50_000 and probability >= 0.65:
+            return "TIER_1"
+        if probability >= 0.35:
+            return "TIER_2"
+        return "TIER_3"
+    return tier_without_price(probability)
 
 
 # ─── Pick / Skip reason builder ───────────────────────────────────────────────
@@ -232,23 +254,24 @@ def build_pick_skip_reasons(client: dict, prop: dict) -> tuple[str, str]:
     """
     bd             = _score_breakdown(client, prop)
     raw_budget     = client.get("budget")
-    prop_v         = prop.get("property_value") or 1
+    prop_v         = to_price(prop.get("property_value"))
     viewings       = client.get("engagement_history") or 0
     past_purchases = client.get("past_purchases") or []
 
     pick_tags: list[str] = []
     skip_tags: list[str] = []
 
-    # Financial fit
-    if raw_budget is None:
-        skip_tags.append("Budget not set")
-    elif raw_budget >= prop_v:
-        pick_tags.append("✓ Budget covers asking")
-    elif raw_budget > 0 and (raw_budget / prop_v) >= 0.8:
-        pick_tags.append("✓ Budget near asking")
-    else:
-        ratio_pct = int((raw_budget / prop_v) * 100) if prop_v > 0 else 0
-        skip_tags.append(f"✗ Budget {100 - ratio_pct}% below asking")
+    # Financial fit (must not compare against any price when unpriced)
+    if prop_v is not None:
+        if raw_budget is None:
+            skip_tags.append("Budget not set")
+        elif raw_budget >= prop_v:
+            pick_tags.append("✓ Budget covers asking")
+        elif raw_budget > 0 and (raw_budget / prop_v) >= 0.8:
+            pick_tags.append("✓ Budget near asking")
+        else:
+            ratio_pct = int((raw_budget / prop_v) * 100) if prop_v > 0 else 0
+            skip_tags.append(f"✗ Budget {100 - ratio_pct}% below asking")
 
     # Past acquisition track record
     if len(past_purchases) > 0:
@@ -325,7 +348,7 @@ def score(client: dict, prop: dict) -> ScoringResult:
         probability, tier, expected_value, confidence
     """
     probability    = _probability(client, prop)
-    expected_value = round(probability * prop.get("property_value", 0), 2)
+    expected_value = compute_expected_value(probability, prop.get("property_value"))
     tier           = _tier(probability, expected_value)
     confidence     = _confidence(client)
 

@@ -36,7 +36,7 @@ interface PipelineDashboardProps {
 }
 
 
-function HeroStatCard({ totalPipelineValue, dedupCount, syncTimestamp }: { totalPipelineValue: number; dedupCount: number; syncTimestamp: number }) {
+function HeroStatCard({ totalPipelineValue, dedupCount, syncTimestamp, unpricedCount }: { totalPipelineValue: number | null; dedupCount: number; syncTimestamp: number; unpricedCount?: number }) {
   return (
     <AnimatedContent delay={0} className="sm:col-span-2">
       <div className="relative flex h-full flex-col justify-between rounded-[var(--radius)] border border-l-[3px] border-l-neutral-300 border-border bg-card p-5 sm:p-7 shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-sm-hover)] transition-shadow duration-200">
@@ -50,8 +50,17 @@ function HeroStatCard({ totalPipelineValue, dedupCount, syncTimestamp }: { total
             </span>
           </div>
           <div className="mt-4 font-display text-4xl font-bold leading-none tracking-tight sm:text-5xl lg:text-6xl">
-            <CountUp value={totalPipelineValue} formatNumber={currency} triggerKey={syncTimestamp} />
+            {totalPipelineValue !== null ? (
+              <CountUp value={totalPipelineValue} formatNumber={currency} triggerKey={syncTimestamp} />
+            ) : (
+              "Awaiting quotes"
+            )}
           </div>
+          {unpricedCount && unpricedCount > 0 ? (
+            <div className="mt-1 font-mono text-xs font-bold text-amber-600">
+              {unpricedCount} robot{unpricedCount === 1 ? "" : "s"} awaiting quotes
+            </div>
+          ) : null}
         </div>
         <div className="mt-4 inline-flex w-fit items-center rounded-[var(--radius-sm)] border border-border bg-secondary/80 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Sum of E(x) across {dedupCount} unique clients
@@ -389,6 +398,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
 
                   <HeroStatCard
                     totalPipelineValue={totals.totalPipelineValue}
+                    unpricedCount={totals.unpricedPipelineCount}
                     dedupCount={dedupClients.length}
                     syncTimestamp={syncTimestamp}
                   />

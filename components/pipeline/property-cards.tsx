@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Building2, CheckCircle2, MapPin, Search, Users } from "lucide-react"
 import { currency, type Property } from "@/lib/pipeline-data"
+import { priceLabel } from "@/lib/price"
 import { PixelatedImageCanvas } from "./pixelated-image-canvas"
 import { ScrollConnect } from "@/components/animation/scroll-connect"
 
@@ -114,7 +115,7 @@ function PropertyCard({
             <div className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
               {isClosed ? "Deployed / Unit Value" : "Unit Cost"}
             </div>
-            <div className="font-mono text-2xl font-black leading-none sm:text-3xl">{currency(property.value)}</div>
+            <div className="font-mono text-2xl font-black leading-none sm:text-3xl">{priceLabel(property.value, currency)}</div>
           </div>
           {isClosed ? (
             <button

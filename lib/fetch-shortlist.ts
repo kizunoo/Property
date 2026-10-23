@@ -12,8 +12,8 @@ export interface ShortlistEntry {
   blendedScore:           number   // 0.6×formula + 0.4×ml (or 100% formula if no model)
   blendedProbability:     number   // blended P(Buy)
   tier:                   Tier
-  expectedValue:          number   // formula-only expected value
-  blendedExpectedValue:   number   // ML-adjusted blended expected value (primary sort)
+  expectedValue:          number | null   // formula-only expected value
+  blendedExpectedValue:   number | null   // ML-adjusted blended expected value (primary sort)
   confidence:             "HIGH" | "MEDIUM" | "LOW"
   // Pick / Skip reasoning
   pickReason:             string   // e.g. "✓ Budget covers asking · ✓ Area match · 2 viewings"
@@ -26,7 +26,7 @@ export interface ShortlistEntry {
   financingStatus:        string | null
   moveInTimeline:         string | null
   propertyTypePreference: string | null
-  budgetRatio:            number   // stated_budget / property_value
+  budgetRatio:            number | null   // stated_budget / property_value
   pastPurchasesCount?:    number
   pastPurchases?:         any[]
 }
@@ -60,8 +60,8 @@ export async function fetchShortlist(propertyId: string, agentId?: string | null
       blended_score?:             number
       blended_probability?:       number
       tier:                       Tier
-      expected_value:             number
-      blended_expected_value?:    number
+      expected_value:             number | null
+      blended_expected_value?:    number | null
       confidence:                 "HIGH" | "MEDIUM" | "LOW"
       pick_reason:                string
       skip_reason:                string
@@ -72,13 +72,13 @@ export async function fetchShortlist(propertyId: string, agentId?: string | null
       financing_status:           string | null
       move_in_timeline:           string | null
       property_type_preference:   string | null
-      budget_ratio:               number
+      budget_ratio:               number | null
     }> = await res.json()
 
     return raw.map((r) => {
       const formulaProb = r.formula_probability ?? r.formula_score ?? r.probability
       const blendedProb = r.blended_probability ?? r.blended_score ?? formulaProb
-      const blendedEV = r.blended_expected_value ?? r.expected_value
+      const blendedEV = r.blended_expected_value !== undefined ? r.blended_expected_value : (r.expected_value ?? null)
 
       return {
         clientId:               r.client_id,
@@ -91,7 +91,7 @@ export async function fetchShortlist(propertyId: string, agentId?: string | null
         blendedScore:           blendedProb,
         blendedProbability:     blendedProb,
         tier:                   r.tier,
-        expectedValue:          r.expected_value,
+        expectedValue:          r.expected_value ?? null,
         blendedExpectedValue:   blendedEV,
         confidence:             r.confidence,
         pickReason:             r.pick_reason ?? "",
@@ -103,7 +103,7 @@ export async function fetchShortlist(propertyId: string, agentId?: string | null
         financingStatus:        r.financing_status ?? null,
         moveInTimeline:         r.move_in_timeline ?? null,
         propertyTypePreference: r.property_type_preference ?? null,
-        budgetRatio:            r.budget_ratio ?? 0,
+        budgetRatio:            r.budget_ratio ?? null,
         pastPurchasesCount:     (r as any).past_purchases_count ?? 0,
         pastPurchases:          (r as any).past_purchases ?? [],
       }

@@ -50,7 +50,8 @@ PROPERTY_CHILD_TABLES = [
 PROTECTED_TABLES = {"agent_accounts", "agent_sessions", "agent_audit_log"}
 
 # ---------------------------------------------------------------------------
-ROBOT_REQUIRED = ["sku_code", "name", "manufacturer", "category", "price"]
+ROBOT_REQUIRED = ["sku_code", "name", "manufacturer", "category"]
+ROBOT_SEED_REQUIRED = ["sku_code", "name", "manufacturer", "category", "price"]
 ROBOT_OPTIONAL_NUM = ["lease_monthly", "payload_kg", "battery_hours", "weight_kg", "speed_mps",
                       "warranty_months"]
 COMPANY_REQUIRED = ["company_name", "industry", "assigned_agent_email"]
@@ -104,10 +105,11 @@ def check_nums(r, cols, line, errors):
                 errors.append(f"line {line}: {c} is not a number")
 
 
-def validate_robots(rows):
+def validate_robots(rows, data_source: str = "real"):
     errors, placeholders, seen = [], [], set()
+    req = ROBOT_SEED_REQUIRED if data_source == "seed" else ROBOT_REQUIRED
     for i, r in enumerate(rows, start=2):
-        for c in ROBOT_REQUIRED:
+        for c in req:
             if not r.get(c):
                 errors.append(f"line {i}: {c} is required")
         check_nums(r, ["price"] + ROBOT_OPTIONAL_NUM, i, errors)
@@ -161,17 +163,17 @@ def keyword_map(text: str, table):
     return None
 
 
-def build_robot_row(r):
+def build_robot_row(r, data_source: str = "real"):
     specs = {k: (num(r[k]) if k in ROBOT_OPTIONAL_NUM else r[k])
              for k in ROBOT_OPTIONAL_NUM + ["key_specs", "target_industries", "dimensions"] if r.get(k)}
     return {
         PROPERTY_COLS["name"]: r["name"],
-        PROPERTY_COLS["price"]: num(r["price"]),
+        PROPERTY_COLS["price"]: num(r["price"]) if r.get("price") else None,
         PROPERTY_COLS["description"]: r.get("key_specs", ""),
         PROPERTY_COLS["category"]: r["category"],
         PROPERTY_COLS["image_url"]: r.get("image_url") or None,
         "sku_code": r["sku_code"], "manufacturer": r["manufacturer"],
-        "specs": specs, "data_source": "real",
+        "specs": specs, "data_source": data_source,
     }
 
 
@@ -331,9 +333,10 @@ def run_scoring(sb, client_ids):
             "secondary_neighborhood": client.get("secondary_neighborhood"),
         }
         for prop in properties:
+            raw_val = prop.get("property_value")
             prop_data = {
                 "neighborhood": prop.get("neighborhood") or "",
-                "property_value": float(prop.get("property_value") or 0),
+                "property_value": float(raw_val) if raw_val is not None else None,
                 "property_type": prop.get("property_type"),
             }
             res = score_pair(client_profile, prop_data)

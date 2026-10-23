@@ -86,14 +86,19 @@ def _scoped_client_ids(db, identity: Identity):
 
 
 def list_priority_clients(db, identity: Identity, limit: int = 5) -> dict:
+    from price_utils import ev_rank_key
     limit = max(1, min(int(limit), 10))
     ids = _scoped_client_ids(db, identity)
     if ids == []:
         return {"clients": []}
-    q = db.table(EVAL_TABLE).select(f"{EVAL_CLIENT_COL},{EV_COL},{TIER_COL}")
+    q = db.table(EVAL_TABLE).select(f"{EVAL_CLIENT_COL},{EV_COL},{TIER_COL},ai_probability")
     if ids is not None:
         q = q.in_(EVAL_CLIENT_COL, ids)
-    evals = q.order(EV_COL, desc=True).limit(limit * 5).execute().data or []
+    try:
+        evals = q.order(EV_COL, desc=True, nullsfirst=False).limit(limit * 5).execute().data or []
+    except TypeError:
+        evals = q.order(EV_COL, desc=True).limit(limit * 5).execute().data or []
+    evals.sort(key=lambda e: ev_rank_key(e.get("ai_probability"), e.get(EV_COL)), reverse=True)
     best: dict[str, dict] = {}
     for e in evals:  # one row per client: keep the highest
         best.setdefault(e[EVAL_CLIENT_COL], e)

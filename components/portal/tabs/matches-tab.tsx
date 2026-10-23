@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 function formatCost(c: number | null): string {
-  if (!c) return "Contact us"
+  if (c == null || c <= 0) return "Price on request"
   return `RM ${c.toLocaleString("en-MY", { maximumFractionDigits: 0 })}`
 }
 
@@ -290,7 +290,7 @@ function MatchCard({
         <div>
           <h3 className="font-bold tracking-tight leading-snug text-base">{unit.name}</h3>
           <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
-            {unit.cost && <span className="text-xs font-semibold">{formatCost(unit.cost)}</span>}
+            <span className="text-xs font-semibold">{formatCost(unit.cost)}</span>
             {unit.environment && (
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 <MapPin className="h-3 w-3 shrink-0" />{unit.environment}

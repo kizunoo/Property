@@ -22,11 +22,20 @@ import {
   CartesianGrid,
 } from "recharts"
 import { currency, type Property } from "@/lib/pipeline-data"
+import { priceLabel } from "@/lib/price"
 import { PixelatedImageCanvas } from "./pixelated-image-canvas"
 
 
 // ─── Deterministic mock specs (fallback when DB columns not yet set) ─────────
-function mockSpecs(value: number) {
+function mockSpecs(value: number | null) {
+  if (value == null || value <= 0) {
+    return {
+      sqft: 1200,
+      bedrooms: 2,
+      bathrooms: 2,
+      pricePerSqft: 0,
+    }
+  }
   const base = Math.floor(value / 100_000)
   return {
     sqft:         800 + (base % 20) * 100,
@@ -384,7 +393,7 @@ export function PropertyDetailModal({ property, open, onClose, onFindBuyers, onP
   const sqftSpec   = getSpec(property.sqft,      mocked.sqft,      "sqft")
   const bedsSpec   = getSpec(property.bedrooms,  mocked.bedrooms,  "bedrooms")
   const bathsSpec  = getSpec(property.bathrooms, mocked.bathrooms, "bathrooms")
-  const psfValue   = sqftSpec.value > 0 ? Math.round(displayValue / sqftSpec.value) : mocked.pricePerSqft
+  const psfValue   = displayValue != null && sqftSpec.value > 0 ? Math.round(displayValue / sqftSpec.value) : mocked.pricePerSqft
   const estimated  = sqftSpec.estimated || bedsSpec.estimated || bathsSpec.estimated
 
   const handleSpecSaved = (key: string, val: string | number) => {
@@ -466,7 +475,7 @@ export function PropertyDetailModal({ property, open, onClose, onFindBuyers, onP
             <div className="rounded-[8px] border border-l-[3px] border-l-primary border-border bg-muted/30 p-5 shadow-[var(--shadow-xs)]">
               <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Unit Cost</div>
               <div className="mt-2 font-display text-3xl sm:text-4xl font-bold leading-none text-foreground whitespace-nowrap overflow-x-auto scrollbar-none py-1">
-                {currency(displayValue)}
+                {priceLabel(displayValue, currency)}
               </div>
               <div className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
                 <MapPin className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2.5} />

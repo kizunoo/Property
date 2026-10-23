@@ -4,7 +4,7 @@ import { AnimatedContent } from "@/components/animation/animated-content"
 
 interface StatCardProps {
   label: string
-  numericValue: number
+  numericValue: number | null
   formatNumber?: (n: number) => string
   detail?: string
   icon?: ReactNode
@@ -57,7 +57,11 @@ export function StatCard({
         </div>
         <div>
           <div className="font-display text-3xl sm:text-4xl font-bold leading-none tracking-tight">
-            <CountUp value={numericValue} formatNumber={formatNumber} triggerKey={triggerKey} />
+            {numericValue !== null ? (
+              <CountUp value={numericValue} formatNumber={formatNumber} triggerKey={triggerKey} />
+            ) : (
+              <span className="text-2xl sm:text-3xl text-muted-foreground">Awaiting quotes</span>
+            )}
           </div>
           {detail ? <div className="mt-2 text-xs sm:text-sm text-muted-foreground">{detail}</div> : null}
         </div>

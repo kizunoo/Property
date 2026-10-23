@@ -34,7 +34,7 @@ export function ClusterInsightsPanel({ clients }: ClusterInsightsPanelProps) {
     const cur = clusterMap.get(nbhd) ?? { count: 0, totalEx: 0 }
     clusterMap.set(nbhd, {
       count: cur.count + 1,
-      totalEx: cur.totalEx + c.expectedValue,
+      totalEx: cur.totalEx + (c.expectedValue ?? 0),
     })
   }
 

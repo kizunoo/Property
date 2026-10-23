@@ -7,8 +7,9 @@ import { currency } from "@/lib/pipeline-data"
 export interface PipelineProjectionData {
   assigned_agent_id: string | null
   agent_name: string
-  active_pipeline_value: number
-  projected_revenue: number
+  active_pipeline_value: number | null
+  projected_revenue: number | null
+  unpriced_count?: number
   close_rate: number
   close_rate_pct: string
   untapped_clients: number
@@ -115,13 +116,18 @@ export function PipelineProjectionCard({
                 <div className="mt-1 font-mono text-lg font-black tracking-tight text-foreground sm:text-xl">
                   {loading ? (
                     <span className="inline-block h-6 w-24 animate-pulse bg-muted rounded" />
+                  ) : data?.active_pipeline_value != null ? (
+                    currency(data.active_pipeline_value)
                   ) : (
-                    currency(data?.active_pipeline_value ?? 0)
+                    "Awaiting quotes"
                   )}
                 </div>
               </div>
-              <div className="mt-2 text-[10px] font-semibold text-muted-foreground">
-                {data ? `${data.active_clients} active deal${data.active_clients === 1 ? "" : "s"}` : "—"}
+              <div className="mt-2 text-[10px] font-semibold text-muted-foreground flex flex-col gap-0.5">
+                <span>{data ? `${data.active_clients} active deal${data.active_clients === 1 ? "" : "s"}` : "—"}</span>
+                {data && (data.unpriced_count ?? 0) > 0 && (
+                  <span className="text-amber-600 font-bold">{data.unpriced_count} robot{(data.unpriced_count ?? 0) === 1 ? "" : "s"} awaiting quotes</span>
+                )}
               </div>
             </div>
 
@@ -161,8 +167,10 @@ export function PipelineProjectionCard({
                 <div className="mt-1 font-mono text-lg font-black tracking-tight text-foreground sm:text-xl">
                   {loading ? (
                     <span className="inline-block h-6 w-24 animate-pulse bg-primary/30 rounded" />
+                  ) : data?.projected_revenue != null ? (
+                    currency(data.projected_revenue)
                   ) : (
-                    currency(data?.projected_revenue ?? 0)
+                    "Awaiting quotes"
                   )}
                 </div>
               </div>

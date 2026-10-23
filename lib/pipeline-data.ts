@@ -1,3 +1,5 @@
+import { toPrice, sumPriced } from "./price"
+
 export type Tier = "TIER_1" | "TIER_2" | "TIER_3"
 
 export interface Agent {
@@ -14,9 +16,9 @@ export interface Client {
   name: string
   initials: string
   property: string
-  propertyValue: number
+  propertyValue: number | null
   probability: number
-  expectedValue: number
+  expectedValue: number | null
   tier: Tier
   agent: string
   statedBudget?: number
@@ -73,9 +75,9 @@ export interface DeduplicatedClient {
     evalId: string
     propertyId: string  // real UUID from the properties table (for reasoning cache key)
     property: string
-    propertyValue: number
+    propertyValue: number | null
     probability: number
-    expectedValue: number
+    expectedValue: number | null
     neighborhood: string
     outcome: "pending" | "won" | "lost"
     mlProbability?: number | null
@@ -97,7 +99,7 @@ export interface Property {
   name: string
   address: string
   neighborhood: string
-  value: number
+  value: number | null
   status: "LISTED" | "PENDING" | "UNDER OFFER" | "CLOSED"
   imageUrl?: string
   /** ISO timestamp of the last simulated price change (from last_price_change_at column) */
@@ -163,7 +165,7 @@ export const percent = (value: number) => `${Math.round(value * 100)}%`
 export interface PipelineEvaluationRow {
   id: string
   ai_probability: number
-  expected_value: number
+  expected_value: number | null
   segment_tier: Tier
   outcome?: string | null
   ml_probability?: number | null
@@ -206,7 +208,7 @@ export interface PipelineEvaluationRow {
         id: string
         address: string
         neighborhood: string
-        property_value: number
+        property_value: number | null
         bedrooms?: number | null
         bathrooms?: number | null
         sqft?: number | null
@@ -218,7 +220,7 @@ export interface PipelineEvaluationRow {
         id: string
         address: string
         neighborhood: string
-        property_value: number
+        property_value: number | null
         bedrooms?: number | null
         bathrooms?: number | null
         sqft?: number | null
@@ -233,7 +235,7 @@ export interface PropertyRow {
   id: string
   address: string
   neighborhood: string
-  property_value: number
+  property_value: number | null
   image_url?: string
   last_price_change_at?: string | null
   last_price_change_pct?: number | null
@@ -270,9 +272,9 @@ export function mapEvaluationToClient(row: PipelineEvaluationRow): Client | null
     name: client.name,
     initials: initialsOf(client.name),
     property: property.address,
-    propertyValue: property.property_value,
+    propertyValue: toPrice(property.property_value),
     probability: row.ai_probability,
-    expectedValue: Math.round(row.expected_value),
+    expectedValue: row.expected_value != null ? Math.round(Number(row.expected_value)) : null,
     tier: row.segment_tier,
     agent: property.neighborhood,
     statedBudget: client.stated_budget,
@@ -299,7 +301,7 @@ export function mapPropertyRow(row: PropertyRow, index: number): Property {
     name: row.address,
     address: row.address,
     neighborhood: row.neighborhood,
-    value: row.property_value,
+    value: toPrice(row.property_value),
     status: validStatus,
     imageUrl: row.image_url ?? undefined,
     lastPriceChangeAt:  row.last_price_change_at  ?? undefined,
@@ -332,10 +334,12 @@ export function mapPropertyRow(row: PropertyRow, index: number): Property {
  * Analytics charts — deduplication is applied in either case.
  */
 export interface DashboardSummary {
-  /** Sum of each unique client's best-match E(x). */
-  totalPipelineValue: number
-  /** Sum of each unique listing's property_value. */
-  totalPropertyValue: number
+  /** Sum of each unique client's best-match E(x). null if nothing is priced */
+  totalPipelineValue: number | null
+  unpricedPipelineCount?: number
+  /** Sum of each unique listing's property_value. null if nothing is priced */
+  totalPropertyValue: number | null
+  unpricedPropertyCount?: number
   /** Unique client count per tier (based on best-match tier). */
   byTier: Record<Tier, number>
   /** Total best-match E(x) per tier (used by the Treemap). */
@@ -367,19 +371,24 @@ export function getDashboardSummary(rawClients: Client[]): DashboardSummary {
 
   const byTier:   Record<Tier, number> = { TIER_1: 0, TIER_2: 0, TIER_3: 0 }
   const byTierEx: Record<Tier, number> = { TIER_1: 0, TIER_2: 0, TIER_3: 0 }
-  let totalPipelineValue = 0
-  let totalProbability   = 0
+  let totalProbability = 0
+
+  const pipelineSum = sumPriced(uniqueClients.map((c) => c.expectedValue))
+  const propertySum = sumPriced(uniqueProperties.map((c) => c.propertyValue))
 
   for (const c of uniqueClients) {
-    byTier[c.tier]   += 1
-    byTierEx[c.tier] += c.expectedValue
-    totalPipelineValue += c.expectedValue
-    totalProbability   += c.probability
+    byTier[c.tier] += 1
+    if (c.expectedValue != null) {
+      byTierEx[c.tier] += c.expectedValue
+    }
+    totalProbability += c.probability
   }
 
   return {
-    totalPipelineValue,
-    totalPropertyValue: uniqueProperties.reduce((sum, c) => sum + c.propertyValue, 0),
+    totalPipelineValue: pipelineSum.total,
+    unpricedPipelineCount: pipelineSum.unpricedCount,
+    totalPropertyValue: propertySum.total,
+    unpricedPropertyCount: propertySum.unpricedCount,
     byTier,
     byTierEx,
     avgProbability: uniqueClients.length > 0 ? totalProbability / uniqueClients.length : 0,

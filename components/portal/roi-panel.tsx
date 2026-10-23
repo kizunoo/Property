@@ -47,14 +47,17 @@ export function RoiPanel({
   const [mode, setMode] = useState<"purchase" | "lease">("purchase")
   const [submitting, setSubmitting] = useState(false)
   const [savedSuccess, setSavedSuccess] = useState(false)
+  const [quotedPrice, setQuotedPrice] = useState<number | null>(null)
 
   // Robot pricing
-  const purchasePrice = unit.cost ?? 0
+  const effectivePrice = unit.cost ?? quotedPrice
+  const hasPrice = effectivePrice != null && effectivePrice > 0
+
   const leaseMonthly = useMemo(() => {
     const fromSpecs = unit.specs?.lease_monthly ?? unit.specs?.leaseMonthly
     if (typeof fromSpecs === "number" && fromSpecs > 0) return fromSpecs
-    return purchasePrice > 0 ? Math.round(purchasePrice * 0.035) : 3500
-  }, [unit.specs, purchasePrice])
+    return null
+  }, [unit.specs])
 
   // Live calculation
   const roi: RoiResult = useMemo(() => {
@@ -63,20 +66,25 @@ export function RoiPanel({
       headcountPerShift: headcount,
       monthlyLaborCost: laborCost,
     }
-    return computeRoi(inputs, { purchasePrice, leaseMonthly }, mode)
-  }, [shifts, headcount, laborCost, purchasePrice, leaseMonthly, mode])
+    return computeRoi(inputs, { purchasePrice: effectivePrice ?? 0, leaseMonthly: leaseMonthly ?? 0 }, mode)
+  }, [shifts, headcount, laborCost, effectivePrice, leaseMonthly, mode])
 
   async function handleSaveAndRequestQuote() {
     setSubmitting(true)
     try {
+      const roiPayload: any = {
+        shifts,
+        headcountPerShift: headcount,
+        monthlyLaborCost: laborCost,
+        mode,
+      }
+      if (unit.cost == null && quotedPrice != null) {
+        roiPayload.enteredPrice = quotedPrice
+        roiPayload.entered_price = quotedPrice
+      }
       await submitInquiry(clientId, {
         property_id: unit.property_id,
-        roi_scenario: {
-          shifts,
-          headcountPerShift: headcount,
-          monthlyLaborCost: laborCost,
-          mode,
-        },
+        roi_scenario: roiPayload,
       } as any)
 
       setSavedSuccess(true)
@@ -139,6 +147,31 @@ export function RoiPanel({
 
       {/* Inputs */}
       <div className="flex flex-col gap-3">
+        {/* Quoted Price Input (only when unit.cost is null) */}
+        {unit.cost == null && (
+          <div>
+            <div className="flex justify-between items-center mb-1">
+              <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                Quoted unit price (RM)
+              </label>
+              <span className="text-xs font-black">{quotedPrice != null ? formatMYR(quotedPrice) : "Not entered"}</span>
+            </div>
+            <input
+              type="number"
+              min={0}
+              max={100000000}
+              step={1000}
+              placeholder="Enter quoted price…"
+              value={quotedPrice ?? ""}
+              onChange={(e) => {
+                const val = e.target.value.trim() === "" ? null : Math.max(0, Number(e.target.value) || 0)
+                setQuotedPrice(val)
+              }}
+              className="w-full border border-border bg-background px-3 py-1.5 text-xs font-bold focus:outline-none focus-visible:border-primary"
+            />
+          </div>
+        )}
+
         {/* Shifts */}
         <div>
           <div className="flex justify-between items-center mb-1.5">
@@ -232,26 +265,30 @@ export function RoiPanel({
           </div>
 
           {/* Payback period */}
-          <div className="border border-border bg-card p-2.5">
+          <div className="border border-border bg-card p-2.5 col-span-2 sm:col-span-1">
             <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground block">
               Payback Period
             </span>
             <span className="text-sm font-black">
               {mode === "lease"
-                ? "Immediate (OpEx)"
-                : roi.paybackMonths != null
-                ? `~${roi.paybackMonths.toFixed(1)} mos`
-                : "—"}
+                ? (leaseMonthly != null ? "Immediate (OpEx)" : "Enter a quoted price to see payback and ROI")
+                : hasPrice
+                ? (roi.paybackMonths != null ? `~${roi.paybackMonths.toFixed(1)} mos` : "—")
+                : "Enter a quoted price to see payback and ROI"}
             </span>
           </div>
 
           {/* 3-Year ROI */}
-          <div className="border border-border bg-card p-2.5">
+          <div className="border border-border bg-card p-2.5 col-span-2 sm:col-span-1">
             <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground block">
               3-Year Net ROI
             </span>
             <span className="text-sm font-black text-primary">
-              {roi.threeYearRoiPct != null ? `${Math.round(roi.threeYearRoiPct)}%` : "—"}
+              {mode === "lease"
+                ? (leaseMonthly != null && roi.threeYearRoiPct != null ? `${Math.round(roi.threeYearRoiPct)}%` : "Enter a quoted price to see payback and ROI")
+                : hasPrice
+                ? (roi.threeYearRoiPct != null ? `${Math.round(roi.threeYearRoiPct)}%` : "—")
+                : "Enter a quoted price to see payback and ROI"}
             </span>
           </div>
         </div>

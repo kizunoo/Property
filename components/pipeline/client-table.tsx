@@ -15,6 +15,7 @@ import {
   UserRound,
 } from "lucide-react"
 import { TIER_SHORT, currency, percent, type DeduplicatedClient } from "@/lib/pipeline-data"
+import { priceLabel, EV_AWAITING_PRICE } from "@/lib/price"
 import { CountUp } from "@/components/animation/count-up"
 import { StageBadge } from "@/components/pipeline/stage-badge"
 
@@ -159,7 +160,7 @@ function ClientEntity({
 
         {/* 3 · Property Value */}
         <div className="flex items-center justify-end font-mono text-sm font-bold text-foreground">
-          <span className="truncate">{currency(client.bestMatch.propertyValue)}</span>
+          <span className="truncate">{priceLabel(client.bestMatch.propertyValue, currency)}</span>
         </div>
 
         {/* 4 · Probability */}
@@ -178,7 +179,11 @@ function ClientEntity({
         {/* 5 · Expected Value */}
         <div className="flex items-center justify-end">
           <span className="inline-flex w-[148px] items-center justify-center rounded-[var(--radius-sm)] border border-primary bg-primary px-2 py-1 font-display text-sm font-bold text-black shrink-0">
-            <CountUp value={client.bestMatch.expectedValue} formatNumber={currency} />
+            {client.bestMatch.expectedValue !== null ? (
+              <CountUp value={client.bestMatch.expectedValue} formatNumber={currency} />
+            ) : (
+              <span>{EV_AWAITING_PRICE}</span>
+            )}
           </span>
         </div>
 

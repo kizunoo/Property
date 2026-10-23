@@ -28,7 +28,7 @@ export async function generateInsight(
 
   const tiers: TierSummary[] = TIERS.map((tier) => {
     const subset = clients.filter((c) => c.tier === tier)
-    const totalEx = subset.reduce((s, c) => s + c.expectedValue, 0)
+    const totalEx = subset.reduce((s, c) => s + (c.expectedValue ?? 0), 0)
     const avgProb = subset.length > 0 ? subset.reduce((s, c) => s + c.probability, 0) / subset.length : 0
     return { tier, count: subset.length, total_expected_value: totalEx, avg_probability: avgProb }
   })
@@ -38,7 +38,7 @@ export async function generateInsight(
   for (const c of clients) {
     const n = c.agent
     const cur = nbhdMap.get(n) ?? { count: 0, total_ex: 0 }
-    nbhdMap.set(n, { count: cur.count + 1, total_ex: cur.total_ex + c.expectedValue })
+    nbhdMap.set(n, { count: cur.count + 1, total_ex: cur.total_ex + (c.expectedValue ?? 0) })
   }
   const neighborhoods = Array.from(nbhdMap.entries()).map(([name, v]) => ({
     name,
@@ -48,7 +48,7 @@ export async function generateInsight(
 
   const payload: InsightPayload = {
     total_clients: clients.length,
-    total_expected_value: clients.reduce((s, c) => s + c.expectedValue, 0),
+    total_expected_value: clients.reduce((s, c) => s + (c.expectedValue ?? 0), 0),
     avg_probability: clients.reduce((s, c) => s + c.probability, 0) / clients.length,
     tiers,
     neighborhoods,

@@ -20,6 +20,7 @@ from groq import Groq
 from scoring_engine import score as score_pair
 from ml_inference import predict_probability, reload_model
 from roi import compute_roi
+from price_utils import compute_expected_value, ev_rank_key, to_price
 from portal_models import RoiScenarioInputs, FacilityProfile
 import subprocess
 import sys
@@ -5520,7 +5521,7 @@ def get_dashboard_briefing(request: Request, agent_id: str | None = None):
             supabase.table("pipeline_evaluations")
             .select("*, clients(id, name, assigned_agent_id), properties(address, neighborhood, property_value)")
             .eq("segment_tier", "TIER_1")
-            .order("expected_value", desc=True)
+            .order("expected_value", desc=True, nullsfirst=False)
         )
         all_tier1 = evals_query.execute().data or []
         # Filter by agent in Python (nested FK filter not supported directly)
@@ -5529,6 +5530,7 @@ def get_dashboard_briefing(request: Request, agent_id: str | None = None):
                 row for row in all_tier1
                 if str((row.get("clients") or {}).get("assigned_agent_id")) == str(effective_agent_id)
             ]
+        all_tier1.sort(key=lambda r: ev_rank_key(r.get("ai_probability") or r.get("probability"), r.get("expected_value")), reverse=True)
         evals = all_tier1[:3]
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to fetch evaluations: {exc}") from exc
@@ -6050,7 +6052,7 @@ def get_shortlist(property_id: str, request: Request, limit: int = 25, agent_id:
 
     # ── 3. Score each client against this property ───────────────────────────
     scored = []
-    prop_val = float(prop.get("property_value") or 1)
+    prop_price = to_price(prop.get("property_value"))
 
     for client in clients:
         client_past = past_purchases_by_client.get(client["id"], [])
@@ -6076,11 +6078,11 @@ def get_shortlist(property_id: str, request: Request, limit: int = 25, agent_id:
 
         # Blended score: 60% formula + 40% ML (fallback: formula alone)
         blended_prob = compute_blended_probability(formula_prob, ml_prob)
-        blended_expected_value = round(blended_prob * prop_val, 2)
+        blended_expected_value = compute_expected_value(blended_prob, prop_price)
 
-        # Budget-to-price ratio for sort/compare
-        budget   = client.get("stated_budget") or 0
-        budget_ratio = round(budget / prop_val, 4) if prop_val > 0 else 0.0
+        # Budget-to-price ratio for sort/compare (None when unpriced)
+        budget   = client.get("stated_budget")
+        budget_ratio = round(budget / prop_price, 4) if (budget and prop_price) else None
 
         pick_reason, skip_reason = build_pick_skip_reasons(client_profile, prop)
 
@@ -6116,7 +6118,7 @@ def get_shortlist(property_id: str, request: Request, limit: int = 25, agent_id:
         })
 
     # ── 4. Sort by blended_expected_value desc, cap at limit ─────────────────
-    scored.sort(key=lambda x: x["blended_expected_value"], reverse=True)
+    scored.sort(key=lambda x: ev_rank_key(x.get("blended_probability"), x.get("blended_expected_value")), reverse=True)
     return scored[:limit]
 
 
@@ -6155,7 +6157,7 @@ def patch_client(client_id: str, body: ClientPatchRequest, request: Request):
         evals_res  = (
             supabase.table("pipeline_evaluations")
             .select("*, properties(*)").eq("client_id", client_id)
-            .order("expected_value", desc=True).limit(1).execute()
+            .order("expected_value", desc=True, nullsfirst=False).limit(1).execute()
         )
         if client_res.data and evals_res.data:
             c    = client_res.data[0]
@@ -6651,8 +6653,15 @@ def get_pipeline_projection_data(agent_id: str | None = None) -> dict:
     # Calculate historical close rate (fallback to 10% if no history to avoid div/0)
     close_rate = (won_count / total_closed) if total_closed > 0 else 0.10
 
-    # 4. Calculate active pipeline value E(x)
-    active_pipeline_value = 0.0
+    # 4. Calculate active pipeline value E(x) and unpriced robot count
+    active_pipeline_value = None
+    unpriced_count = 0
+    try:
+        unpriced_robots = supabase.table("properties").select("id").is_("property_value", "null").execute().data or []
+        unpriced_count = len(unpriced_robots)
+    except Exception:
+        pass
+
     if active_client_ids:
         # Fetch evaluations for active clients
         evals_res = supabase.table("pipeline_evaluations").select("client_id, expected_value").in_("client_id", active_client_ids).execute().data or []
@@ -6660,17 +6669,19 @@ def get_pipeline_projection_data(agent_id: str | None = None) -> dict:
         client_max_ex = {}
         for row in evals_res:
             cid = row["client_id"]
-            ex = float(row.get("expected_value") or 0)
-            if cid not in client_max_ex or ex > client_max_ex[cid]:
-                client_max_ex[cid] = ex
-        active_pipeline_value = sum(client_max_ex.values())
+            ex = to_price(row.get("expected_value"))
+            if ex is not None:
+                if cid not in client_max_ex or ex > client_max_ex[cid]:
+                    client_max_ex[cid] = ex
+        if client_max_ex:
+            active_pipeline_value = round(sum(client_max_ex.values()))
 
-    projected_revenue = round(active_pipeline_value * close_rate)
+    projected_revenue = round(active_pipeline_value * close_rate) if active_pipeline_value is not None else None
 
     return {
         "assigned_agent_id": agent_id if agent_id and agent_id not in ("all", "null", "undefined") else None,
         "agent_name": agent_name,
-        "active_pipeline_value": round(active_pipeline_value),
+        "active_pipeline_value": active_pipeline_value,
         "projected_revenue": projected_revenue,
         "close_rate": round(close_rate, 4),
         "close_rate_pct": f"{round(close_rate * 100)}%",
@@ -6679,14 +6690,17 @@ def get_pipeline_projection_data(agent_id: str | None = None) -> dict:
         "won_count": won_count,
         "lost_count": lost_count,
         "total_closed": total_closed,
+        "unpriced_count": unpriced_count,
     }
 
 
 def _build_projection_prompt(metrics: dict) -> list[dict]:
+    act_val = f"RM{metrics['active_pipeline_value']:,}" if metrics.get("active_pipeline_value") is not None else "Awaiting quotes"
+    proj_val = f"RM{metrics['projected_revenue']:,}" if metrics.get("projected_revenue") is not None else "Awaiting quotes"
     payload = {
         "agent_name": metrics["agent_name"],
-        "active_pipeline_value": f"RM{metrics['active_pipeline_value']:,}",
-        "projected_revenue": f"RM{metrics['projected_revenue']:,}",
+        "active_pipeline_value": act_val,
+        "projected_revenue": proj_val,
         "close_rate": metrics["close_rate_pct"],
         "untapped_clients": metrics["untapped_clients"],
         "active_clients": metrics["active_clients"]
@@ -7306,47 +7320,52 @@ def get_daily_worklist(request: Request = None, force_refresh: bool = False, age
         ml_prob = row.get("ml_probability")
         formula_prob = row.get("ai_probability") or 0.0
         blended_prob = compute_blended_probability(formula_prob, ml_prob)
-        prop_val = float(prop_data.get("property_value") or 1)
-        blended_ev = round(blended_prob * prop_val, 2)
+        prop_val = to_price(prop_data.get("property_value"))
+        blended_ev = compute_expected_value(blended_prob, prop_val)
 
-        if cid not in best_by_client or blended_ev > best_by_client[cid]["blended_ev"]:
-            best_by_client[cid] = {
-                "client_id": cid,
-                "client_name": client_data.get("name") or "Unknown Client",
-                "property_id": row.get("property_id"),
-                "property_name": prop_data.get("address") or prop_data.get("name") or "Property",
-                "property_value": prop_val,
-                "neighborhood": prop_data.get("neighborhood") or "",
-                "tier": row.get("segment_tier") or "TIER_2",
-                "blended_probability": blended_prob,
-                "blended_ev": blended_ev,
-                "budget": client_data.get("stated_budget"),
-                "engagement": client_data.get("past_viewings") or 0,
-                "geo_match": (
-                    client_data.get("preferred_neighborhood") == prop_data.get("neighborhood")
-                    if client_data.get("preferred_neighborhood")
-                    else False
-                ),
-            }
+        cand = {
+            "client_id": cid,
+            "client_name": client_data.get("name") or "Unknown Client",
+            "property_id": row.get("property_id"),
+            "property_name": prop_data.get("address") or prop_data.get("name") or "Property",
+            "property_value": prop_val,
+            "neighborhood": prop_data.get("neighborhood") or "",
+            "tier": row.get("segment_tier") or "TIER_2",
+            "blended_probability": blended_prob,
+            "blended_ev": blended_ev,
+            "budget": client_data.get("stated_budget"),
+            "engagement": client_data.get("past_viewings") or 0,
+            "geo_match": (
+                client_data.get("preferred_neighborhood") == prop_data.get("neighborhood")
+                if client_data.get("preferred_neighborhood")
+                else False
+            ),
+        }
+        if cid not in best_by_client:
+            best_by_client[cid] = cand
+        else:
+            prev = best_by_client[cid]
+            if ev_rank_key(cand["blended_probability"], cand["blended_ev"]) > ev_rank_key(prev["blended_probability"], prev["blended_ev"]):
+                best_by_client[cid] = cand
 
-    top5 = sorted(best_by_client.values(), key=lambda c: c["blended_ev"], reverse=True)[:5]
+    top5 = sorted(best_by_client.values(), key=lambda c: ev_rank_key(c.get("blended_probability"), c.get("blended_ev")), reverse=True)[:5]
 
     # 4. Generate one short number-locked "why contact today" line per entry
     entries = []
     for c in top5:
         b_val = c.get("budget")
         b_str = f"CapEx budget RM{b_val:,.0f}" if b_val is not None and b_val > 0 else "CapEx budget not set"
+        unit_cost_str = f"unit cost RM{c['property_value']:,.0f}" if c.get('property_value') is not None else "unit cost awaiting quote"
+        ev_str = f"procurement pipeline expected value RM{c['blended_ev']:,.0f}" if c.get('blended_ev') is not None else "pipeline value awaiting price"
         prompt = (
             f"Company: {c['client_name']}, {b_str}, "
             f"{'environment match verified' if c['geo_match'] else 'environment differs from target'}, "
             f"{c['engagement']} logged demo sessions. Robot Unit: {c['property_name']} in {c['neighborhood']} "
-            f"(unit cost RM{c['property_value']:,.0f}), procurement pipeline expected value RM{c['blended_ev']:,.0f}, "
+            f"({unit_cost_str}), {ev_str}, "
             f"blended adoption probability {c['blended_probability']*100:.0f}%. "
             f"You MUST use these exact figures if you cite numbers — do not invent or round differently. "
-            f"CRITICAL RULE: When citing the expected value or blended value figure (RM{c['blended_ev']:,.0f}), "
-            f"always label it clearly as 'expected value' or 'deal value' — never phrase it as if it were the robot unit's cost, "
-            f"since unit cost (RM{c['property_value']:,.0f}) and expected value (RM{c['blended_ev']:,.0f}) are two different numbers. "
-            f"Never use phrases like 'valued at RM{c['blended_ev']:,.0f}'. "
+            f"CRITICAL RULE: When citing the expected value or blended value figure, "
+            f"always label it clearly as 'expected value' or 'deal value' — never phrase it as if it were the robot unit's cost. "
             f"Write ONE short sentence (max 20 words) telling the sales rep why to pitch this company TODAY. No preamble."
         )
         try:
@@ -7358,9 +7377,10 @@ def get_daily_worklist(request: Request = None, force_refresh: bool = False, age
             ).strip()
         except Exception as exc:
             print(f"[daily_worklist] LLM reason generation fallback: {exc}")
+            ev_desc = f"RM{c['blended_ev']:,.0f} expected value" if c.get("blended_ev") is not None else "high match conviction"
             reason = (
                 f"High-conviction {c['tier'].replace('_', ' ')} prospect with "
-                f"RM{c['blended_ev']:,.0f} expected value ready for pitch outreach."
+                f"{ev_desc} ready for pitch outreach."
             )
         entries.append({**c, "reason": reason})
 
@@ -7446,14 +7466,14 @@ def _build_client_facing_prompt(client: dict, prop: dict) -> str:
     past_viewings = client.get("past_viewings") or 0
 
     unit_name   = prop.get("address", "this unit")
-    unit_cost   = prop.get("property_value") or 0
+    unit_cost   = to_price(prop.get("property_value"))
     environment = prop.get("neighborhood") or "general"
     prop_type   = prop.get("property_type") or ""
     sqft        = prop.get("sqft")   # sometimes used as payload capacity proxy
     annual_sav  = prop.get("estimated_annual_savings")  # pre-computed, can be None
 
     # Financial fit note
-    if budget is not None and budget > 0 and unit_cost:
+    if budget is not None and budget > 0 and unit_cost is not None:
         if budget >= unit_cost:
             fin_note = f"Your CapEx budget of RM {budget:,.0f} covers this unit comfortably."
         else:
@@ -7472,7 +7492,7 @@ def _build_client_facing_prompt(client: dict, prop: dict) -> str:
         env_note = f"It operates in {environment} environments."
 
     # Savings / ROI note
-    if annual_sav and unit_cost:
+    if annual_sav and unit_cost is not None:
         payback_months = round((unit_cost / annual_sav) * 12)
         roi_note = f"Based on an estimated RM {annual_sav:,.0f} in annual labour savings for this robot category, the projected payback period is approximately {payback_months} months."
     else:
@@ -7494,6 +7514,12 @@ def _build_client_facing_prompt(client: dict, prop: dict) -> str:
 
     context_lines = "\n".join(filter(None, [fin_note, env_note, roi_note, eng_note, spec_note]))
 
+    unit_spec_lines = [f"- Name: {unit_name}"]
+    if unit_cost is not None:
+        unit_spec_lines.append(f"- Unit cost: RM {unit_cost:,.0f}")
+    unit_spec_lines.append(f"- Operating environment: {environment}")
+    unit_desc = "\n".join(unit_spec_lines)
+
     return f"""You are writing a client-facing recommendation snippet for {client_name}, a prospective buyer being shown a specific industrial robot unit.
 
 CRITICAL RULES:
@@ -7503,9 +7529,7 @@ CRITICAL RULES:
 - Keep it to 2-3 sentences. Start directly — no preamble like "Certainly" or "Here is".
 
 Unit being recommended:
-- Name: {unit_name}
-- Unit cost: RM {unit_cost:,.0f}
-- Operating environment: {environment}
+{unit_desc}
 
 Context about this match:
 {context_lines}
@@ -7549,14 +7573,13 @@ def portal_dashboard(client_id: str, session: PortalSession = Depends(get_curren
     # 2. Fetch top 5 pipeline evaluations by expected_value (internal field — not exposed)
     # Try the rich select first (includes estimated_annual_savings); fall back to base
     # columns if the portal_phase2_migration.sql hasn't been run yet.
-    _rich_select = "property_id, expected_value, properties(id, address, property_value, neighborhood, image_url, property_type, sqft, estimated_annual_savings)"
-    _base_select = "property_id, expected_value, properties(id, address, property_value, neighborhood, image_url, property_type)"
+    _rich_select = "property_id, probability, expected_value, properties(id, address, property_value, neighborhood, image_url, property_type, sqft, estimated_annual_savings)"
+    _base_select = "property_id, probability, expected_value, properties(id, address, property_value, neighborhood, image_url, property_type)"
     try:
         evals = supabase.table("pipeline_evaluations") \
             .select(_rich_select) \
             .eq("client_id", client_id) \
-            .order("expected_value", desc=True) \
-            .limit(5) \
+            .order("expected_value", desc=True, nullsfirst=False) \
             .execute()
     except Exception as exc:
         exc_str = str(exc)
@@ -7567,16 +7590,21 @@ def portal_dashboard(client_id: str, session: PortalSession = Depends(get_curren
                 evals = supabase.table("pipeline_evaluations") \
                     .select(_base_select) \
                     .eq("client_id", client_id) \
-                    .order("expected_value", desc=True) \
-                    .limit(5) \
+                    .order("expected_value", desc=True, nullsfirst=False) \
                     .execute()
             except Exception as exc2:
                 raise HTTPException(status_code=500, detail=f"Failed to fetch matches: {exc2}")
         else:
             raise HTTPException(status_code=500, detail=f"Failed to fetch matches: {exc}")
 
+    eval_items = sorted(
+        evals.data or [],
+        key=lambda e: ev_rank_key(e.get("probability"), e.get("expected_value")),
+        reverse=True
+    )[:5]
+
     matches = []
-    for e in (evals.data or []):
+    for e in eval_items:
         prop = e.get("properties") or {}
         if not prop:
             continue
@@ -7625,14 +7653,20 @@ def portal_dashboard(client_id: str, session: PortalSession = Depends(get_curren
                 raise
             except Exception as llm_exc:
                 print(f"[portal_dashboard] LLM FAILED for {safe_prop_name}: {llm_exc}")
-                reasoning = (
-                    f"This unit in {prop.get('neighborhood', 'this zone')} is priced at "
-                    f"RM{prop.get('property_value', 0):,.0f} and aligns well with your operational requirements."
-                )
+                cost_val = to_price(prop.get("property_value"))
+                if cost_val is not None:
+                    reasoning = (
+                        f"This unit in {prop.get('neighborhood', 'this zone')} is priced at "
+                        f"RM{cost_val:,.0f} and aligns well with your operational requirements."
+                    )
+                else:
+                    reasoning = (
+                        f"This unit in {prop.get('neighborhood', 'this zone')} aligns well with your operational requirements."
+                    )
 
         # Client-safe fields only — no probability, tier, ML score, expected_value, or agent data
         # If legacy readonly session, strip pricing
-        unit_cost = None if session.is_legacy else prop.get("property_value")
+        unit_cost = None if session.is_legacy else to_price(prop.get("property_value"))
         annual_sav = None if session.is_legacy else prop.get("estimated_annual_savings")
         payback_months = None
         if unit_cost and annual_sav and annual_sav > 0:
@@ -8500,17 +8534,21 @@ def portal_submit_inquiry(
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Invalid ROI scenario inputs: {e}")
 
-        prop_price = 0.0
+        catalog_price = None
         lease_monthly = 0.0
         if property_id:
             try:
                 p_res = supabase.table("properties").select("id, property_value, specs").eq("id", property_id).single().execute()
                 if p_res.data:
-                    prop_price = float(p_res.data.get("property_value") or 0)
+                    catalog_price = to_price(p_res.data.get("property_value"))
                     specs = p_res.data.get("specs") or {}
-                    lease_monthly = float(specs.get("lease_monthly") or (prop_price * 0.035 if prop_price > 0 else 0))
+                    raw_lease = specs.get("lease_monthly")
+                    lease_monthly = float(raw_lease) if raw_lease is not None else (catalog_price * 0.035 if catalog_price is not None else 0.0)
             except Exception:
                 pass
+
+        entered_price = float(roi_in.enteredPrice) if roi_in.enteredPrice is not None else None
+        effective_price = catalog_price if catalog_price is not None else (entered_price if entered_price is not None else 0.0)
 
         computed = compute_roi(
             {
@@ -8519,18 +8557,23 @@ def portal_submit_inquiry(
                 "monthlyLaborCost": roi_in.monthlyLaborCost,
             },
             {
-                "purchasePrice": prop_price,
+                "purchasePrice": effective_price,
                 "leaseMonthly": lease_monthly,
             },
             roi_in.mode,
         )
+        stored_inputs = {
+            "shifts": roi_in.shifts,
+            "headcountPerShift": roi_in.headcountPerShift,
+            "monthlyLaborCost": roi_in.monthlyLaborCost,
+            "mode": roi_in.mode,
+        }
+        if catalog_price is None and entered_price is not None:
+            stored_inputs["enteredPrice"] = entered_price
+            stored_inputs["price_entered_by_company"] = True
+
         stored_roi = {
-            "inputs": {
-                "shifts": roi_in.shifts,
-                "headcountPerShift": roi_in.headcountPerShift,
-                "monthlyLaborCost": roi_in.monthlyLaborCost,
-                "mode": roi_in.mode,
-            },
+            "inputs": stored_inputs,
             "outputs": computed,
         }
 
@@ -9003,13 +9046,17 @@ def portal_catalog(
     try:
         evals_res = (
             supabase.table("pipeline_evaluations")
-            .select("property_id, expected_value")
+            .select("property_id, probability, expected_value")
             .eq("client_id", client_id)
-            .order("expected_value", desc=True)
-            .limit(5)
+            .order("expected_value", desc=True, nullsfirst=False)
             .execute()
         )
-        matched_ids = {row["property_id"] for row in (evals_res.data or [])}
+        sorted_evals = sorted(
+            evals_res.data or [],
+            key=lambda e: ev_rank_key(e.get("probability"), e.get("expected_value")),
+            reverse=True
+        )[:5]
+        matched_ids = {row["property_id"] for row in sorted_evals if row.get("property_id")}
     except Exception:
         pass
 

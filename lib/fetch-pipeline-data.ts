@@ -1,4 +1,5 @@
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabaseClient"
+import { compareByEvThenProbability } from "@/lib/price"
 import {
   mapEvaluationToClient,
   mapPropertyRow,
@@ -41,7 +42,7 @@ export async function fetchPipelineClients(agentId?: string | null): Promise<Cli
       properties ( ${PROPERTY_RICH_COLS} )
     `,
     )
-    .order("expected_value", { ascending: false })
+    .order("expected_value", { ascending: false, nullsFirst: false })
     .range(0, 4999)
 
   const { data, error } = agentId
@@ -63,7 +64,7 @@ export async function fetchPipelineClients(agentId?: string | null): Promise<Cli
         properties ( id, address, neighborhood, property_value, bedrooms, bathrooms, sqft, property_type, furnishing, tenure )
       `,
       )
-      .order("expected_value", { ascending: false })
+      .order("expected_value", { ascending: false, nullsFirst: false })
       .range(0, 4999)
 
     const fallback1 = await fallback1Query
@@ -88,7 +89,7 @@ export async function fetchPipelineClients(agentId?: string | null): Promise<Cli
         properties ( id, address, neighborhood, property_value )
       `,
       )
-      .order("expected_value", { ascending: false })
+      .order("expected_value", { ascending: false, nullsFirst: false })
       .range(0, 4999)
 
     if (fallback2.error) {
@@ -187,7 +188,7 @@ export async function fetchDeduplicatedClients(agentId?: string | null): Promise
   const result: DeduplicatedClient[] = []
   for (const [clientDbId, rows] of byClientId) {
     // Sort all rows for this client by E(x) descending
-    const sorted = [...rows].sort((a, b) => b.expectedValue - a.expectedValue)
+    const sorted = [...rows].sort(compareByEvThenProbability)
     const best  = sorted[0]
     const rich  = richClientMap[clientDbId] ?? {}
     result.push({
@@ -225,7 +226,7 @@ export async function fetchDeduplicatedClients(agentId?: string | null): Promise
   }
 
   // Sort deduped list by best E(x) descending
-  result.sort((a, b) => b.bestMatch.expectedValue - a.bestMatch.expectedValue)
+  result.sort((a, b) => compareByEvThenProbability(a.bestMatch, b.bestMatch))
   return result
 }
 
@@ -243,7 +244,7 @@ export async function fetchProperties(agentId?: string | null): Promise<Property
     supabase
       .from("properties")
       .select("id, address, neighborhood, property_value, image_url, status, owner_client_id, closed_at, last_price_change_at, last_price_change_pct, bedrooms, bathrooms, sqft, property_type, furnishing, tenure, clients(name), assigned_agent_id, agents(id, name, initials)")
-      .order("property_value", { ascending: false })
+      .order("property_value", { ascending: false, nullsFirst: false })
   )
   if (!attempt1.error && attempt1.data) {
     return (attempt1.data as unknown as PropertyRow[]).map(mapPropertyRow)
@@ -254,7 +255,7 @@ export async function fetchProperties(agentId?: string | null): Promise<Property
     supabase
       .from("properties")
       .select("id, address, neighborhood, property_value, image_url, status, owner_client_id, closed_at, bedrooms, bathrooms, sqft, property_type, furnishing, tenure, clients(name), assigned_agent_id, agents(id, name, initials)")
-      .order("property_value", { ascending: false })
+      .order("property_value", { ascending: false, nullsFirst: false })
   )
   if (!attempt2.error && attempt2.data) {
     return (attempt2.data as unknown as PropertyRow[]).map(mapPropertyRow)
@@ -265,7 +266,7 @@ export async function fetchProperties(agentId?: string | null): Promise<Property
     supabase
       .from("properties")
       .select("id, address, neighborhood, property_value, image_url, status, owner_client_id, closed_at, bedrooms, bathrooms, sqft, property_type, furnishing, tenure, assigned_agent_id, agents(id, name, initials)")
-      .order("property_value", { ascending: false })
+      .order("property_value", { ascending: false, nullsFirst: false })
   )
   if (!attempt3.error && attempt3.data) {
     return (attempt3.data as unknown as PropertyRow[]).map(mapPropertyRow)
@@ -276,7 +277,7 @@ export async function fetchProperties(agentId?: string | null): Promise<Property
     supabase
       .from("properties")
       .select("id, address, neighborhood, property_value, image_url, bedrooms, bathrooms, sqft, property_type, furnishing, tenure, assigned_agent_id, agents(id, name, initials)")
-      .order("property_value", { ascending: false })
+      .order("property_value", { ascending: false, nullsFirst: false })
   )
   if (!attempt4.error && attempt4.data) {
     return (attempt4.data as unknown as PropertyRow[]).map(mapPropertyRow)
@@ -287,7 +288,7 @@ export async function fetchProperties(agentId?: string | null): Promise<Property
     supabase
       .from("properties")
       .select("id, address, neighborhood, property_value, image_url, assigned_agent_id, agents(id, name, initials)")
-      .order("property_value", { ascending: false })
+      .order("property_value", { ascending: false, nullsFirst: false })
   )
   if (!attempt5.error && attempt5.data) {
     return (attempt5.data as unknown as PropertyRow[]).map(mapPropertyRow)
@@ -297,7 +298,7 @@ export async function fetchProperties(agentId?: string | null): Promise<Property
   const attempt6 = await supabase
     .from("properties")
     .select("id, address, neighborhood, property_value")
-    .order("property_value", { ascending: false })
+    .order("property_value", { ascending: false, nullsFirst: false })
 
   if (!attempt6.error && attempt6.data) {
     return (attempt6.data as unknown as PropertyRow[]).map(mapPropertyRow)

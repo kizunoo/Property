@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react"
 import { TIER_SHORT, currency, percent, type DeduplicatedClient, type PastPurchase } from "@/lib/pipeline-data"
+import { priceLabel, evLabel } from "@/lib/price"
 import { fetchReasoning } from "@/lib/generate-reasoning"
 import { logViewing, type ViewingResult } from "@/lib/log-viewing"
 import { scheduleViewing } from "@/lib/schedule-viewing"
@@ -45,7 +46,7 @@ function buildScoreRows(client: DeduplicatedClient): ScoreRow[] {
 
   // 2. Financial Fit: calculated directly using the continuous ratio formula matching scoring_engine.py
   let finFactor = 0
-  if (budget != null && budget > 0 && propVal > 0) {
+  if (budget != null && budget > 0 && propVal != null && propVal > 0) {
     if (budget >= propVal) {
       const ratio = propVal / budget
       finFactor = 0.5 + 0.5 * Math.min(1.0, ratio)
@@ -170,7 +171,7 @@ function OtherMatchRow({ match, rank }: { match: DeduplicatedClient["allMatches"
       </div>
       <div className="text-right">
         <div className="font-mono text-xs font-bold text-foreground">{percent(match.probability)}</div>
-        <div className="font-mono text-xs text-muted-foreground">{currency(match.expectedValue)}</div>
+        <div className="font-mono text-xs text-muted-foreground">{evLabel(match.expectedValue, currency)}</div>
       </div>
     </div>
   )
@@ -837,10 +838,10 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                 <div className="mt-3 rounded-[8px] border border-border bg-card shadow-[var(--shadow-xs)] overflow-hidden">
                   <div className="px-4">
                     <StatRow label="Best-Fit Match"       value={client.bestMatch.property} />
-                    <StatRow label="Unit Cost"            value={currency(client.bestMatch.propertyValue)} />
+                    <StatRow label="Unit Cost"            value={priceLabel(client.bestMatch.propertyValue, currency)} />
                     <StatRow label="Stated Budget"        value={client.statedBudget != null && client.statedBudget > 0 ? currency(client.statedBudget) : "Budget not set"} />
                     <StatRow label="Target Environment"   value={client.bestMatch.neighborhood} />
-                    <StatRow label="E(x) on Best-Fit Match" value={currency(effectiveExpectedValue)} />
+                    <StatRow label="E(x) on Best-Fit Match" value={evLabel(effectiveExpectedValue, currency)} />
                     <StatRow label="Demo Sessions"        value={String(effectivePastViewings)} />
                     <StatRow label="Total Robot Matches"  value={String(client.allMatches.length)} />
                   </div>
@@ -989,7 +990,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                       </div>
                       <div className="ml-auto text-right">
                         <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Value</div>
-                        <div className="font-mono text-base font-bold text-foreground">{currency(client.bestMatch.propertyValue)}</div>
+                        <div className="font-mono text-base font-bold text-foreground">{priceLabel(client.bestMatch.propertyValue, currency)}</div>
                       </div>
                     </div>
                   </div>

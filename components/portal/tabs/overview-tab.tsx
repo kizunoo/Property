@@ -7,7 +7,7 @@ import { fetchPreferences } from "@/lib/portal-api"
 import { Skeleton } from "@/components/ui/skeleton"
 
 function formatCost(c: number | null): string {
-  if (!c) return "Contact us"
+  if (c == null || c <= 0) return "Price on request"
   return `RM ${c.toLocaleString("en-MY", { maximumFractionDigits: 0 })}`
 }
 

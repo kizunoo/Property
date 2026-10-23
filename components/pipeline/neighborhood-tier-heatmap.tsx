@@ -73,7 +73,7 @@ export function NeighborhoodTierHeatmap({ clients, onCellClick }: NeighborhoodTi
     const nbhd = c.preferredNeighborhood ?? "Unknown"
     const key = `${nbhd}__${c.tier}`
     const cur = cellMap.get(key) ?? { neighborhood: nbhd, tier: c.tier, count: 0, totalEx: 0 }
-    cellMap.set(key, { ...cur, count: cur.count + 1, totalEx: cur.totalEx + c.expectedValue })
+    cellMap.set(key, { ...cur, count: cur.count + 1, totalEx: cur.totalEx + (c.expectedValue ?? 0) })
   }
 
   const maxCount = Math.max(...Array.from(cellMap.values()).map((v) => v.count), 1)

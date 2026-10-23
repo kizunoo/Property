@@ -12,6 +12,7 @@ import {
 } from "recharts"
 import { Crosshair } from "lucide-react"
 import { currency, percent, type Client, type Property } from "@/lib/pipeline-data"
+import { priceLabel, evLabel } from "@/lib/price"
 import { ScrollConnect } from "@/components/animation/scroll-connect"
 import { useChartInsight, ChartInsightPanel } from "./chart-insight-panel"
 
@@ -79,8 +80,8 @@ interface ScatterPoint {
   name: string
   neighborhood: string
   probability: number
-  propertyValue: number
-  expectedValue: number
+  propertyValue: number | null
+  expectedValue: number | null
   tier: string
 }
 
@@ -104,9 +105,9 @@ function MatrixTooltip({ active, payload, onSelectProperty }: TooltipProps) {
         <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">P(Adopt)</span>
         <span className="text-right font-mono text-sm font-semibold">{percent(d.probability / 100)}</span>
         <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Unit Cost</span>
-        <span className="text-right font-mono text-sm font-semibold">{currency(d.propertyValue)}</span>
+        <span className="text-right font-mono text-sm font-semibold">{priceLabel(d.propertyValue, currency)}</span>
         <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">E(x)</span>
-        <span className="text-right font-mono text-sm font-semibold">{currency(d.expectedValue)}</span>
+        <span className="text-right font-mono text-sm font-semibold">{evLabel(d.expectedValue, currency)}</span>
       </div>
       <div className="mt-2 border-t border-neutral-200 pt-2 flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
         <span>{d.tier.replace("_", " ")}</span>
