@@ -20,6 +20,12 @@ import re
 import sys
 from pathlib import Path
 
+try:
+    from postgrest.exceptions import APIError
+except ImportError:
+    class APIError(Exception):  # type: ignore[no-redef]
+        pass
+
 ROOT = Path(__file__).resolve().parents[1]
 
 # ---------------------------------------------------------------------------
@@ -286,15 +292,44 @@ def do_purge(sb, dry):
         print(purge_step(sb, table, col, ids, dry, critical))
 
 
+def extract_failing_column(message: str) -> str:
+    if not message:
+        return "unknown"
+    m = re.search(r'column\s+"([^"]+)"', message)
+    if m:
+        return m.group(1)
+    m = re.search(r'Key\s+\(([^)]+)\)', message)
+    if m:
+        return m.group(1)
+    return "unknown"
+
+
+def handle_api_error(exc: Exception, context: str = ""):
+    code = getattr(exc, "code", None)
+    message = getattr(exc, "message", None)
+    if code is None and isinstance(getattr(exc, "args", None), tuple) and exc.args and isinstance(exc.args[0], dict):
+        code = exc.args[0].get("code")
+        message = exc.args[0].get("message")
+    code = code or "UNKNOWN"
+    message = message or str(exc)
+    col = extract_failing_column(message)
+    ctx = f" on {context}" if context else ""
+    print(f"APIError{ctx}: code={code}, message={message}, failing_column={col}", file=sys.stderr)
+    sys.exit(1)
+
+
 def upsert(sb, table, match: dict, row: dict):
-    q = sb.table(table).select("id")
-    for k, v in match.items():
-        q = q.eq(k, v)
-    found = q.limit(1).execute().data
-    if found:
-        sb.table(table).update(row).eq("id", found[0]["id"]).execute()
-        return found[0]["id"], "updated"
-    return sb.table(table).insert(row).execute().data[0]["id"], "inserted"
+    try:
+        q = sb.table(table).select("id")
+        for k, v in match.items():
+            q = q.eq(k, v)
+        found = q.limit(1).execute().data
+        if found:
+            sb.table(table).update(row).eq("id", found[0]["id"]).execute()
+            return found[0]["id"], "updated"
+        return sb.table(table).insert(row).execute().data[0]["id"], "inserted"
+    except APIError as exc:
+        handle_api_error(exc, f"table '{table}'")
 
 
 def run_scoring(sb, client_ids):
@@ -361,7 +396,12 @@ def run_scoring(sb, client_ids):
             if "ml_probability" in str(exc):
                 for b in batch:
                     b.pop("ml_probability", None)
-                sb.table("pipeline_evaluations").upsert(batch, on_conflict="client_id,property_id").execute()
+                try:
+                    sb.table("pipeline_evaluations").upsert(batch, on_conflict="client_id,property_id").execute()
+                except APIError as api_exc:
+                    handle_api_error(api_exc, "pipeline_evaluations")
+            elif isinstance(exc, APIError):
+                handle_api_error(exc, "pipeline_evaluations")
             else:
                 raise
 
@@ -467,7 +507,10 @@ def main():
         if placeholders:
             sys.exit("Refusing to import template/placeholder rows. Replace them with real data.")
         guard_env(args)
-        do_import(get_db(), robots, companies, args.skip_scoring, args.default_agent_email)
+        try:
+            do_import(get_db(), robots, companies, args.skip_scoring, args.default_agent_email)
+        except APIError as exc:
+            handle_api_error(exc)
 
 
 if __name__ == "__main__":
