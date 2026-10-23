@@ -15,6 +15,9 @@ import triage_service  # noqa: E402
 
 OK = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 SEEN, SUGGEST_CALLS = [], []
+
+# originals saved/restored per-test so module state never leaks into later test files
+_originals: dict = {}
 app = FastAPI()
 app.include_router(routes.router)
 
@@ -42,6 +45,11 @@ sys.modules["reply_agent"] = stub
 
 def setup_function(_):
     SEEN.clear(); SUGGEST_CALLS.clear(); routes._hits.clear()
+    _originals["get_inquiry_detail"] = inquiry_detail.get_inquiry_detail
+    _originals["resolve_inquiry"] = inquiry_resolution.resolve_inquiry
+    _originals["reopen_inquiry"] = inquiry_resolution.reopen_inquiry
+    _originals["list_company_history"] = inquiry_resolution.list_company_history
+    _originals["triage_db"] = triage_service.get_db()
     triage_service.set_db(object())
     stub.suggest_reply = _suggest
     inquiry_resolution.resolve_inquiry = lambda db, ident, iid, note=None: (SEEN.append((ident, note)) or "ok")
@@ -49,6 +57,14 @@ def setup_function(_):
     inquiry_resolution.list_company_history = lambda db, ident, cid: {"client_id": cid, "inquiries": []}
     inquiry_detail.get_inquiry_detail = lambda db, ident, iid: {"inquiry": {}} if iid == OK else None
     routes._audit = lambda *a, **k: None
+
+
+def teardown_function(_):
+    inquiry_detail.get_inquiry_detail = _originals["get_inquiry_detail"]
+    inquiry_resolution.resolve_inquiry = _originals["resolve_inquiry"]
+    inquiry_resolution.reopen_inquiry = _originals["reopen_inquiry"]
+    inquiry_resolution.list_company_history = _originals["list_company_history"]
+    triage_service.set_db(_originals["triage_db"])
 
 
 def call(method, path, agent="repA", role="agent", **kw):

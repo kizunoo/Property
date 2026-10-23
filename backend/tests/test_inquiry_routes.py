@@ -32,16 +32,28 @@ client = TestClient(app, raise_server_exceptions=False)
 OK_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
 
+_originals: dict = {}
+
+
 def fake_detail(db, identity, inquiry_id):
     SEEN.append(identity)
-    return {"inquiry": {"inquiry_id": inquiry_id}, "messages": []} if inquiry_id == OK_ID else None
+    return {"inquiry": {"inquiry_id": inquiry_id, "client_id": "c1"}, "messages": []} if inquiry_id == OK_ID else None
 
 
 def setup_function(_):
     SEEN.clear()
+    _originals["get_inquiry_detail"] = inquiry_detail.get_inquiry_detail
+    _originals["list_priority_inquiries"] = triage_service.list_priority_inquiries
+    _originals["triage_db"] = triage_service.get_db()
     triage_service.set_db(object())
     inquiry_detail.get_inquiry_detail = fake_detail
     triage_routes.triage_service.list_priority_inquiries = lambda db, identity, limit=20: []
+
+
+def teardown_function(_):
+    inquiry_detail.get_inquiry_detail = _originals["get_inquiry_detail"]
+    triage_service.list_priority_inquiries = _originals["list_priority_inquiries"]
+    triage_service.set_db(_originals["triage_db"])
 
 
 def get(path, agent="repA", role="agent"):
