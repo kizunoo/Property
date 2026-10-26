@@ -341,6 +341,20 @@ for tbl, col in real_data_cols:
         except Exception as e:
             print(f"  [WARN]   {tbl}.{col:<18} Not accessible to anon: {str(e)[:50]}")
 
+print("\n--- 3d-2. Properties Data Source & SKU Consistency Check ---")
+if service_client:
+    try:
+        bad_real = service_client.table("properties").select("id").eq("data_source", "real").is_("sku_code", "null").execute().data or []
+        bad_seed = service_client.table("properties").select("id").eq("data_source", "seed").not_.is_("sku_code", "null").execute().data or []
+        if bad_real:
+            print(f"  [FAIL]   {len(bad_real)} properties row(s) have data_source='real' with NULL sku_code!")
+        elif bad_seed:
+            print(f"  [FAIL]   {len(bad_seed)} properties row(s) have data_source='seed' with non-NULL sku_code!")
+        else:
+            print("  [OK]     properties data_source and sku_code alignment verified (real requires sku_code; seed has NULL sku_code)")
+    except Exception as e:
+        print(f"  [ERROR]  properties data_source consistency check failed: {e}")
+
 print("\n--- 3e. Inquiry Triage Columns Verification & Privilege Lockdown ---")
 triage_cols = [
     "triage_status",

@@ -121,7 +121,7 @@ def apply_seed():
 
     print("4. Inserting 20 Robot Units...")
     for idx, prop in enumerate(PROPERTIES_DATA):
-        p_row = {**prop}
+        p_row = {**prop, "data_source": "seed"}
         if agent_ids:
             p_row["assigned_agent_id"] = agent_ids[idx % len(agent_ids)]
         try:
@@ -137,7 +137,7 @@ def apply_seed():
 
     print("5. Inserting 50 Companies...")
     for idx, client in enumerate(CLIENTS_DATA):
-        c_row = {**client}
+        c_row = {**client, "data_source": "seed"}
         if agent_ids:
             c_row["assigned_agent_id"] = agent_ids[idx % len(agent_ids)]
         # All freshly seeded prospects start strictly in the 'new' stage
