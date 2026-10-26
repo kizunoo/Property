@@ -35,6 +35,14 @@ from __future__ import annotations
 from typing import TypedDict
 
 
+from fit_signal import (
+    FIT_WEIGHT,
+    client_facility_type,
+    fit_reason,
+    industry_fit,
+    renormalize,
+    robot_target_industries,
+)
 from price_utils import compute_expected_value, has_price, tier_without_price, to_price
 
 
@@ -109,10 +117,19 @@ def _score_breakdown(client: dict, prop: dict) -> ScoreBreakdown:
             ratio = budget / prop_value
             financial = 0.40 * (0.5 * max(0.0, ratio))
 
-    # Geo match (primary): +30% exact match
-    pref_nbhd   = client.get("preferred_neighborhood")
-    prop_nbhd   = prop.get("neighborhood")
-    geo_primary = 0.30 if (pref_nbhd and pref_nbhd == prop_nbhd) else 0.0
+    # Geo / Industry-fit match: +30%
+    prop_nbhd = prop.get("neighborhood")
+    pref_nbhd = client.get("preferred_neighborhood")
+    target_inds = robot_target_industries(prop)
+    if target_inds:
+        c_ft = client_facility_type(client)
+        fit_val = industry_fit(c_ft, target_inds)
+        if fit_val is not None:
+            geo_primary = FIT_WEIGHT * fit_val
+        else:
+            geo_primary = 0.30 if (prop_nbhd and pref_nbhd and pref_nbhd == prop_nbhd) else 0.0
+    else:
+        geo_primary = 0.30 if (prop_nbhd and pref_nbhd and pref_nbhd == prop_nbhd) else 0.0
 
     # Engagement: +10% per viewing, capped at +20%
     viewings   = client.get("engagement_history") or 0
@@ -174,6 +191,17 @@ def _score_breakdown(client: dict, prop: dict) -> ScoreBreakdown:
 
 # ─── Probability ──────────────────────────────────────────────────────────────
 
+def _is_geo_or_fit_evaluated(client: dict, prop: dict) -> bool:
+    target_inds = robot_target_industries(prop)
+    if target_inds:
+        c_ft = client_facility_type(client)
+        fit_val = industry_fit(c_ft, target_inds)
+        if fit_val is not None:
+            return True
+        return bool(prop.get("neighborhood"))
+    return bool(prop.get("neighborhood"))
+
+
 def _probability(client: dict, prop: dict) -> float:
     """
     Calculate P(Buy) for a client–property pair.
@@ -181,7 +209,7 @@ def _probability(client: dict, prop: dict) -> float:
     Scoring breakdown:
         Base probability          +10%  (always)
         Financial Fit             +40% max (scaled continuously by budget/price ratio)
-        Geo Match (primary)       +30%  (preferred_neighborhood == neighborhood)
+        Geo / Industry Fit        +30%  (preferred_neighborhood or target_industries fit)
         Engagement Bonus          +10% per viewing, capped at +20%
         Financing bonus           +5%   (cash or pre-approved — rich profile)
         Timeline urgency          +5%   (< 6 month move-in — rich profile)
@@ -191,24 +219,7 @@ def _probability(client: dict, prop: dict) -> float:
         Repeat Area Owner         +5%   (previously bought in target neighborhood)
     """
     bd = _score_breakdown(client, prop)
-    if not has_price(prop):
-        # When price is None, the financial component is excluded and the
-        # remaining non-financial weights (summing to 0.60 core) are renormalized
-        # so a missing price neither helps nor hurts.
-        non_financial = (
-            bd["base"]
-            + bd["geo_primary"]
-            + bd["engagement"]
-            + bd["financing"]
-            + bd["timeline"]
-            + bd["type_match"]
-            + bd["geo_secondary"]
-            + bd["track_record"]
-            + bd["repeat_area"]
-        )
-        return round(min(non_financial / 0.60, 1.0), 4)
-
-    total = (
+    points = (
         bd["base"]
         + bd["financial"]
         + bd["geo_primary"]
@@ -220,7 +231,13 @@ def _probability(client: dict, prop: dict) -> float:
         + bd["track_record"]
         + bd["repeat_area"]
     )
-    return round(min(total, 1.0), 4)
+    available_weight = 0.30  # Base (0.10) + Max Engagement (0.20)
+    if has_price(prop):
+        available_weight += 0.40
+    if _is_geo_or_fit_evaluated(client, prop):
+        available_weight += 0.30
+
+    return renormalize(points, available_weight)
 
 
 # ─── Tier assignment ──────────────────────────────────────────────────────────
@@ -287,17 +304,27 @@ def build_pick_skip_reasons(client: dict, prop: dict) -> tuple[str, str]:
         else:
             pick_tags.append(f"✓ Proven buyer ({price_str} track record)")
 
-    # Primary geo
-    pref = client.get("preferred_neighborhood", "")
-    if bd["geo_primary"] > 0:
-        pick_tags.append(f"✓ Area match ({pref})")
-    else:
-        skip_tags.append("✗ Area mismatch")
+    # Primary geo / industry fit
+    target_inds = robot_target_industries(prop)
+    if target_inds:
+        c_ft = client_facility_type(client)
+        fit_val = industry_fit(c_ft, target_inds)
+        r_text = fit_reason(fit_val)
+        if fit_val is not None and fit_val >= 1.0:
+            pick_tags.append(f"✓ {r_text}")
+        else:
+            skip_tags.append(f"✗ {r_text}")
+    elif prop.get("neighborhood"):
+        pref = client.get("preferred_neighborhood", "")
+        if bd["geo_primary"] > 0:
+            pick_tags.append(f"✓ Area match ({pref})")
+        else:
+            skip_tags.append("✗ Area mismatch")
 
     # Secondary geo bonus
     if bd["geo_secondary"] > 0:
-        skip_tags.clear()  # secondary match overrides the area-mismatch tag
-        pick_tags.append(f"✓ Secondary area match")
+        skip_tags = [t for t in skip_tags if "Area mismatch" not in t]
+        pick_tags.append("✓ Secondary area match")
 
     # Engagement
     if viewings >= 2:

@@ -525,7 +525,7 @@ export function ShortlistModal({ property, open, onClose, agentId, onGenerateInv
                 </div>
                 <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                   <MapPin className="h-3 w-3 shrink-0 text-muted-foreground" strokeWidth={2.5} />
-                  {property.neighborhood}
+                  {property.neighborhood || "—"}
                 </div>
               </div>
             </div>

@@ -424,7 +424,7 @@ export function PropertyDetailModal({ property, open, onClose, onFindBuyers, onP
                 <div className="text-lg font-bold leading-tight text-foreground sm:text-xl">{property.address || property.name}</div>
                 <div className="mt-1 flex items-center gap-1 text-xs font-semibold text-muted-foreground">
                   <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={2.5} />
-                  {property.neighborhood}
+                  {property.neighborhood || "—"}
                 </div>
                 <div className="mt-2 flex items-center gap-2 flex-wrap">
                   <StatusBadge status={property.status} />
@@ -479,7 +479,7 @@ export function PropertyDetailModal({ property, open, onClose, onFindBuyers, onP
               </div>
               <div className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
                 <MapPin className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2.5} />
-                {property.neighborhood}
+                {property.neighborhood || "—"}
               </div>
             </div>
 

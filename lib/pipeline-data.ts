@@ -78,7 +78,7 @@ export interface DeduplicatedClient {
     propertyValue: number | null
     probability: number
     expectedValue: number | null
-    neighborhood: string
+    neighborhood: string | null
     outcome: "pending" | "won" | "lost"
     mlProbability?: number | null
   }
@@ -98,7 +98,7 @@ export interface Property {
   id: string
   name: string
   address: string
-  neighborhood: string
+  neighborhood: string | null
   value: number | null
   status: "LISTED" | "PENDING" | "UNDER OFFER" | "CLOSED"
   imageUrl?: string
@@ -234,7 +234,7 @@ export interface PipelineEvaluationRow {
 export interface PropertyRow {
   id: string
   address: string
-  neighborhood: string
+  neighborhood: string | null
   property_value: number | null
   image_url?: string
   last_price_change_at?: string | null
@@ -300,7 +300,7 @@ export function mapPropertyRow(row: PropertyRow, index: number): Property {
     id: row.id,
     name: row.address,
     address: row.address,
-    neighborhood: row.neighborhood,
+    neighborhood: row.neighborhood ?? null,
     value: toPrice(row.property_value),
     status: validStatus,
     imageUrl: row.image_url ?? undefined,

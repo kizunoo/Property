@@ -82,7 +82,7 @@ function PropertyCard({
         </div>
         <div className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground sm:text-sm">
           <MapPin className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
-          {property.neighborhood}
+          {property.neighborhood || "—"}
         </div>
 
         {/* Assigned Sales Rep badge */}
@@ -169,8 +169,8 @@ export function PropertyCards({ properties, onSelect, onFindBuyers }: PropertyCa
     // Search query filter
     if (query.trim()) {
       const q = query.toLowerCase()
-      const matchAddress = p.address.toLowerCase().includes(q)
-      const matchNbhd    = p.neighborhood.toLowerCase().includes(q)
+      const matchAddress = (p.address || "").toLowerCase().includes(q)
+      const matchNbhd    = (p.neighborhood || "").toLowerCase().includes(q)
       const matchOwner   = p.ownerName?.toLowerCase().includes(q) ?? false
       return matchAddress || matchNbhd || matchOwner
     }

@@ -7654,14 +7654,15 @@ def portal_dashboard(client_id: str, session: PortalSession = Depends(get_curren
             except Exception as llm_exc:
                 print(f"[portal_dashboard] LLM FAILED for {safe_prop_name}: {llm_exc}")
                 cost_val = to_price(prop.get("property_value"))
+                loc_phrase = f"in {prop['neighborhood']} " if prop.get("neighborhood") else ""
                 if cost_val is not None:
                     reasoning = (
-                        f"This unit in {prop.get('neighborhood', 'this zone')} is priced at "
+                        f"This unit {loc_phrase}is priced at "
                         f"RM{cost_val:,.0f} and aligns well with your operational requirements."
                     )
                 else:
                     reasoning = (
-                        f"This unit in {prop.get('neighborhood', 'this zone')} aligns well with your operational requirements."
+                        f"This unit {loc_phrase}aligns well with your operational requirements."
                     )
 
         # Client-safe fields only — no probability, tier, ML score, expected_value, or agent data

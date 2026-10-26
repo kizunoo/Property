@@ -178,6 +178,7 @@ def build_robot_row(r, data_source: str = "real"):
         PROPERTY_COLS["description"]: r.get("key_specs", ""),
         PROPERTY_COLS["category"]: r["category"],
         PROPERTY_COLS["image_url"]: r.get("image_url") or None,
+        "neighborhood": None,
         "sku_code": r["sku_code"], "manufacturer": r["manufacturer"],
         "specs": specs, "data_source": data_source,
     }
@@ -366,13 +367,16 @@ def run_scoring(sb, client_ids):
             "move_in_timeline": client.get("move_in_timeline"),
             "property_type_preference": client.get("property_type_preference"),
             "secondary_neighborhood": client.get("secondary_neighborhood"),
+            "facility_profile": client.get("facility_profile"),
+            "facility_type": client.get("facility_type"),
         }
         for prop in properties:
             raw_val = prop.get("property_value")
             prop_data = {
-                "neighborhood": prop.get("neighborhood") or "",
+                "neighborhood": prop.get("neighborhood"),
                 "property_value": float(raw_val) if raw_val is not None else None,
                 "property_type": prop.get("property_type"),
+                "specs": prop.get("specs"),
             }
             res = score_pair(client_profile, prop_data)
             ml_prob = None

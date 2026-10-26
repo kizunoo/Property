@@ -135,9 +135,11 @@ export function OverviewTab({ clientId, data, onNavigate }: OverviewTabProps) {
                 ? `Budget: RM ${prefs.stated_budget.toLocaleString("en-MY")}`
                 : "Budget not set"}
             </span>
-            <span className="inline-flex items-center gap-1 border border-border bg-secondary px-2.5 py-1 text-xs font-semibold">
-              {prefs.preferred_neighborhood}
-            </span>
+            {prefs.preferred_neighborhood ? (
+              <span className="inline-flex items-center gap-1 border border-border bg-secondary px-2.5 py-1 text-xs font-semibold">
+                {prefs.preferred_neighborhood}
+              </span>
+            ) : null}
             {prefs.financing_status && prefs.financing_status !== "unspecified" && (
               <span className="inline-flex items-center gap-1 border border-border bg-secondary px-2.5 py-1 text-xs font-semibold uppercase">
                 {prefs.financing_status}

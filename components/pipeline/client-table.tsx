@@ -121,9 +121,9 @@ function ClientEntity({
             </div>
             <div
               className="font-mono text-[11px] text-muted-foreground truncate"
-              title={client.bestMatch.neighborhood}
+              title={client.bestMatch.neighborhood ?? undefined}
             >
-              {client.bestMatch.neighborhood}
+              {client.bestMatch.neighborhood || "—"}
             </div>
             {client.assignedAgent && (
               <div className="flex items-center gap-1 mt-0.5">
@@ -275,7 +275,7 @@ export function ClientTable({ clients, onGenerateInvite, onSelect }: ClientTable
           c.name.toLowerCase().includes(q) ||
           c.clientId.toLowerCase().includes(q) ||
           c.bestMatch.property.toLowerCase().includes(q) ||
-          c.bestMatch.neighborhood.toLowerCase().includes(q)
+          (c.bestMatch.neighborhood || "").toLowerCase().includes(q)
         )
       })
     : clients

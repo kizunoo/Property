@@ -60,6 +60,8 @@ def product_sheet(row: dict, why: str = "", entered_price: Optional[float] = Non
 
     for col, label in SCALAR_FACTS:
         add(label, row.get(col))
+    if row.get("neighborhood"):
+        add("Operating Environment", row.get("neighborhood"))
 
     price_val = to_price(row.get(ROBOT_PRICE_COL))
     if price_val is not None:

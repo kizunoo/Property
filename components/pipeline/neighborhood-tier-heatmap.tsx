@@ -48,7 +48,7 @@ export function NeighborhoodTierHeatmap({ clients, onCellClick }: NeighborhoodTi
   })
 
   const neighborhoods = Array.from(
-    new Set(uniqueClients.map((c) => c.preferredNeighborhood ?? "Unknown"))
+    new Set(uniqueClients.map((c) => (c.preferredNeighborhood && c.preferredNeighborhood.trim()) ? c.preferredNeighborhood : "Unspecified"))
   ).sort()
 
   const handleCellClick = (nbhd: string, tier: Tier) => {
@@ -70,7 +70,7 @@ export function NeighborhoodTierHeatmap({ clients, onCellClick }: NeighborhoodTi
   // Build cell data map — one count per unique client
   const cellMap = new Map<string, CellData>()
   for (const c of uniqueClients) {
-    const nbhd = c.preferredNeighborhood ?? "Unknown"
+    const nbhd = (c.preferredNeighborhood && c.preferredNeighborhood.trim()) ? c.preferredNeighborhood : "Unspecified"
     const key = `${nbhd}__${c.tier}`
     const cur = cellMap.get(key) ?? { neighborhood: nbhd, tier: c.tier, count: 0, totalEx: 0 }
     cellMap.set(key, { ...cur, count: cur.count + 1, totalEx: cur.totalEx + (c.expectedValue ?? 0) })

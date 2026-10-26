@@ -789,7 +789,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
             </div>
             <div>
               <div className="text-xl font-bold leading-tight text-foreground sm:text-2xl">{client.name}</div>
-              <div className="mt-1 font-mono text-xs text-muted-foreground">{client.bestMatch.neighborhood}</div>
+              <div className="mt-1 font-mono text-xs text-muted-foreground">{client.bestMatch.neighborhood || "—"}</div>
               <div className="mt-2 flex items-center gap-2 flex-wrap">
                 <TierBadge tier={effectiveTier} />
                 <StageBadge stage={effectiveStage} />
@@ -840,7 +840,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                     <StatRow label="Best-Fit Match"       value={client.bestMatch.property} />
                     <StatRow label="Unit Cost"            value={priceLabel(client.bestMatch.propertyValue, currency)} />
                     <StatRow label="Stated Budget"        value={client.statedBudget != null && client.statedBudget > 0 ? currency(client.statedBudget) : "Budget not set"} />
-                    <StatRow label="Target Environment"   value={client.bestMatch.neighborhood} />
+                    <StatRow label="Target Environment"   value={client.bestMatch.neighborhood || "—"} />
                     <StatRow label="E(x) on Best-Fit Match" value={evLabel(effectiveExpectedValue, currency)} />
                     <StatRow label="Demo Sessions"        value={String(effectivePastViewings)} />
                     <StatRow label="Total Robot Matches"  value={String(client.allMatches.length)} />
@@ -985,7 +985,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                         <div className="text-sm font-bold leading-tight text-foreground">{client.bestMatch.property}</div>
                         <div className="flex items-center gap-1 mt-1 text-xs font-semibold text-muted-foreground">
                           <MapPin className="h-3 w-3 text-muted-foreground" strokeWidth={2.5} />
-                          {client.bestMatch.neighborhood}
+                          {client.bestMatch.neighborhood || "—"}
                         </div>
                       </div>
                       <div className="ml-auto text-right">
