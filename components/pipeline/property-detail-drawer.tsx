@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import {
   Bath,
   Bed,
-  Building2,
+  Bot,
   Clock,
   DollarSign,
   MapPin,
@@ -418,7 +418,7 @@ export function PropertyDetailModal({ property, open, onClose, onFindBuyers, onP
           <div className="flex items-start justify-between gap-4 p-5 sm:p-6">
             <div className="flex items-center gap-3.5">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[8px] bg-black">
-                <Building2 className="h-6 w-6 text-primary" strokeWidth={2.5} />
+                <Bot className="h-6 w-6 text-primary" strokeWidth={2.5} />
               </div>
               <div>
                 <div className="text-lg font-bold leading-tight text-foreground sm:text-xl">{property.address || property.name}</div>
@@ -495,7 +495,7 @@ export function PropertyDetailModal({ property, open, onClose, onFindBuyers, onP
             {/* Specs grid */}
             <div>
               <SectionHeading>
-                <Building2 className="inline h-3 w-3 mr-1" strokeWidth={2.5} />
+                <Bot className="inline h-3 w-3 mr-1" strokeWidth={2.5} />
                 Unit Specifications
                 {estimated && (
                   <span className="ml-2 text-[9px] font-bold text-amber-500 uppercase tracking-wide">(click any tile to set real values)</span>
@@ -545,7 +545,7 @@ export function PropertyDetailModal({ property, open, onClose, onFindBuyers, onP
                 <div className="mt-3 grid grid-cols-3 gap-3">
                   {property.propertyType && (
                     <EditableSpecTile
-                      icon={<Building2 className="h-3 w-3" strokeWidth={2.5} />}
+                      icon={<Bot className="h-3 w-3" strokeWidth={2.5} />}
                       label="Type"
                       value={property.propertyType}
                       fieldKey="property_type"
@@ -555,7 +555,7 @@ export function PropertyDetailModal({ property, open, onClose, onFindBuyers, onP
                   )}
                   {property.furnishing && (
                     <EditableSpecTile
-                      icon={<Building2 className="h-3 w-3" strokeWidth={2.5} />}
+                      icon={<Bot className="h-3 w-3" strokeWidth={2.5} />}
                       label="Furnishing"
                       value={property.furnishing}
                       fieldKey="furnishing"
@@ -565,7 +565,7 @@ export function PropertyDetailModal({ property, open, onClose, onFindBuyers, onP
                   )}
                   {property.tenure && (
                     <EditableSpecTile
-                      icon={<Building2 className="h-3 w-3" strokeWidth={2.5} />}
+                      icon={<Bot className="h-3 w-3" strokeWidth={2.5} />}
                       label="Tenure"
                       value={property.tenure}
                       fieldKey="tenure"
@@ -597,7 +597,7 @@ export function PropertyDetailModal({ property, open, onClose, onFindBuyers, onP
               onClick={onClose}
               className="flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-border bg-black py-3 text-sm font-bold uppercase tracking-wider text-white shadow-[var(--shadow-xs)] transition-all hover:bg-neutral-800 hover:shadow-[var(--shadow-sm)]"
             >
-              <Building2 className="h-4 w-4 text-primary" strokeWidth={2.5} />
+              <Bot className="h-4 w-4 text-primary" strokeWidth={2.5} />
               Schedule Demo
             </button>
           </div>

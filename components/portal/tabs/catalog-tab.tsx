@@ -6,6 +6,7 @@ import {
   Bookmark,
   BookmarkCheck,
   BookOpen,
+  Bot,
   CalendarPlus,
   ChevronDown,
   ExternalLink,
@@ -141,6 +142,7 @@ function UnitCard({
   onViewDetails: (u: CatalogUnit) => void
   onFeedback: (unit: CatalogUnit, update: Partial<UnitFeedback>) => void
 }) {
+  const [imgErr, setImgErr] = useState(false)
   return (
     <div
       className={`group relative flex flex-col border bg-card shadow-[var(--shadow-xs)] hover:shadow-[var(--shadow-sm)] transition-shadow ${
@@ -156,16 +158,19 @@ function UnitCard({
       )}
 
       {/* Image */}
-      <div className="relative h-40 overflow-hidden bg-muted">
-        {unit.image_url ? (
+      <div className="relative h-40 overflow-hidden bg-neutral-100 flex items-center justify-center">
+        {unit.image_url && !imgErr ? (
           <img
             src={unit.image_url}
             alt={unit.name ?? "Robot unit"}
-            className="h-full w-full object-cover transition-transform group-hover:scale-105"
+            className="h-full w-full object-contain p-2 transition-transform group-hover:scale-105"
+            loading="lazy"
+            onError={() => setImgErr(true)}
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-muted-foreground/30">
-            <BookOpen className="h-8 w-8" />
+          <div className="flex flex-col items-center gap-1.5 text-muted-foreground">
+            <Bot className="h-8 w-8 opacity-30" />
+            <span className="text-[10px] font-black uppercase tracking-wider opacity-40">Image coming soon</span>
           </div>
         )}
         {/* Category chip */}
@@ -262,6 +267,7 @@ function UnitRow({
   onViewDetails: (u: CatalogUnit) => void
   onFeedback: (unit: CatalogUnit, update: Partial<UnitFeedback>) => void
 }) {
+  const [imgErr, setImgErr] = useState(false)
   return (
     <div
       className={`group flex flex-col sm:flex-row gap-4 border bg-card shadow-[var(--shadow-xs)] hover:shadow-[var(--shadow-sm)] transition-shadow p-4 ${
@@ -269,9 +275,20 @@ function UnitRow({
       }`}
     >
       {/* Thumbnail */}
-      <div className="relative h-24 w-full sm:h-20 sm:w-28 shrink-0 overflow-hidden bg-muted">
-        {unit.image_url && (
-          <img src={unit.image_url} alt={unit.name ?? ""} className="h-full w-full object-cover" />
+      <div className="relative h-24 w-full sm:h-20 sm:w-28 shrink-0 overflow-hidden bg-neutral-100 flex items-center justify-center">
+        {unit.image_url && !imgErr ? (
+          <img
+            src={unit.image_url}
+            alt={unit.name ?? ""}
+            className="h-full w-full object-contain p-1"
+            loading="lazy"
+            onError={() => setImgErr(true)}
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-1 text-muted-foreground">
+            <Bot className="h-6 w-6 opacity-30" />
+            <span className="text-[9px] font-black uppercase tracking-wider opacity-40">Coming soon</span>
+          </div>
         )}
       </div>
 
@@ -350,6 +367,7 @@ function DetailDrawer({
   onRequestDemo: (u: CatalogUnit) => void
   onAskQuestion: (u: CatalogUnit) => void
 }) {
+  const [imgErr, setImgErr] = useState(false)
   return (
     <div className="fixed inset-0 z-50 flex">
       <button onClick={onClose} className="absolute inset-0 bg-black/40 backdrop-blur-sm" aria-label="Close" />
@@ -374,11 +392,22 @@ function DetailDrawer({
         </div>
 
         {/* Image */}
-        {unit.image_url && (
-          <div className="h-52 shrink-0 overflow-hidden bg-muted">
-            <img src={unit.image_url} alt={unit.name ?? ""} className="h-full w-full object-cover" />
-          </div>
-        )}
+        <div className="h-52 shrink-0 overflow-hidden bg-neutral-100 flex items-center justify-center border-b border-border">
+          {unit.image_url && !imgErr ? (
+            <img
+              src={unit.image_url}
+              alt={unit.name ?? ""}
+              className="h-full w-full object-contain p-3"
+              loading="lazy"
+              onError={() => setImgErr(true)}
+            />
+          ) : (
+            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+              <Bot className="h-10 w-10 opacity-30" />
+              <span className="text-[10px] font-black uppercase tracking-wider opacity-40">Image coming soon</span>
+            </div>
+          )}
+        </div>
 
         {/* Specs */}
         <div className="flex-1 px-5 py-5 flex flex-col gap-5">

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Building2, CheckCircle2, MapPin, Search, Users } from "lucide-react"
+import { CheckCircle2, MapPin, Search, Users } from "lucide-react"
 import { currency, type Property } from "@/lib/pipeline-data"
 import { priceLabel } from "@/lib/price"
 import { PixelatedImageCanvas } from "./pixelated-image-canvas"
@@ -221,18 +221,6 @@ export function PropertyCards({ properties, onSelect, onFindBuyers }: PropertyCa
             </button>
           </div>
         </div>
-
-        <span className="shrink-0 text-[11px] font-black uppercase tracking-wider text-muted-foreground">
-          Photos via{" "}
-          <a
-            href="https://www.pexels.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-black underline transition-colors hover:bg-primary hover:px-1"
-          >
-            Pexels
-          </a>
-        </span>
       </div>
 
       {/* Property grid */}

@@ -257,15 +257,22 @@ function MatchCard({
   onToggleCompare: (u: MatchUnit) => void
   onFeedback: (u: MatchUnit, update: Partial<UnitFeedback>) => void
 }) {
+  const [imgErr, setImgErr] = useState(false)
   const rankLabels = ["Top match", "2nd match", "3rd match", "4th match", "5th match"]
 
   return (
     <div className={`group flex flex-col border bg-card shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-md)] transition-shadow duration-200 border-l-[3px] ${isCompared ? "border-primary border-l-primary" : "border-border border-l-border hover:border-l-primary"}`}>
       {/* Image */}
-      <div className="relative h-44 bg-secondary flex items-center justify-center overflow-hidden border-b border-border">
-        {unit.image_url ? (
+      <div className="relative h-44 bg-neutral-100 flex items-center justify-center overflow-hidden border-b border-border">
+        {unit.image_url && !imgErr ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={unit.image_url} alt={unit.name} className="h-full w-full object-cover" />
+          <img
+            src={unit.image_url}
+            alt={unit.name}
+            className="h-full w-full object-contain p-2"
+            loading="lazy"
+            onError={() => setImgErr(true)}
+          />
         ) : (
           <div className="flex flex-col items-center gap-2 text-muted-foreground">
             <Bot className="h-12 w-12 opacity-30" />

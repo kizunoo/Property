@@ -18,21 +18,13 @@ NUMERIC = ("price", "lease_monthly", "payload_kg", "battery_hours",
 WANTED = ("weight_kg", "dimensions", "price")
 
 
-def main(path: str) -> int:
-    p = Path(path)
-    if not p.exists():
-        print(f"BLOCKER: {p} not found")
-        return 1
-    with p.open(newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        header = reader.fieldnames or []
-        rows = list(reader)
-
+def validate_rows(rows: list[dict], header: list[str] | None = None) -> tuple[list[str], list[str]]:
     blockers, warnings = [], []
-    if list(header) != EXPECTED:
-        missing = [c for c in EXPECTED if c not in header]
-        extra = [c for c in header if c not in EXPECTED]
-        blockers.append(f"header mismatch: missing={missing} extra={extra}")
+    if header is not None:
+        if list(header) != EXPECTED:
+            missing = [c for c in EXPECTED if c not in header]
+            extra = [c for c in header if c not in EXPECTED]
+            blockers.append(f"header mismatch: missing={missing} extra={extra}")
     if not rows:
         blockers.append("no data rows")
 
@@ -57,9 +49,27 @@ def main(path: str) -> int:
                     blockers.append(f"{label}: '{col}' is negative")
             except ValueError:
                 blockers.append(f"{label}: '{col}' is not a number")
+        img = (r.get("image_url") or "").strip()
+        if img and not (img.startswith("http://") or img.startswith("https://") or img.startswith("/robots/")):
+            blockers.append(f"{label}: 'image_url' must start with http://, https://, or /robots/")
         for col in WANTED:
             if not (r.get(col) or "").strip():
                 warnings.append(f"{label}: '{col}' empty (AI replies will say 'not in the catalog')")
+
+    return blockers, warnings
+
+
+def main(path: str) -> int:
+    p = Path(path)
+    if not p.exists():
+        print(f"BLOCKER: {p} not found")
+        return 1
+    with p.open(newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        header = reader.fieldnames or []
+        rows = list(reader)
+
+    blockers, warnings = validate_rows(rows, header)
 
     print(f"rows: {len(rows)}")
     for w in warnings:

@@ -92,6 +92,26 @@ function formatDate(s: string | null): string {
   }
 }
 
+function SelectedUnitThumbnail({ src, alt }: { src: string; alt: string }) {
+  const [imgErr, setImgErr] = useState(false)
+  if (imgErr || !src) {
+    return (
+      <div className="flex h-10 w-12 items-center justify-center border border-border bg-neutral-100 shrink-0">
+        <Bot className="h-5 w-5 text-muted-foreground" />
+      </div>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      onError={() => setImgErr(true)}
+      className="h-10 w-12 object-contain bg-neutral-100 p-0.5 border border-border shrink-0"
+    />
+  )
+}
+
 // ─── Stage Stepper ─────────────────────────────────────────────────────────────
 
 const DEMO_STAGES = [
@@ -547,13 +567,12 @@ function NewDemoModal({
             {selectedUnit && (
               <div className="mt-1 flex items-center gap-3 border border-border/60 bg-muted/30 p-2.5 text-xs">
                 {selectedUnit.image_url ? (
-                  <img
+                  <SelectedUnitThumbnail
                     src={selectedUnit.image_url}
                     alt={selectedUnit.name}
-                    className="h-10 w-12 object-cover border border-border shrink-0"
                   />
                 ) : (
-                  <div className="flex h-10 w-12 items-center justify-center border border-border bg-black/10 shrink-0">
+                  <div className="flex h-10 w-12 items-center justify-center border border-border bg-neutral-100 shrink-0">
                     <Bot className="h-5 w-5 text-muted-foreground" />
                   </div>
                 )}

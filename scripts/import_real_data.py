@@ -123,8 +123,9 @@ def validate_robots(rows, data_source: str = "real"):
         if sku in seen:
             errors.append(f"line {i}: duplicate sku_code {sku}")
         seen.add(sku)
-        if r.get("image_url") and not r["image_url"].startswith("http"):
-            errors.append(f"line {i}: image_url must start with http")
+        img = (r.get("image_url") or "").strip()
+        if img and not (img.startswith("http://") or img.startswith("https://") or img.startswith("/robots/")):
+            errors.append(f"line {i}: image_url must start with http://, https://, or /robots/")
         if sku.upper().startswith("EXAMPLE"):
             placeholders.append(f"line {i}: template row ({sku})")
     return errors, placeholders
