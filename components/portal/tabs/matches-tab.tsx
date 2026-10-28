@@ -271,6 +271,7 @@ function MatchCard({
             alt={unit.name}
             className="h-full w-full object-contain p-2"
             loading="lazy"
+            referrerPolicy="no-referrer"
             onError={() => setImgErr(true)}
           />
         ) : (

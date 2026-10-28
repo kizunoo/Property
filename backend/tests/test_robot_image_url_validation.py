@@ -75,3 +75,39 @@ def test_validate_robots_catalog_rejects_invalid_image_urls():
         rows = [make_robot_row("ROBOT-D", url)]
         blockers, _ = validate_rows(rows)
         assert any("image_url" in b for b in blockers), f"Should reject '{url}', but passed"
+
+
+def test_components_robot_image_fallback_and_attributes():
+    component_files = [
+        root_dir / "components" / "pipeline" / "pixelated-image-canvas.tsx",
+        root_dir / "components" / "portal" / "tabs" / "catalog-tab.tsx",
+        root_dir / "components" / "portal" / "tabs" / "matches-tab.tsx",
+        root_dir / "components" / "portal" / "tabs" / "demos-tab.tsx",
+    ]
+    for cf in component_files:
+        assert cf.exists(), f"{cf} does not exist"
+        content = cf.read_text(encoding="utf-8")
+        assert 'referrerPolicy="no-referrer"' in content, f"{cf.name} missing referrerPolicy"
+        assert "loading=\"lazy\"" in content or "loading='lazy'" in content, f"{cf.name} missing lazy loading"
+        assert "onError" in content, f"{cf.name} missing onError fallback handler"
+        assert "Bot" in content, f"{cf.name} missing Bot placeholder icon"
+
+
+def test_check_links_detects_broken_urls():
+    from scripts.fetch_robot_images import check_links
+
+    rows = [
+        {"sku_code": "ROBOT-OK", "image_url": "https://example.com/good.jpg"},
+        {"sku_code": "ROBOT-BAD", "image_url": "https://example.com/broken.jpg"},
+        {"sku_code": "ROBOT-LOCAL", "image_url": "/robots/test.jpg"},
+    ]
+
+    def mock_getter(url):
+        if "broken" in url:
+            raise OSError("404 Not Found")
+        # return a valid jpeg exceeding MIN_BYTES (5000)
+        return b"\xff\xd8\xff\xe0" + b"\x00" * 6000
+
+    broken = check_links(rows, mock_getter)
+    assert broken == ["ROBOT-BAD"]
+

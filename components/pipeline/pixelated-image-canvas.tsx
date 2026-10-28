@@ -48,6 +48,7 @@ export function PixelatedImageCanvas({
         src={src}
         alt={alt}
         loading="lazy"
+        referrerPolicy="no-referrer"
         onError={() => setError(true)}
         className="block h-full w-full object-contain p-2 rounded-lg"
       />

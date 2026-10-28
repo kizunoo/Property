@@ -165,6 +165,7 @@ function UnitCard({
             alt={unit.name ?? "Robot unit"}
             className="h-full w-full object-contain p-2 transition-transform group-hover:scale-105"
             loading="lazy"
+            referrerPolicy="no-referrer"
             onError={() => setImgErr(true)}
           />
         ) : (
@@ -282,6 +283,7 @@ function UnitRow({
             alt={unit.name ?? ""}
             className="h-full w-full object-contain p-1"
             loading="lazy"
+            referrerPolicy="no-referrer"
             onError={() => setImgErr(true)}
           />
         ) : (
@@ -399,6 +401,7 @@ function DetailDrawer({
               alt={unit.name ?? ""}
               className="h-full w-full object-contain p-3"
               loading="lazy"
+              referrerPolicy="no-referrer"
               onError={() => setImgErr(true)}
             />
           ) : (

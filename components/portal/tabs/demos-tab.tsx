@@ -106,6 +106,7 @@ function SelectedUnitThumbnail({ src, alt }: { src: string; alt: string }) {
       src={src}
       alt={alt}
       loading="lazy"
+      referrerPolicy="no-referrer"
       onError={() => setImgErr(true)}
       className="h-10 w-12 object-contain bg-neutral-100 p-0.5 border border-border shrink-0"
     />
