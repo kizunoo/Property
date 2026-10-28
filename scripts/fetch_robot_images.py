@@ -50,10 +50,10 @@ PAGES: dict[str, list[str]] = {
     "GAUSIUM-MARVEL": ["https://gausium.com/specs/marvel/"],
     "GAUSIUM-SCRUBBER-75": ["https://gausium.com/specs/scrubber-75/"],
     "GAUSIUM-SCRUBBER-50": ["https://gausium.com/specs/scrubber50/"],
-    "MIR-250": ["https://mobile-industrial-robots.com/solutions/robots/mir250/"],
-    "MIR-600": ["https://mobile-industrial-robots.com/solutions/robots/mir600/"],
-    "MIR-1350": ["https://mobile-industrial-robots.com/solutions/robots/mir1350/"],
-    "MIR-1200-PJ": ["https://mobile-industrial-robots.com/solutions/robots/mir1200-pallet-jack/"],
+    "MIR-250": ["https://mobile-industrial-robots.com/products/robots/mir250", "https://mobile-industrial-robots.com/solutions/robots/mir250/"],
+    "MIR-600": ["https://mobile-industrial-robots.com/products/robots/mir600", "https://mobile-industrial-robots.com/solutions/robots/mir600/"],
+    "MIR-1350": ["https://mobile-industrial-robots.com/products/robots/mir1350", "https://mobile-industrial-robots.com/solutions/robots/mir1350/"],
+    "MIR-1200-PJ": ["https://mobile-industrial-robots.com/products/robots/mir1200-pallet-jack"],
 }
 
 
@@ -196,12 +196,24 @@ def scan_folder(skus: list[str], out_dir: Path) -> list[dict]:
 _IMG_RE = re.compile(r"""(?:https?:)?//[^\s"'<>()\\]+?\.(?:jpe?g|png|webp)(?:\?[^\s"'<>()\\]*)?|(?<=["'(=])/[^\s"'<>()\\]+?\.(?:jpe?g|png|webp)""", re.I)
 
 
+def decode_next_image(u: str) -> str:
+    """https://site/_next/image?url=<encoded real url>&w=... -> the real url."""
+    if "/_next/image" in u:
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(u).query).get("url")
+        if q:
+            return q[0]
+    return u
+
+
+SKIP_WORDS = ("logo", "icon", "favicon", "sprite", "avatar", "float")
+
+
 def list_page_images(page_html: str, page_url: str, sku: str = "") -> list[str]:
     """All image URLs found in a page (img src, srcset, JSON blobs), those mentioning the model first.
     Use it to pick the real product photo when og:image is only a generic site image, then pass it as --override SKU=<url>."""
     found: list[str] = []
     for m in _IMG_RE.finditer(html.unescape(page_html).replace("\\/", "/")):
-        u = urllib.parse.urljoin(page_url, m.group(0))
+        u = decode_next_image(urllib.parse.urljoin(page_url, m.group(0)))
         if u not in found:
             found.append(u)
     tokens = [t for t in re.split(r"[-_ ]+", sku.lower()) if len(t) >= 2 and t not in ("ur", "pj")]
@@ -316,6 +328,32 @@ def check_links(rows: list[dict], get=_get) -> list[str]:
     return bad
 
 
+def write_picker(items: dict[str, list[str]], catalog: dict[str, dict], out: Path) -> None:
+    """One section per robot with every candidate picture loaded from the manufacturer. Click 'copy' under the right one."""
+    secs = []
+    for sku, urls in items.items():
+        c = catalog.get(sku, {})
+        spec = " | ".join(x for x in (c.get("dimensions"), f"{c.get('weight_kg')} kg" if c.get("weight_kg") else "") if x)
+        tiles = "".join(
+            f'<div class="t"><img loading="lazy" referrerpolicy="no-referrer" src="{html.escape(u)}" alt="">'
+            f'<button data-cmd="{html.escape("--override " + sku + "=" + u)}">copy</button>'
+            f'<span>{html.escape(u.rsplit("/", 1)[-1][:42])}</span></div>'
+            for u in urls
+        ) or "<p>No candidate pictures found on this page. Ask the supplier for a photo.</p>"
+        secs.append(f'<h2>{html.escape(c.get("name", sku))} <small>{html.escape(sku)} &middot; {html.escape(spec)}</small></h2><div class="g">{tiles}</div>')
+    out.write_text(
+        "<!doctype html><meta charset='utf-8'><title>Pick the right robot picture</title>"
+        "<style>body{font-family:system-ui;margin:16px}h2 small{font-weight:400;color:#666;font-size:13px}"
+        ".g{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:24px}"
+        ".t{border:1px solid #ddd;border-radius:6px;padding:6px;font-size:11px;word-break:break-all}"
+        "img{width:100%;height:130px;object-fit:contain;background:#f4f4f4}button{display:block;margin:4px 0;width:100%}</style>"
+        "<h1>Pick the picture that shows THIS robot</h1><p>Product shots on a plain background are best. Skip logos, diagrams and people. "
+        "Click copy, then paste the flag into a note; send me one line per robot.</p>" + "".join(secs) +
+        "<script>document.addEventListener('click',function(e){var c=e.target.dataset&&e.target.dataset.cmd;if(c){navigator.clipboard.writeText(c);e.target.textContent='copied'}})</script>",
+        encoding="utf-8",
+    )
+
+
 def read_catalog(path: Path):
     with path.open(newline="", encoding="utf-8-sig") as f:
         r = csv.DictReader(f)
@@ -378,6 +416,7 @@ def main(argv=None) -> int:
     ap.add_argument("--urls", action="store_true", help="LINK MODE (no downloads): find and test each robot's image link, write a review sheet that loads them from the manufacturer")
     ap.add_argument("--apply-urls", help="comma-separated approved SKUs: write their https image link into image_url")
     ap.add_argument("--check", action="store_true", help="test every image_url already in the catalog; exit 1 if any no longer loads")
+    ap.add_argument("--pick", metavar="SKUS", help="comma-separated SKUs (or MISSING for every robot without an approved link): build a picture picker from each product page")
     ap.add_argument("--scan", action="store_true", help="no network: build the review sheet from files already in the output folder")
     ap.add_argument("--list-images", metavar="SKU", help="print image URLs found on that robot's product page (to choose an --override)")
     ap.add_argument("--selftest", action="store_true")
@@ -411,6 +450,28 @@ def main(argv=None) -> int:
     overrides = dict(o.split("=", 1) for o in a.override if "=" in o)
     getter = _get_curl if a.curl else _get
     url_man = Path("data/real/robot_image_urls.json")
+    if a.pick:
+        if a.pick.upper() == "MISSING":
+            prev_m = {m["sku"]: m for m in json.loads(url_man.read_text(encoding="utf-8"))} if url_man.exists() else {}
+            want = [k for k in catalog if prev_m.get(k, {}).get("status") != "ok"]
+        else:
+            want = [x.strip() for x in a.pick.split(",") if x.strip()]
+        items: dict[str, list[str]] = {}
+        for sku in want:
+            pages = [overrides[sku]] if sku in overrides else PAGES.get(sku, [])
+            urls: list[str] = []
+            for page in pages:
+                try:
+                    found = list_page_images(getter(page).decode("utf-8", "ignore"), page, sku)
+                except Exception as e:
+                    print(f"{sku}: {page} fetch failed ({type(e).__name__})")
+                    continue
+                urls += [u for u in found if u not in urls and not any(w in u.rsplit("/", 1)[-1].lower() for w in SKIP_WORDS)]
+            items[sku] = urls[:24]
+            print(f"{sku}: {len(items[sku])} candidate pictures")
+        write_picker(items, catalog, Path("data/real/robot_image_picker.html"))
+        print("Open data/real/robot_image_picker.html, click copy under the right picture for each robot.")
+        return 0
     if a.check:
         bad = check_links(rows, getter)
         have = sum(1 for r in rows if (r.get("image_url") or "").startswith("https://"))
@@ -541,6 +602,17 @@ def selftest() -> int:
         got5 = {r["sku_code"]: r["image_url"] for r in read_catalog(c5)[0]}
         assert got5 == {"A": "", "C": "https://e.com/c.png", "D": "https://e.com/old.png"}, got5
         assert check_links(read_catalog(c5)[0], get=lambda u: png if "c.png" in u else b"<html>") == ["D"]
+    # picker + next/image decoding
+    assert decode_next_image("https://a.com/_next/image?url=https%3A%2F%2Fcdn.x.com%2Fm%2Fs1.webp&w=640&q=75") == "https://cdn.x.com/m/s1.webp"
+    assert decode_next_image("https://a.com/x.png") == "https://a.com/x.png"
+    pg = '<img src="https://a.com/_next/image?url=https%3A%2F%2Fcdn.x.com%2Fmt1%2FS1-3.webp&w=640"><img src="https://cdn.x.com/logo-up.png">'
+    got6 = list_page_images(pg, "https://a.com/p", "PUDU-MT1")
+    assert got6[0] == "https://cdn.x.com/mt1/S1-3.webp", got6
+    with tempfile.TemporaryDirectory() as d6:
+        out6 = Path(d6) / "pick.html"
+        write_picker({"X-1": ["https://cdn.x.com/a.webp"], "X-2": []}, {"X-1": {"name": "Robot", "dimensions": "1 mm"}}, out6)
+        t6 = out6.read_text()
+        assert 'data-cmd="--override X-1=https://cdn.x.com/a.webp"' in t6 and "No candidate pictures" in t6 and 'referrerpolicy="no-referrer"' in t6
     # curl path and resize (skipped when curl or Pillow are not installed)
     import shutil
     if shutil.which("curl"):
