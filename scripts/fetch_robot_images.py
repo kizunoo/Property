@@ -19,6 +19,7 @@ import argparse
 import csv
 import html
 import json
+import os
 import re
 import sys
 import time
@@ -26,6 +27,7 @@ import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlsplit, urlunsplit
 
 UA = "Mozilla/5.0 (compatible; internal-catalog-build)"
 MIN_BYTES, MAX_BYTES = 5_000, 5_000_000
@@ -37,9 +39,9 @@ PAGES: dict[str, list[str]] = {
     "PUDU-T300": ["https://www.pudurobotics.com/products/pudut300", "https://www.pudurobotics.com/products/t300"],
     "PUDU-T600": ["https://www.pudurobotics.com/products/pudut600"],
     "PUDU-T600-UR": ["https://www.pudurobotics.com/products/pudut600"],
-    "PUDU-FLASHBOT-MAX": ["https://www.pudurobotics.com/products/flashbotmax", "https://www.pudurobotics.com/products/flashbot-max"],
-    "PUDU-CC1": ["https://www.pudurobotics.com/products/cc1"],
-    "PUDU-CC1-PRO": ["https://www.pudurobotics.com/products/cc1pro", "https://www.pudurobotics.com/products/cc1-pro"],
+    "PUDU-FLASHBOT-MAX": ["https://www.pudurobotics.com/products/flashbot-new", "https://www.pudurobotics.com/products/flashbotmax", "https://www.pudurobotics.com/products/flashbot-max"],
+    "PUDU-CC1": ["https://www.pudurobotics.com/products/puduCC1", "https://www.pudurobotics.com/products/cc1"],
+    "PUDU-CC1-PRO": ["https://www.pudurobotics.com/products/cc1-pro", "https://www.pudurobotics.com/products/cc1-pro-disc", "https://www.pudurobotics.com/products/cc1pro"],
     "PUDU-MT1": ["https://www.pudurobotics.com/products/mt1"],
     "PUDU-MT1-VAC": ["https://www.pudurobotics.com/products/mt1vac", "https://www.pudurobotics.com/products/mt1-vac"],
     "KEENON-W3": ["https://www.keenon.com/en/product/W3"],
@@ -55,6 +57,46 @@ PAGES: dict[str, list[str]] = {
     "MIR-1350": ["https://mobile-industrial-robots.com/products/robots/mir1350", "https://mobile-industrial-robots.com/solutions/robots/mir1350/"],
     "MIR-1200-PJ": ["https://mobile-industrial-robots.com/products/robots/mir1200-pallet-jack"],
 }
+
+# Lower-case words that appear in an image address when the picture is of that model.
+HINTS = {
+    "PUDU-T300":           ["pudut300", "t300"],
+    "PUDU-T600":           ["pudut600", "t600"],
+    "PUDU-T600-UR":        ["t600-ur", "t600ur", "underride", "under-ride"],
+    "PUDU-FLASHBOT-MAX":   ["flashbot-max", "flashbotmax", "flashbot"],
+    "PUDU-CC1":            ["puducc1", "cc1"],
+    "PUDU-CC1-PRO":        ["cc1-pro", "cc1pro"],
+    "PUDU-MT1":            ["mt1"],
+    "PUDU-MT1-VAC":        ["mt1-vac", "mt1vac"],
+    "KEENON-W3":           ["w3", "butlerbot"],
+    "KEENON-C40":          ["c40", "kleenbot"],
+    "GAUSIUM-VAC40":       ["vac40", "vac-40", "vacuum40", "vacuum-40"],
+    "GAUSIUM-PHANTAS":     ["phantas"],
+    "GAUSIUM-BEETLE":      ["beetle"],
+    "GAUSIUM-MARVEL":      ["marvel"],
+    "GAUSIUM-SCRUBBER-75": ["scrubber-75", "scrubber75", "75p"],
+    "GAUSIUM-SCRUBBER-50": ["scrubber-50", "scrubber50", "50-pro", "50pro"],
+    "MIR-250":             ["mir250"],
+    "MIR-600":             ["mir600"],
+    "MIR-1350":            ["mir1350"],
+    "MIR-1200-PJ":         ["mir1200", "pallet-jack", "palletjack"],
+}
+
+ALLOWED_HOST_SUFFIXES = (
+    "pudurobotics.com", "pudutech.com",      # incl. cdn.pudutech.com, www.pudurobotics.com, www.pudutech.com
+    "keenon.com", "keenon.cn",               # incl. storage.keenon.cn, www.keenon.com
+    "gausium.com",
+    "storyblok.com",                         # MiR's own site serves images from here
+    "mobile-industrial-robots.com", "mir-robots.com",
+)
+
+JUNK = re.compile(
+    r"(logo|favicon|icon|sprite|avatar|qrcode|qr-|wechat|whatsapp|facebook|linkedin|"
+    r"youtube|twitter|instagram|arrow|loading|placeholder|opengraph|og-image|share)",
+    re.I,
+)
+IMG_EXT = {".png", ".jpg", ".jpeg", ".webp", ".avif"}
+UNSAFE_CHARS = re.compile(r"""[\s"'`$\\<>|^{}\x00-\x1f]""")
 
 
 class _Meta(HTMLParser):
@@ -328,25 +370,215 @@ def check_links(rows: list[dict], get=_get) -> list[str]:
     return bad
 
 
-def write_picker(items: dict[str, list[str]], catalog: dict[str, dict], out: Path) -> None:
+def manufacturer(sku: str) -> str:
+    return sku.split("-")[0]
+
+
+def family(sku: str) -> str:
+    """PUDU-CC1-PRO -> PUDU-CC1, PUDU-T600-UR -> PUDU-T600 (variants may share a photo)."""
+    return "-".join(sku.split("-")[:2])
+
+
+def unwrap_next_image(url: str) -> str:
+    """https://host/_next/image?url=%2Fa.png&w=640 -> https://host/a.png (if still wrapped)."""
+    p = urlsplit(url)
+    if p.path.endswith("/_next/image"):
+        inner = parse_qs(p.query).get("url", [""])[0]
+        inner = unquote(inner)
+        if inner.startswith("https://"):
+            return inner
+        if inner.startswith("/"):
+            return urlunsplit((p.scheme, p.netloc, inner, "", ""))
+    return url
+
+
+def norm_key(url: str) -> str:
+    p = urlsplit(url)
+    return urlunsplit((p.scheme.lower(), p.netloc.lower(), p.path, "", ""))
+
+
+def _hint_hits(path: str, hints: list[str]) -> int:
+    """Length of the longest hint found in path, 0 if none. 'w3' must not sit inside 'w300'."""
+    best = 0
+    for h in hints:
+        if re.search(r"(?<![a-z0-9])" + re.escape(h.lower()) + r"(?![0-9])", path):
+            best = max(best, len(h))
+    return best
+
+
+def _host_ok(host: str | None, suffixes=ALLOWED_HOST_SUFFIXES) -> bool:
+    host = (host or "").lower().rstrip(".")
+    if not host or re.fullmatch(r"[0-9.:\[\]]+", host) or host == "localhost":
+        return False
+    return any(host == s or host.endswith("." + s) for s in suffixes)
+
+
+def safe_override_arg(sku: str, url: str) -> str | None:
+    """Text for the picker's copy button, or None if the address must not be copied."""
+    if UNSAFE_CHARS.search(url) or not url.startswith("https://"):
+        return None
+    if not _host_ok(urlsplit(url).hostname):
+        return None
+    return '--override "%s=%s"' % (sku, url)
+
+
+def parse_override(value: str, known_skus: set[str]) -> tuple[str, str]:
+    """
+    Validate one --override value BEFORE anything is fetched.
+    returns (sku, url) or raises ValueError with a short message (exit code 2 in the script).
+    """
+    if "=" not in value:
+        raise ValueError("expected SKU=URL")
+    sku, url = value.split("=", 1)
+    sku, url = sku.strip().upper(), url.strip()
+    if sku not in known_skus:
+        raise ValueError("unknown SKU: %s" % sku)
+    if UNSAFE_CHARS.search(url):
+        raise ValueError("address contains characters that are not allowed")
+    p = urlsplit(url)
+    if p.scheme != "https":
+        raise ValueError("address must start with https://")
+    if not _host_ok(p.hostname):
+        raise ValueError("host not allowed: %s (add it to ALLOWED_HOST_SUFFIXES if it is the "
+                         "manufacturer's own)" % p.hostname)
+    return sku, url
+
+
+def rank_candidates(per_sku: dict[str, list[str]], hints: dict[str, list[str]] = HINTS, keep: int = 12) -> dict[str, dict]:
+    clean, hidden_global = {}, {}
+    for sku, urls in per_sku.items():
+        seen, hid = {}, []
+        for raw in urls:
+            u = unwrap_next_image(raw.strip())
+            p = urlsplit(u)
+            ext = os.path.splitext(p.path.lower())[1]
+            if p.scheme != "https":
+                hid.append((u, "not https"))
+            elif ext and ext not in IMG_EXT:
+                hid.append((u, "not a picture file (%s)" % ext))
+            elif JUNK.search(p.path):
+                hid.append((u, "logo, icon or social image"))
+            else:
+                seen.setdefault(norm_key(u), u)
+        clean[sku], hidden_global[sku] = seen, hid
+
+    sharers, pool = {}, {}
+    for sku, seen in clean.items():
+        m = manufacturer(sku)
+        for k, u in seen.items():
+            sharers.setdefault((m, k), set()).add(sku)
+            pool.setdefault(m, {}).setdefault(k, u)
+
+    out = {}
+    for sku in clean:
+        m = manufacturer(sku)
+        mine = hints.get(sku, [])
+        others = [h for s, hs in hints.items() if s != sku and manufacturer(s) == m for h in hs]
+        scored, hidden = [], list(hidden_global[sku])
+        for k, u in pool.get(m, {}).items():
+            path = urlsplit(u).path.lower()
+            own = _hint_hits(path, mine)
+            oth = _hint_hits(path, others)
+            on_page = k in clean[sku]
+            if not own and not on_page:
+                continue
+            if oth > own:
+                hidden.append((u, "looks like another model"))
+                continue
+            fams = {family(s) for s in sharers[(m, k)]}
+            if not own and len(fams) >= 2:
+                hidden.append((u, "site-wide (on %d model pages)" % len(sharers[(m, k)])))
+                continue
+            tags, score = [], 0
+            if own:
+                tags.append("name match")
+                score += 50 + own
+            if on_page:
+                tags.append("on its page")
+                score += 10
+                if len(sharers[(m, k)]) == 1:
+                    tags.append("only on its page")
+                    score += 5
+            ext = os.path.splitext(path)[1]
+            if ext in (".webp", ".png", ".jpg", ".jpeg"):
+                score += 2
+            scored.append((u, score, tags))
+        scored.sort(key=lambda t: -t[1])
+        shown = scored[:keep]
+        hidden += [(u, "beyond the top %d" % keep) for u, _, _ in scored[keep:]]
+        out[sku] = {"shown": shown, "hidden": hidden}
+    return out
+
+
+def candidate_counts(result: dict[str, dict]) -> list[str]:
+    return ["%s: %d shown, %d hidden" % (s, len(r["shown"]), len(r["hidden"]))
+            for s, r in result.items()]
+
+
+def write_picker(items: dict[str, list[str]], catalog: dict[str, dict], out: Path, ranked: dict[str, dict] | None = None) -> None:
     """One section per robot with every candidate picture loaded from the manufacturer. Click 'copy' under the right one."""
     secs = []
-    for sku, urls in items.items():
-        c = catalog.get(sku, {})
-        spec = " | ".join(x for x in (c.get("dimensions"), f"{c.get('weight_kg')} kg" if c.get("weight_kg") else "") if x)
-        tiles = "".join(
-            f'<div class="t"><img loading="lazy" referrerpolicy="no-referrer" src="{html.escape(u)}" alt="">'
-            f'<button data-cmd="{html.escape("--override " + sku + "=" + u)}">copy</button>'
-            f'<span>{html.escape(u.rsplit("/", 1)[-1][:42])}</span></div>'
-            for u in urls
-        ) or "<p>No candidate pictures found on this page. Ask the supplier for a photo.</p>"
-        secs.append(f'<h2>{html.escape(c.get("name", sku))} <small>{html.escape(sku)} &middot; {html.escape(spec)}</small></h2><div class="g">{tiles}</div>')
+    if ranked is None:
+        for sku, urls in items.items():
+            c = catalog.get(sku, {})
+            spec = " | ".join(x for x in (c.get("dimensions"), f"{c.get('weight_kg')} kg" if c.get("weight_kg") else "") if x)
+            tiles = "".join(
+                f'<div class="t"><img loading="lazy" referrerpolicy="no-referrer" src="{html.escape(u)}" alt="">'
+                f'<button data-cmd="{html.escape("--override " + sku + "=" + u)}">copy</button>'
+                f'<span>{html.escape(u.rsplit("/", 1)[-1][:42])}</span></div>'
+                for u in urls
+            ) or "<p>No candidate pictures found on this page. Ask the supplier for a photo.</p>"
+            secs.append(f'<h2>{html.escape(c.get("name", sku))} <small>{html.escape(sku)} &middot; {html.escape(spec)}</small></h2><div class="g">{tiles}</div>')
+    else:
+        for sku in items:
+            c = catalog.get(sku, {})
+            spec = " | ".join(x for x in (c.get("dimensions"), f"{c.get('weight_kg')} kg" if c.get("weight_kg") else "") if x)
+            r = ranked.get(sku, {"shown": [], "hidden": []})
+            shown = r.get("shown", [])
+            hidden = r.get("hidden", [])
+
+            shown_tiles = []
+            for u, score, tags in shown:
+                cmd = safe_override_arg(sku, u)
+                if cmd is not None:
+                    btn = f'<button data-cmd="{html.escape(cmd)}">copy</button>'
+                else:
+                    btn = '<span class="not-copyable">not copyable</span>'
+                tags_html = "".join(f'<span class="tag">{html.escape(t)}</span>' for t in tags)
+                tags_div = f'<div class="tags">{tags_html}</div>' if tags_html else ""
+                shown_tiles.append(
+                    f'<div class="t"><img loading="lazy" referrerpolicy="no-referrer" src="{html.escape(u)}" alt="">'
+                    f'{btn}{tags_div}'
+                    f'<span>{html.escape(u.rsplit("/", 1)[-1][:42])}</span></div>'
+                )
+
+            tiles = "".join(shown_tiles) or "<p>No candidate pictures shown for this model.</p>"
+
+            hidden_section = ""
+            if hidden:
+                hidden_tiles = "".join(
+                    f'<div class="t muted"><img loading="lazy" referrerpolicy="no-referrer" src="{html.escape(u)}" alt="">'
+                    f'<div class="why">{html.escape(reason)}</div>'
+                    f'<span>{html.escape(u.rsplit("/", 1)[-1][:42])}</span></div>'
+                    for u, reason in hidden
+                )
+                hidden_section = f'<details><summary>{len(hidden)} hidden candidates</summary><div class="g">{hidden_tiles}</div></details>'
+
+            secs.append(
+                f'<h2>{html.escape(c.get("name", sku))} <small>{html.escape(sku)} &middot; {html.escape(spec)} &middot; {len(shown)} shown, {len(hidden)} hidden</small></h2>'
+                f'<div class="g">{tiles}</div>{hidden_section}'
+            )
+
     out.write_text(
         "<!doctype html><meta charset='utf-8'><title>Pick the right robot picture</title>"
         "<style>body{font-family:system-ui;margin:16px}h2 small{font-weight:400;color:#666;font-size:13px}"
         ".g{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:24px}"
         ".t{border:1px solid #ddd;border-radius:6px;padding:6px;font-size:11px;word-break:break-all}"
-        "img{width:100%;height:130px;object-fit:contain;background:#f4f4f4}button{display:block;margin:4px 0;width:100%}</style>"
+        "img{width:100%;height:130px;object-fit:contain;background:#f4f4f4}button{display:block;margin:4px 0;width:100%}"
+        ".tag{display:inline-block;background:#eef;border:1px solid #ccd;border-radius:3px;padding:1px 4px;font-size:9px;margin:2px 2px 0 0}"
+        ".tags{margin-bottom:3px}.why{color:#888;font-size:10px;margin:3px 0}.muted{opacity:0.6}"
+        ".not-copyable{display:block;margin:4px 0;font-size:10px;color:#c00;font-weight:bold}"
+        "details{margin-top:8px}details summary{cursor:pointer;font-size:12px;color:#555;margin-bottom:8px}</style>"
         "<h1>Pick the picture that shows THIS robot</h1><p>Product shots on a plain background are best. Skip logos, diagrams and people. "
         "Click copy, then paste the flag into a note; send me one line per robot.</p>" + "".join(secs) +
         "<script>document.addEventListener('click',function(e){var c=e.target.dataset&&e.target.dataset.cmd;if(c){navigator.clipboard.writeText(c);e.target.textContent='copied'}})</script>",
@@ -428,6 +660,15 @@ def main(argv=None) -> int:
     rows, _ = read_catalog(cat_path)
     catalog = {r["sku_code"]: r for r in rows}
 
+    overrides = {}
+    for o in a.override:
+        try:
+            sku, url = parse_override(o, set(catalog))
+            overrides[sku] = url
+        except ValueError as e:
+            print(f"--override error: {e}", file=sys.stderr)
+            return 2
+
     if a.apply:
         manifest = json.loads(man_path.read_text(encoding="utf-8"))
         n = apply_images(cat_path, manifest, {s.strip() for s in a.apply.split(",") if s.strip()})
@@ -447,7 +688,6 @@ def main(argv=None) -> int:
                 print("  ", u)
         return 0
 
-    overrides = dict(o.split("=", 1) for o in a.override if "=" in o)
     getter = _get_curl if a.curl else _get
     url_man = Path("data/real/robot_image_urls.json")
     if a.pick:
@@ -467,9 +707,12 @@ def main(argv=None) -> int:
                     print(f"{sku}: {page} fetch failed ({type(e).__name__})")
                     continue
                 urls += [u for u in found if u not in urls and not any(w in u.rsplit("/", 1)[-1].lower() for w in SKIP_WORDS)]
-            items[sku] = urls[:24]
+            items[sku] = urls
             print(f"{sku}: {len(items[sku])} candidate pictures")
-        write_picker(items, catalog, Path("data/real/robot_image_picker.html"))
+        ranked = rank_candidates(items)
+        for line in candidate_counts(ranked):
+            print(line)
+        write_picker(items, catalog, Path("data/real/robot_image_picker.html"), ranked=ranked)
         print("Open data/real/robot_image_picker.html, click copy under the right picture for each robot.")
         return 0
     if a.check:
@@ -633,6 +876,59 @@ def selftest() -> int:
         assert shrink(big, "jpg", 0) == big
     except ImportError:
         pass
+    # Keenon: menu images are on both pages; each model's own picture is also in the menu.
+    menu = ["https://storage.keenon.cn/uploads/menu/%02d.png" % i for i in range(1, 25)]
+    w3_page = menu + ["https://storage.keenon.cn/uploads/w3.png",
+                      "https://storage.keenon.cn/uploads/c40.png",
+                      "https://storage.keenon.cn/uploads/w3-front-view.webp",
+                      "https://storage.keenon.cn/uploads/keenon-logo.png",
+                      "https://storage.keenon.cn/uploads/promo.svg",
+                      "http://storage.keenon.cn/uploads/w3-insecure.png"]
+    c40_page = menu + ["https://storage.keenon.cn/uploads/c40-hero.jpg",
+                       "https://storage.keenon.cn/uploads/w3.png"]
+    r = rank_candidates({"KEENON-W3": w3_page, "KEENON-C40": c40_page})
+    w3 = [u for u, _, _ in r["KEENON-W3"]["shown"]]
+    c40 = [u for u, _, _ in r["KEENON-C40"]["shown"]]
+    assert w3[0].endswith("w3.png") or w3[0].endswith("w3-front-view.webp"), w3[:2]
+    assert not any("c40" in u for u in w3), "another model's picture leaked into W3"
+    assert not any("menu" in u for u in w3 + c40), "site-wide menu images were not hidden"
+    assert any(u.endswith("c40.png") for u in c40), "menu thumbnail was not routed to C40"
+    assert not any(u.endswith("w3.png") for u in c40)
+    hid = " ".join(why for _, why in r["KEENON-W3"]["hidden"])
+    assert "logo" in hid and "not a picture" in hid and "not https" in hid
+
+    # Pudu: CC1 and CC1 Pro must not receive each other's pictures; variants may share.
+    pudu = {
+        "PUDU-CC1": ["https://cdn.pudutech.com/official-website/cc1/hero.png"],
+        "PUDU-CC1-PRO": ["https://cdn.pudutech.com/official-website/cc1-pro/hero.png",
+                         "https://cdn.pudutech.com/official-website/shared/banner.jpg"],
+        "PUDU-MT1": ["https://cdn.pudutech.com/official-website/mt1/S1-3.webp",
+                     "https://cdn.pudutech.com/official-website/shared/banner.jpg"],
+    }
+    r = rank_candidates(pudu)
+    assert [u.split("/")[-2] for u, _, _ in r["PUDU-CC1"]["shown"]] == ["cc1"]
+    assert [u.split("/")[-2] for u, _, _ in r["PUDU-CC1-PRO"]["shown"]] == ["cc1-pro"]
+    assert any("banner" in u for u, _ in r["PUDU-MT1"]["hidden"])
+    assert "_next" not in " ".join(u for v in r.values() for u, _, _ in v["shown"])
+    assert unwrap_next_image("https://x.pudurobotics.com/_next/image?url=%2Fa%2Fb.png&w=640&q=75") \
+        == "https://x.pudurobotics.com/a/b.png"
+
+    # Copy-button text and override validation.
+    ok = "https://cdn.pudutech.com/official-website/mt1/S1-3.webp"
+    assert safe_override_arg("PUDU-MT1", ok) == '--override "PUDU-MT1=%s"' % ok
+    for bad in ('https://cdn.pudutech.com/a"; calc ; ".png', "https://cdn.pudutech.com/a$b.png",
+                "https://cdn.pudutech.com/a`b.png", "https://evil.example.com/a.png",
+                "https://127.0.0.1/a.png", "http://cdn.pudutech.com/a.png",
+                "https://cdn.pudutech.com/a b.png"):
+        assert safe_override_arg("PUDU-MT1", bad) is None, bad
+    assert parse_override("pudu-mt1=" + ok, set(HINTS)) == ("PUDU-MT1", ok)
+    for bad in ("PUDU-MT1", "NOPE=" + ok, "PUDU-MT1=http://cdn.pudutech.com/a.png",
+                "PUDU-MT1=https://localhost/a.png", "PUDU-MT1=https://x.evil.com/a.png"):
+        try:
+            parse_override(bad, set(HINTS))
+        except ValueError:
+            continue
+        raise AssertionError("accepted: " + bad)
     print("selftest OK")
     return 0
 
