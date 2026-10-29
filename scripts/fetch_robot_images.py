@@ -67,14 +67,14 @@ HINTS = {
     "PUDU-CC1":            ["puducc1", "cc1"],
     "PUDU-CC1-PRO":        ["cc1-pro", "cc1pro"],
     "PUDU-MT1":            ["mt1"],
-    "PUDU-MT1-VAC":        ["mt1-vac", "mt1vac"],
+    "PUDU-MT1-VAC":        ["mt1-vac", "mt1vac", "mt_1_vac"],
     "KEENON-W3":           ["w3", "butlerbot"],
     "KEENON-C40":          ["c40", "kleenbot"],
-    "GAUSIUM-VAC40":       ["vac40", "vac-40", "vacuum40", "vacuum-40"],
+    "GAUSIUM-VAC40":       ["vac40", "vac-40", "vacuum40", "vacuum-40", "40-v1"],
     "GAUSIUM-PHANTAS":     ["phantas"],
     "GAUSIUM-BEETLE":      ["beetle"],
     "GAUSIUM-MARVEL":      ["marvel"],
-    "GAUSIUM-SCRUBBER-75": ["scrubber-75", "scrubber75", "75p"],
+    "GAUSIUM-SCRUBBER-75": ["scrubber-75", "scrubber75", "75p", "sc75"],
     "GAUSIUM-SCRUBBER-50": ["scrubber-50", "scrubber50", "50-pro", "50pro"],
     "MIR-250":             ["mir250"],
     "MIR-600":             ["mir600"],
@@ -444,8 +444,39 @@ def parse_override(value: str, known_skus: set[str]) -> tuple[str, str]:
     return sku, url
 
 
+def merge_size_variants(urls: list[str]) -> tuple[list[str], dict[str, str]]:
+    """Group URLs differing only by WordPress -<w>x<h> size suffix. Keep largest width <= 1200 or smallest if none."""
+    groups: dict[tuple, list[tuple[str, int | None, int | None]]] = {}
+    for u in urls:
+        p = urlsplit(u)
+        dir_path, filename = os.path.split(p.path)
+        stem, ext = os.path.splitext(filename)
+        m = re.search(r"-(\d+)x(\d+)$", stem)
+        if m:
+            group_key = ("suffixed", p.scheme.lower(), p.netloc.lower(), dir_path, stem[:m.start()], ext.lower())
+            groups.setdefault(group_key, []).append((u, int(m.group(1)), int(m.group(2))))
+        else:
+            group_key = ("nosuffix", norm_key(u))
+            groups.setdefault(group_key, []).append((u, None, None))
+
+    kept_urls: list[str] = []
+    merge_tags: dict[str, str] = {}
+    for group_key, items in groups.items():
+        if len(items) == 1:
+            kept_urls.append(items[0][0])
+        else:
+            qualifying = [it for it in items if it[1] is not None and it[1] <= 1200]
+            if qualifying:
+                kept = max(qualifying, key=lambda it: it[1] if it[1] is not None else 0)
+            else:
+                kept = min(items, key=lambda it: it[1] if it[1] is not None else 0)
+            kept_urls.append(kept[0])
+            merge_tags[kept[0]] = f"{len(items) - 1} other sizes merged"
+    return kept_urls, merge_tags
+
+
 def rank_candidates(per_sku: dict[str, list[str]], hints: dict[str, list[str]] = HINTS, keep: int = 12) -> dict[str, dict]:
-    clean, hidden_global = {}, {}
+    clean, hidden_global, size_tags = {}, {}, {}
     for sku, urls in per_sku.items():
         seen, hid = {}, []
         for raw in urls:
@@ -460,14 +491,19 @@ def rank_candidates(per_sku: dict[str, list[str]], hints: dict[str, list[str]] =
                 hid.append((u, "logo, icon or social image"))
             else:
                 seen.setdefault(norm_key(u), u)
-        clean[sku], hidden_global[sku] = seen, hid
+        merged_urls, tags_map = merge_size_variants(list(seen.values()))
+        clean[sku] = {norm_key(u): u for u in merged_urls}
+        size_tags[sku] = {norm_key(u): tag for u, tag in tags_map.items()}
+        hidden_global[sku] = hid
 
-    sharers, pool = {}, {}
+    sharers, pool, pool_size_tags = {}, {}, {}
     for sku, seen in clean.items():
         m = manufacturer(sku)
         for k, u in seen.items():
             sharers.setdefault((m, k), set()).add(sku)
             pool.setdefault(m, {}).setdefault(k, u)
+            if k in size_tags.get(sku, {}):
+                pool_size_tags.setdefault((m, k), size_tags[sku][k])
 
     out = {}
     for sku in clean:
@@ -502,6 +538,8 @@ def rank_candidates(per_sku: dict[str, list[str]], hints: dict[str, list[str]] =
             ext = os.path.splitext(path)[1]
             if ext in (".webp", ".png", ".jpg", ".jpeg"):
                 score += 2
+            if (m, k) in pool_size_tags:
+                tags.append(pool_size_tags[(m, k)])
             scored.append((u, score, tags))
         scored.sort(key=lambda t: -t[1])
         shown = scored[:keep]
@@ -556,13 +594,19 @@ def write_picker(items: dict[str, list[str]], catalog: dict[str, dict], out: Pat
 
             hidden_section = ""
             if hidden:
-                hidden_tiles = "".join(
-                    f'<div class="t muted"><img loading="lazy" referrerpolicy="no-referrer" src="{html.escape(u)}" alt="">'
-                    f'<div class="why">{html.escape(reason)}</div>'
-                    f'<span>{html.escape(u.rsplit("/", 1)[-1][:42])}</span></div>'
-                    for u, reason in hidden
-                )
-                hidden_section = f'<details><summary>{len(hidden)} hidden candidates</summary><div class="g">{hidden_tiles}</div></details>'
+                hidden_tiles = []
+                for u, reason in hidden:
+                    btn = ""
+                    if reason.startswith("site-wide") or reason.startswith("beyond the top"):
+                        cmd = safe_override_arg(sku, u)
+                        if cmd is not None:
+                            btn = f'<button data-cmd="{html.escape(cmd)}">copy (hidden: check it is this model)</button>'
+                    hidden_tiles.append(
+                        f'<div class="t muted"><img loading="lazy" referrerpolicy="no-referrer" src="{html.escape(u)}" alt="">'
+                        f'{btn}<div class="why">{html.escape(reason)}</div>'
+                        f'<span>{html.escape(u.rsplit("/", 1)[-1][:42])}</span></div>'
+                    )
+                hidden_section = f'<details><summary>{len(hidden)} hidden candidates</summary><div class="g">{"".join(hidden_tiles)}</div></details>'
 
             secs.append(
                 f'<h2>{html.escape(c.get("name", sku))} <small>{html.escape(sku)} &middot; {html.escape(spec)} &middot; {len(shown)} shown, {len(hidden)} hidden</small></h2>'
@@ -929,6 +973,43 @@ def selftest() -> int:
         except ValueError:
             continue
         raise AssertionError("accepted: " + bad)
+
+    # Phase 11I tests:
+    # (a) size variants merge to one URL with the tag
+    g_urls = [
+        "https://gausium.com/wp-content/uploads/2022/07/Phantas-V1.3-front-spec-577x500.png",
+        "https://gausium.com/wp-content/uploads/2022/07/Phantas-V1.3-front-spec-1024x887.png",
+    ]
+    r_size = rank_candidates({"GAUSIUM-PHANTAS": g_urls})
+    shown_size = r_size["GAUSIUM-PHANTAS"]["shown"]
+    assert len(shown_size) == 1, shown_size
+    assert shown_size[0][0] == "https://gausium.com/wp-content/uploads/2022/07/Phantas-V1.3-front-spec-1024x887.png"
+    assert "1 other sizes merged" in shown_size[0][2]
+
+    # (b) a hidden 'site-wide' tile renders a button and a hidden 'logo' tile does not
+    with tempfile.TemporaryDirectory() as d_btn:
+        out_btn = Path(d_btn) / "btn_test.html"
+        ranked_btn = {
+            "TEST-SKU": {
+                "shown": [],
+                "hidden": [
+                    ("https://cdn.pudutech.com/banner.jpg", "site-wide (on 3 model pages)"),
+                    ("https://cdn.pudutech.com/logo.png", "logo, icon or social image"),
+                ]
+            }
+        }
+        write_picker({"TEST-SKU": []}, {"TEST-SKU": {"name": "Test"}}, out_btn, ranked=ranked_btn)
+        html_btn = out_btn.read_text(encoding="utf-8")
+        assert 'copy (hidden: check it is this model)' in html_btn
+        assert 'data-cmd="--override &quot;TEST-SKU=https://cdn.pudutech.com/banner.jpg&quot;"' in html_btn
+        assert 'data-cmd="--override &quot;TEST-SKU=https://cdn.pudutech.com/logo.png&quot;"' not in html_btn
+
+    # (c) 'MT_1_Vac_x.png' gets a name match for PUDU-MT1-VAC
+    r_hint = rank_candidates({"PUDU-MT1-VAC": ["https://cdn.pudutech.com/uploads/MT_1_Vac_x.png"]})
+    shown_hint = r_hint["PUDU-MT1-VAC"]["shown"]
+    assert len(shown_hint) == 1
+    assert "name match" in shown_hint[0][2], shown_hint[0][2]
+
     print("selftest OK")
     return 0
 
