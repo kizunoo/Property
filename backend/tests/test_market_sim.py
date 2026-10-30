@@ -358,6 +358,99 @@ console.log(JSON.stringify({ mutated: JSON.stringify(startPrices) !== original }
         out = json.loads(_run_node_ts(code))
         self.assertFalse(out["mutated"])
 
+    def test_display_price_real_beats_indicative(self):
+        code = """
+import { displayPrice } from './lib/display-price';
+const res = displayPrice(80000, 70000);
+console.log(JSON.stringify(res));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["value"], 80000)
+        self.assertEqual(out["kind"], "real")
+
+    def test_display_price_indicative_fallbacks(self):
+        code = """
+import { displayPrice } from './lib/display-price';
+const badReals = [null, 0, -500, NaN, undefined];
+const results = badReals.map(r => displayPrice(r, 70000));
+console.log(JSON.stringify(results));
+"""
+        out = json.loads(_run_node_ts(code))
+        for item in out:
+            self.assertEqual(item["value"], 70000)
+            self.assertEqual(item["kind"], "indicative")
+
+    def test_display_price_none_when_both_invalid(self):
+        code = """
+import { displayPrice } from './lib/display-price';
+const cases = [
+  displayPrice(null, null),
+  displayPrice(0, -100),
+  displayPrice(undefined, NaN),
+  displayPrice("bad", null)
+];
+console.log(JSON.stringify(cases));
+"""
+        out = json.loads(_run_node_ts(code))
+        for item in out:
+            self.assertIsNone(item["value"])
+            self.assertEqual(item["kind"], "none")
+
+    def test_format_rm(self):
+        code = """
+import { formatRM } from './lib/display-price';
+const res = {
+  standard: formatRM(133000),
+  rounded: formatRM(133000.4),
+  nullVal: formatRM(null),
+  undefinedVal: formatRM(undefined),
+  nanVal: formatRM(NaN)
+};
+console.log(JSON.stringify(res));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["standard"], "RM 133,000")
+        self.assertEqual(out["rounded"], "RM 133,000")
+        self.assertEqual(out["nullVal"], "RM 0")
+        self.assertEqual(out["undefinedVal"], "RM 0")
+        self.assertEqual(out["nanVal"], "RM 0")
+
+    def test_display_price_does_not_modify_inputs(self):
+        code = """
+import { displayPrice } from './lib/display-price';
+const r = 50000;
+const i = 40000;
+const out = displayPrice(r, i);
+console.log(JSON.stringify({ rSame: r === 50000, iSame: i === 40000 }));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertTrue(out["rSame"])
+        self.assertTrue(out["iSame"])
+
+    def test_potential_pipeline_excludes_none_and_matches_simulate(self):
+        code = """
+import { potentialPipeline } from './lib/display-price';
+import { simulate, SimPair } from './lib/market-sim';
+const pairs: SimPair[] = [
+  { companyId: "c1", companyName: "Co A", robotId: "r1", probability: 0.6 },
+  { companyId: "c2", companyName: "Co B", robotId: "r2", probability: 0.8 },
+  { companyId: "c3", companyName: "Co C", robotId: "r3", probability: 0.5 }
+];
+const displayPrices = { r1: 100000, r2: 50000, r3: null };
+const pRes = potentialPipeline(pairs, displayPrices);
+const sRes = simulate(pairs, displayPrices, 1);
+console.log(JSON.stringify({
+  pTotal: pRes.total,
+  sTotal: sRes.totalValue,
+  robotsUsed: pRes.robotsUsed,
+  robotsExcluded: pRes.robotsExcluded
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["pTotal"], out["sTotal"])
+        self.assertEqual(out["robotsUsed"], 2)
+        self.assertEqual(out["robotsExcluded"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

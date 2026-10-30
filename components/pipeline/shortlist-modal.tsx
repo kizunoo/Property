@@ -20,6 +20,7 @@ import {
 } from "lucide-react"
 import { currency, percent, TIER_SHORT, type Property, type Tier } from "@/lib/pipeline-data"
 import { compareByEvThenProbability, evLabel, priceLabel } from "@/lib/price"
+import { displayPrice, formatRM } from "@/lib/display-price"
 import { fetchShortlist, type ShortlistEntry } from "@/lib/fetch-shortlist"
 
 // ─── Filter + sort types ──────────────────────────────────────────────────────
@@ -488,6 +489,7 @@ export function ShortlistModal({ property, open, onClose, agentId, onGenerateInv
   if (!open || !property) return null
 
   const hasMl = entries.some((e) => e.mlProbability !== null)
+  const modalPrice = displayPrice(property.value, property.indicativePriceMyr)
 
   return (
     <div
@@ -540,7 +542,15 @@ export function ShortlistModal({ property, open, onClose, agentId, onGenerateInv
               </button>
               <div className="flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-border bg-muted px-3 py-1 font-display text-xs font-bold text-foreground">
                 <Wallet className="h-3 w-3 text-muted-foreground" strokeWidth={2.5} />
-                {priceLabel(property.value, currency)}
+                <span>{modalPrice.kind === "none" ? "Price on request" : formatRM(modalPrice.value)}</span>
+                {modalPrice.kind === "indicative" && (
+                  <span
+                    className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1 py-0.2 text-[9px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400"
+                    title={property.indicativePriceNote ?? "Estimate, not a supplier quote"}
+                  >
+                    demo estimate
+                  </span>
+                )}
               </div>
             </div>
           </div>

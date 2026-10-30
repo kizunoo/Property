@@ -3,7 +3,8 @@
 import { useState } from "react"
 import { CheckCircle2, MapPin, Search, Users } from "lucide-react"
 import { currency, type Property } from "@/lib/pipeline-data"
-import { priceLabel, indicativePriceLabel } from "@/lib/price"
+import { priceLabel } from "@/lib/price"
+import { displayPrice, formatRM } from "@/lib/display-price"
 import { PixelatedImageCanvas } from "./pixelated-image-canvas"
 import { ScrollConnect } from "@/components/animation/scroll-connect"
 
@@ -25,7 +26,7 @@ function PropertyCard({
   onFindBuyers: () => void
 }) {
   const isClosed = property.status === "CLOSED"
-  const indicativeLabel = indicativePriceLabel(property.indicativePriceMyr, property.value, currency)
+  const disp = displayPrice(property.value, property.indicativePriceMyr)
 
   return (
     <div
@@ -116,15 +117,19 @@ function PropertyCard({
             <div className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
               {isClosed ? "Deployed / Unit Value" : "Unit Cost"}
             </div>
-            <div className="font-mono text-2xl font-black leading-none sm:text-3xl">{priceLabel(property.value, currency)}</div>
-            {indicativeLabel && (
-              <div
-                className="mt-1 text-xs font-semibold text-amber-600"
-                title={property.indicativePriceNote ?? "Estimate, not a supplier quote"}
-              >
-                {indicativeLabel}
-              </div>
-            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-mono text-2xl font-black leading-none sm:text-3xl">
+                {disp.kind === "none" ? "Price on request" : formatRM(disp.value)}
+              </span>
+              {disp.kind === "indicative" && (
+                <span
+                  className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400"
+                  title={property.indicativePriceNote ?? "Estimate, not a supplier quote"}
+                >
+                  demo estimate
+                </span>
+              )}
+            </div>
           </div>
           {isClosed ? (
             <button

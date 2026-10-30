@@ -27,6 +27,8 @@ import { AIBriefingHero } from "./ai-briefing-hero"
 import { AnimatedContent } from "@/components/animation/animated-content"
 import { MarketMovementsPanel } from "./market-movements-panel"
 import { MarketSimulatorPanel } from "./market-simulator-panel"
+import { displayPrice, potentialPipeline } from "@/lib/display-price"
+import { toSimPairs } from "@/lib/market-sim"
 import { ModelTrainingPanel } from "./model-training-panel"
 import { PipelineProjectionCard } from "./pipeline-projection-card"
 import { WhatsAppFloatingPanel } from "./whatsapp-floating-panel"
@@ -37,7 +39,19 @@ interface PipelineDashboardProps {
 }
 
 
-function HeroStatCard({ totalPipelineValue, dedupCount, syncTimestamp, unpricedCount }: { totalPipelineValue: number | null; dedupCount: number; syncTimestamp: number; unpricedCount?: number }) {
+function HeroStatCard({
+  totalPipelineValue,
+  dedupCount,
+  syncTimestamp,
+  unpricedCount,
+  hasDisplayPrice,
+}: {
+  totalPipelineValue: number | null
+  dedupCount: number
+  syncTimestamp: number
+  unpricedCount?: number
+  hasDisplayPrice?: boolean
+}) {
   return (
     <AnimatedContent delay={0} className="sm:col-span-2">
       <div className="relative flex h-full flex-col justify-between rounded-[var(--radius)] border border-l-[3px] border-l-neutral-300 border-border bg-card p-5 sm:p-7 shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-sm-hover)] transition-shadow duration-200">
@@ -53,11 +67,13 @@ function HeroStatCard({ totalPipelineValue, dedupCount, syncTimestamp, unpricedC
           <div className="mt-4 font-display text-4xl font-bold leading-none tracking-tight sm:text-5xl lg:text-6xl">
             {totalPipelineValue !== null ? (
               <CountUp value={totalPipelineValue} formatNumber={currency} triggerKey={syncTimestamp} />
+            ) : hasDisplayPrice ? (
+              currency(0)
             ) : (
               "Awaiting quotes"
             )}
           </div>
-          {unpricedCount && unpricedCount > 0 ? (
+          {!hasDisplayPrice && unpricedCount && unpricedCount > 0 ? (
             <div className="mt-1 font-mono text-xs font-bold text-amber-600">
               {unpricedCount} robot{unpricedCount === 1 ? "" : "s"} awaiting quotes
             </div>
@@ -184,6 +200,23 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
   // ── Dashboard stat totals — deduplicated via getDashboardSummary ──
   // Each client counted once (best-match row); each property counted once.
   const totals = useMemo(() => getDashboardSummary(rawClients), [rawClients])
+
+  const simPairs = useMemo(() => toSimPairs(rawClients), [rawClients])
+
+  const { displayPriceMap, hasAnyDisplayPrice } = useMemo(() => {
+    const map: Record<string, number | null> = {}
+    let hasPrice = false
+    for (const p of properties) {
+      const disp = displayPrice(p.value, p.indicativePriceMyr)
+      map[p.id] = disp.value
+      if (disp.kind !== "none") hasPrice = true
+    }
+    return { displayPriceMap: map, hasAnyDisplayPrice: hasPrice }
+  }, [properties])
+
+  const potentialPipe = useMemo(() => {
+    return potentialPipeline(simPairs, displayPriceMap)
+  }, [simPairs, displayPriceMap])
 
   // ── Segment pill counts (off dedup for accurate unique-client count) ──
   const counts: Record<SegmentFilter, number> = {
@@ -348,6 +381,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                   agentId={selectedAgentId}
                   agentName={selectedAgent?.name}
                   syncTimestamp={syncTimestamp}
+                  potentialPipeline={potentialPipe}
                 />
                 <PriorityInquiries
                   onOpenClient={(clientId) => {
@@ -402,6 +436,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                     unpricedCount={totals.unpricedPipelineCount}
                     dedupCount={dedupClients.length}
                     syncTimestamp={syncTimestamp}
+                    hasDisplayPrice={hasAnyDisplayPrice}
                   />
 
                   <StatCard
@@ -457,6 +492,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                     accent="gray"
                     index={5}
                     triggerKey={syncTimestamp}
+                    hasDisplayPrice={hasAnyDisplayPrice}
                   />
                 </section>
 

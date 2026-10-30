@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { Sparkles, TrendingUp, Target, Users, ShieldCheck, RefreshCw, Layers } from "lucide-react"
 import { currency } from "@/lib/pipeline-data"
+import { formatRM, type PotentialPipelineResult } from "@/lib/display-price"
 
 export interface PipelineProjectionData {
   assigned_agent_id: string | null
@@ -24,16 +25,20 @@ interface PipelineProjectionCardProps {
   agentId?: string | null
   agentName?: string | null
   syncTimestamp?: number
+  potentialPipeline?: PotentialPipelineResult
 }
 
 export function PipelineProjectionCard({
   agentId,
   agentName,
   syncTimestamp,
+  potentialPipeline,
 }: PipelineProjectionCardProps) {
   const [data, setData] = useState<PipelineProjectionData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const hasDisplayPrice = Boolean(potentialPipeline && potentialPipeline.robotsUsed > 0)
 
   useEffect(() => {
     let isMounted = true
@@ -118,6 +123,8 @@ export function PipelineProjectionCard({
                     <span className="inline-block h-6 w-24 animate-pulse bg-muted rounded" />
                   ) : data?.active_pipeline_value != null ? (
                     currency(data.active_pipeline_value)
+                  ) : hasDisplayPrice ? (
+                    currency(0)
                   ) : (
                     "Awaiting quotes"
                   )}
@@ -125,7 +132,7 @@ export function PipelineProjectionCard({
               </div>
               <div className="mt-2 text-[10px] font-semibold text-muted-foreground flex flex-col gap-0.5">
                 <span>{data ? `${data.active_clients} active deal${data.active_clients === 1 ? "" : "s"}` : "—"}</span>
-                {data && (data.unpriced_count ?? 0) > 0 && (
+                {!hasDisplayPrice && data && (data.unpriced_count ?? 0) > 0 && (
                   <span className="text-amber-600 font-bold">{data.unpriced_count} robot{(data.unpriced_count ?? 0) === 1 ? "" : "s"} awaiting quotes</span>
                 )}
               </div>
@@ -153,7 +160,7 @@ export function PipelineProjectionCard({
                     "10% baseline (no closed deals)"
                   )
                 ) : (
-                  "—"
+                  "..."
                 )}
               </div>
             </div>
@@ -169,6 +176,8 @@ export function PipelineProjectionCard({
                     <span className="inline-block h-6 w-24 animate-pulse bg-primary/30 rounded" />
                   ) : data?.projected_revenue != null ? (
                     currency(data.projected_revenue)
+                  ) : hasDisplayPrice ? (
+                    currency(0)
                   ) : (
                     "Awaiting quotes"
                   )}
@@ -179,6 +188,21 @@ export function PipelineProjectionCard({
               </div>
             </div>
           </div>
+
+          {/* Potential pipeline summary under the boxes */}
+          {potentialPipeline && (
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+              <span>Potential pipeline if every prospect adopted</span>
+              <span className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400">
+                demo estimate
+              </span>
+              <span>:</span>
+              <span className="font-mono font-bold text-foreground">
+                {formatRM(potentialPipeline.total)}
+              </span>
+              <span>across {potentialPipeline.robotsUsed} robot{potentialPipeline.robotsUsed === 1 ? "" : "s"}</span>
+            </div>
+          )}
 
           {/* Sub-strip: Untapped Potential */}
           <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-[8px] border border-border bg-muted/30 px-3.5 py-2.5">

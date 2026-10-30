@@ -12,6 +12,7 @@ interface StatCardProps {
   emphasis?: boolean
   index?: number
   triggerKey?: string | number
+  hasDisplayPrice?: boolean
 }
 
 export function StatCard({
@@ -24,6 +25,7 @@ export function StatCard({
   emphasis,
   index = 0,
   triggerKey,
+  hasDisplayPrice,
 }: StatCardProps) {
   const resolvedAccent = accent ?? (emphasis ? "yellow" : "gray")
 
@@ -59,6 +61,8 @@ export function StatCard({
           <div className="font-display text-3xl sm:text-4xl font-bold leading-none tracking-tight">
             {numericValue !== null ? (
               <CountUp value={numericValue} formatNumber={formatNumber} triggerKey={triggerKey} />
+            ) : hasDisplayPrice ? (
+              formatNumber ? formatNumber(0) : "RM 0"
             ) : (
               <span className="text-2xl sm:text-3xl text-muted-foreground">Awaiting quotes</span>
             )}
