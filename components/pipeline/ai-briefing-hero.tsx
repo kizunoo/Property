@@ -3,13 +3,14 @@
 import { useEffect, useState } from "react";
 import { DecryptedText } from "@/components/animation/decrypted-text";
 import { Sparkles, RefreshCw, AlertCircle } from "lucide-react";
+import { priceTextForRobotName, type DisplayPriceByNameEntry } from "@/lib/display-price";
 
 interface BriefingItem {
   client_id: string;
   client_name: string;
   property_name: string;
-  neighborhood: string;
-  expected_value: number;
+  neighborhood?: string | null;
+  expected_value?: number | null;
   briefing?: string;
   reasoning: string;
 }
@@ -17,7 +18,13 @@ interface BriefingItem {
 // Module-level cache so switching tabs within the session is instantaneous and never unmounts/disappears
 let _cachedBriefingItems: BriefingItem[] | null = null;
 
-export function AIBriefingHero({ onOpenClient }: { onOpenClient: (clientId: string) => void }) {
+export function AIBriefingHero({
+  onOpenClient,
+  byName,
+}: {
+  onOpenClient: (clientId: string) => void
+  byName?: Record<string, DisplayPriceByNameEntry | undefined>
+}) {
   const [items, setItems] = useState<BriefingItem[]>(_cachedBriefingItems ?? []);
   const [loading, setLoading] = useState(!_cachedBriefingItems);
   const [error, setError] = useState<string | null>(null);
@@ -130,12 +137,14 @@ export function AIBriefingHero({ onOpenClient }: { onOpenClient: (clientId: stri
                       {item.client_name}
                     </span>
                     <span className="font-mono text-xs font-bold bg-neutral-100 text-neutral-900 border border-neutral-200 px-2 py-0.5 rounded-[var(--radius-sm)] shrink-0">
-                      RM {Math.round(item.expected_value).toLocaleString()}
+                      {item.expected_value != null
+                        ? `RM ${Math.round(item.expected_value).toLocaleString()}`
+                        : priceTextForRobotName(item.property_name, byName) ?? "Awaiting price"}
                     </span>
                   </div>
 
                   <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground truncate">
-                    {item.property_name} · {item.neighborhood}
+                    {item.property_name}{item.neighborhood ? ` · ${item.neighborhood}` : ""}
                   </div>
 
                   <div className="font-mono text-xs sm:text-[13px] leading-relaxed">

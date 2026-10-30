@@ -235,6 +235,19 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
     return potentialPipeline(simPairs, displayPriceMap)
   }, [simPairs, displayPriceMap])
 
+  const displayPriceByName = useMemo(() => {
+    const map: Record<string, { value: number | null; kind: "real" | "simulated" | "indicative" | "none" }> = {}
+    for (const p of properties) {
+      const sim = simPrices[p.id] ?? null
+      const disp = displayPrice(p.value, p.indicativePriceMyr, sim)
+      const entry = { value: disp.value, kind: disp.kind }
+      if (p.address) map[p.address] = entry
+      if (p.name) map[p.name] = entry
+      map[p.id] = entry
+    }
+    return map
+  }, [properties, simPrices])
+
   // ── Segment pill counts (off dedup for accurate unique-client count) ──
   const counts: Record<SegmentFilter, number> = {
     ALL:    dedupClients.length,
@@ -410,6 +423,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                 />
                 <DailyWorklistPanel
                   agentId={selectedAgentId}
+                  byName={displayPriceByName}
                   onGenerateInvite={(clientId, propertyId) => {
                     const client = dedupClients.find((c) => c.clientId === clientId)
                     const prop = properties.find((p) => p.id === propertyId)

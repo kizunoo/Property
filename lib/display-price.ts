@@ -114,3 +114,96 @@ export function potentialPipeline(
   }
 }
 
+export interface DemoProjectionResult {
+  active: number
+  projected: number
+}
+
+/**
+ * Computes demo projection active pipeline and projected revenue.
+ * Falls back to 0.10 if closeRate is not a finite number in [0, 1].
+ * Both values 0 if potentialTotal is not a finite number > 0.
+ */
+export function demoProjection(
+  potentialTotal: unknown,
+  closeRate: unknown,
+): DemoProjectionResult {
+  const tot = typeof potentialTotal === "number" && Number.isFinite(potentialTotal) && potentialTotal > 0
+    ? potentialTotal
+    : 0
+
+  if (tot === 0) {
+    return { active: 0, projected: 0 }
+  }
+
+  const rate = typeof closeRate === "number" && Number.isFinite(closeRate) && closeRate >= 0 && closeRate <= 1
+    ? closeRate
+    : 0.10
+
+  return {
+    active: tot,
+    projected: Math.round(tot * rate),
+  }
+}
+
+/**
+ * Parses a string like "10%" or "12.5%" into 0.10 or 0.125.
+ * Returns null if it cannot parse.
+ */
+export function closeRateFromPct(text: unknown): number | null {
+  if (typeof text !== "string") return null
+  const trimmed = text.trim()
+  if (!trimmed.endsWith("%")) return null
+  const numPart = trimmed.slice(0, -1).trim()
+  if (numPart.length === 0) return null
+  const val = Number(numPart)
+  if (!Number.isFinite(val) || val < 0) return null
+  return val / 100
+}
+
+export interface DemoStrategyInput {
+  untapped: number
+  robotsUsed: number
+  potentialTotal: number
+  projected: number
+  closeRatePct: string
+}
+
+/**
+ * Builds demo strategy narrative using exact numbers passed in.
+ */
+export function demoStrategyText(input: DemoStrategyInput): string {
+  const { untapped, robotsUsed, potentialTotal, projected, closeRatePct } = input
+  const potFormatted = formatRM(potentialTotal)
+  const projFormatted = formatRM(projected)
+  return `No active deals yet. If all ${untapped} untapped prospects adopted their best-fit robot, the demo potential pipeline is ${potFormatted} across ${robotsUsed} robots (demo estimate), about ${projFormatted} at the ${closeRatePct} close rate. Run the Shortlist Builder on the top robots and work the five outreach contacts below to start converting it.`
+}
+
+export interface DisplayPriceByNameEntry {
+  value: number | null
+  kind: PriceKind
+}
+
+/**
+ * Returns the displayed price text for a robot name, or null if unknown or invalid price.
+ */
+export function priceTextForRobotName(
+  name: unknown,
+  byName?: Record<string, DisplayPriceByNameEntry | undefined> | null,
+): string | null {
+  if (typeof name !== "string" || !byName) return null
+  const trimmed = name.trim()
+  const entry = byName[trimmed] || byName[name]
+  if (!entry || entry.value === null || entry.value === undefined || !Number.isFinite(entry.value) || entry.value <= 0) {
+    return null
+  }
+  const formatted = formatRM(entry.value)
+  if (entry.kind === "simulated") {
+    return `${formatted} demo estimate, simulated`
+  }
+  if (entry.kind === "indicative") {
+    return `${formatted} demo estimate`
+  }
+  return formatted
+}
+

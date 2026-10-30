@@ -592,6 +592,107 @@ console.log(JSON.stringify({
         self.assertTrue(out["simMapR1"])
         self.assertTrue(out["simMapR2"])
 
+    def test_demo_projection_and_close_rate(self):
+        code = """
+import { demoProjection, closeRateFromPct } from './lib/display-price';
+const p1 = demoProjection(6397864, 0.10);
+const pFallNeg = demoProjection(100000, -0.5);
+const pFallNaN = demoProjection(100000, NaN);
+const pFallHi = demoProjection(100000, 1.5);
+const pZeros0 = demoProjection(0, 0.10);
+const pZerosNull = demoProjection(null, 0.10);
+const pZerosNaN = demoProjection(NaN, 0.10);
+
+const c10 = closeRateFromPct("10%");
+const c125 = closeRateFromPct("12.5%");
+const cAbc = closeRateFromPct("abc");
+const cEmpty = closeRateFromPct("");
+const cNull = closeRateFromPct(null);
+
+console.log(JSON.stringify({
+  p1, pFallNeg, pFallNaN, pFallHi, pZeros0, pZerosNull, pZerosNaN,
+  c10, c125, cAbc, cEmpty, cNull
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["p1"]["active"], 6397864)
+        self.assertEqual(out["p1"]["projected"], 639786)
+        self.assertEqual(out["pFallNeg"]["projected"], 10000)
+        self.assertEqual(out["pFallNaN"]["projected"], 10000)
+        self.assertEqual(out["pFallHi"]["projected"], 10000)
+        self.assertEqual(out["pZeros0"]["active"], 0)
+        self.assertEqual(out["pZeros0"]["projected"], 0)
+        self.assertEqual(out["pZerosNull"]["active"], 0)
+        self.assertEqual(out["pZerosNull"]["projected"], 0)
+        self.assertEqual(out["pZerosNaN"]["active"], 0)
+        self.assertEqual(out["pZerosNaN"]["projected"], 0)
+
+        self.assertAlmostEqual(out["c10"], 0.10)
+        self.assertAlmostEqual(out["c125"], 0.125)
+        self.assertIsNone(out["cAbc"])
+        self.assertIsNone(out["cEmpty"])
+        self.assertIsNone(out["cNull"])
+
+    def test_demo_strategy_text_and_price_text_by_name(self):
+        code = """
+import { demoStrategyText, priceTextForRobotName } from './lib/display-price';
+const input = {
+  untapped: 29,
+  robotsUsed: 20,
+  potentialTotal: 6397864,
+  projected: 639786,
+  closeRatePct: "10%"
+};
+const text = demoStrategyText(input);
+
+const byName = {
+  "PUDU T300": { value: 106100, kind: "simulated" },
+  "TEMI V3": { value: 36700, kind: "indicative" },
+  "REAL ROBOT": { value: 50000, kind: "real" },
+  "BAD ROBOT": { value: null, kind: "none" }
+};
+
+const tSim = priceTextForRobotName("PUDU T300", byName);
+const tInd = priceTextForRobotName("TEMI V3", byName);
+const tReal = priceTextForRobotName("REAL ROBOT", byName);
+const tUnknown = priceTextForRobotName("UNKNOWN", byName);
+const tBad = priceTextForRobotName("BAD ROBOT", byName);
+const tNull = priceTextForRobotName(null, byName);
+
+// Immutability check
+const origByNameJson = JSON.stringify(byName);
+const origInputJson = JSON.stringify(input);
+
+console.log(JSON.stringify({
+  text,
+  tSim,
+  tInd,
+  tReal,
+  tUnknown,
+  tBad,
+  tNull,
+  byNameUnchanged: JSON.stringify(byName) === origByNameJson,
+  inputUnchanged: JSON.stringify(input) === origInputJson
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        txt = out["text"]
+        self.assertIn("29", txt)
+        self.assertIn("20", txt)
+        self.assertIn("6,397,864", txt)
+        self.assertIn("639,786", txt)
+        self.assertIn("10%", txt)
+        self.assertIn("demo estimate", txt)
+
+        self.assertEqual(out["tSim"], "RM 106,100 demo estimate, simulated")
+        self.assertEqual(out["tInd"], "RM 36,700 demo estimate")
+        self.assertEqual(out["tReal"], "RM 50,000")
+        self.assertIsNone(out["tUnknown"])
+        self.assertIsNone(out["tBad"])
+        self.assertIsNone(out["tNull"])
+        self.assertTrue(out["byNameUnchanged"])
+        self.assertTrue(out["inputUnchanged"])
+
 
 if __name__ == "__main__":
     unittest.main()

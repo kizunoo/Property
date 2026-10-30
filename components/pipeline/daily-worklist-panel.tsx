@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { DecryptedText } from "@/components/animation/decrypted-text";
+import { priceTextForRobotName, type DisplayPriceByNameEntry } from "@/lib/display-price";
 
 interface WorklistEntry {
   client_id: string;
@@ -10,7 +11,7 @@ interface WorklistEntry {
   neighborhood: string;
   tier: string;
   blended_probability: number;
-  blended_ev: number;
+  blended_ev: number | null;
   reason: string;
 }
 
@@ -18,10 +19,12 @@ export function DailyWorklistPanel({
   agentId,
   onGenerateInvite,
   onScheduleViewing,
+  byName,
 }: {
   agentId?: string | null
   onGenerateInvite: (clientId: string, propertyId: string) => void;
   onScheduleViewing: (clientId: string, propertyId: string) => void;
+  byName?: Record<string, DisplayPriceByNameEntry | undefined>;
 }) {
   const [entries, setEntries] = useState<WorklistEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -135,7 +138,10 @@ export function DailyWorklistPanel({
                   {e.tier === "TIER_1" ? "HIGH-FIT" : e.tier === "TIER_2" ? "POSSIBLE-FIT" : "LOW-FIT"}
                 </span>
                 <span style={{ fontSize: "12px", color: "#999" }}>
-                  {e.property_name} · RM {e.blended_ev.toLocaleString()}
+                  {e.property_name} ·{" "}
+                  {e.blended_ev != null
+                    ? `RM ${Math.round(e.blended_ev).toLocaleString()}`
+                    : priceTextForRobotName(e.property_name, byName) ?? "Awaiting price"}
                 </span>
               </div>
               <div style={{ fontSize: "12px", color: "#ccc", fontFamily: "var(--font-mono)" }}>

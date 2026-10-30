@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react"
 import { Sparkles, TrendingUp, Target, Users, ShieldCheck, RefreshCw, Layers } from "lucide-react"
 import { currency } from "@/lib/pipeline-data"
-import { formatRM, type PotentialPipelineResult } from "@/lib/display-price"
+import {
+  formatRM,
+  demoProjection,
+  closeRateFromPct,
+  demoStrategyText,
+  type PotentialPipelineResult,
+} from "@/lib/display-price"
 
 export interface PipelineProjectionData {
   assigned_agent_id: string | null
@@ -39,6 +45,26 @@ export function PipelineProjectionCard({
   const [error, setError] = useState<string | null>(null)
 
   const hasDisplayPrice = Boolean(potentialPipeline && potentialPipeline.robotsUsed > 0)
+  const isDemoMode = Boolean(
+    potentialPipeline &&
+    potentialPipeline.total > 0 &&
+    (!data || data.active_clients === 0)
+  )
+
+  const effectiveCloseRate = data?.close_rate ?? (data ? closeRateFromPct(data.close_rate_pct) : 0.10) ?? 0.10
+  const demoProj = isDemoMode && potentialPipeline
+    ? demoProjection(potentialPipeline.total, effectiveCloseRate)
+    : null
+
+  const demoStrategy = isDemoMode && potentialPipeline
+    ? demoStrategyText({
+        untapped: data?.untapped_clients ?? 0,
+        robotsUsed: potentialPipeline.robotsUsed,
+        potentialTotal: potentialPipeline.total,
+        projected: demoProj?.projected ?? 0,
+        closeRatePct: data?.close_rate_pct ?? "10%",
+      })
+    : null
 
   useEffect(() => {
     let isMounted = true
@@ -123,6 +149,13 @@ export function PipelineProjectionCard({
                     <span className="inline-block h-6 w-24 animate-pulse bg-muted rounded" />
                   ) : data?.active_pipeline_value != null ? (
                     currency(data.active_pipeline_value)
+                  ) : isDemoMode && demoProj ? (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span>{formatRM(demoProj.active)}</span>
+                      <span className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400">
+                        demo estimate
+                      </span>
+                    </div>
                   ) : hasDisplayPrice ? (
                     currency(0)
                   ) : (
@@ -131,7 +164,15 @@ export function PipelineProjectionCard({
                 </div>
               </div>
               <div className="mt-2 text-[10px] font-semibold text-muted-foreground flex flex-col gap-0.5">
-                <span>{data ? `${data.active_clients} active deal${data.active_clients === 1 ? "" : "s"}` : "—"}</span>
+                <span>
+                  {data && data.active_clients > 0
+                    ? `${data.active_clients} active deal${data.active_clients === 1 ? "" : "s"}`
+                    : isDemoMode
+                    ? "if all prospects adopt"
+                    : data
+                    ? `${data.active_clients} active deals`
+                    : "—"}
+                </span>
                 {!hasDisplayPrice && data && (data.unpriced_count ?? 0) > 0 && (
                   <span className="text-amber-600 font-bold">{data.unpriced_count} robot{(data.unpriced_count ?? 0) === 1 ? "" : "s"} awaiting quotes</span>
                 )}
@@ -176,6 +217,13 @@ export function PipelineProjectionCard({
                     <span className="inline-block h-6 w-24 animate-pulse bg-primary/30 rounded" />
                   ) : data?.projected_revenue != null ? (
                     currency(data.projected_revenue)
+                  ) : isDemoMode && demoProj ? (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span>{formatRM(demoProj.projected)}</span>
+                      <span className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400">
+                        demo estimate
+                      </span>
+                    </div>
                   ) : hasDisplayPrice ? (
                     currency(0)
                   ) : (
@@ -184,13 +232,13 @@ export function PipelineProjectionCard({
                 </div>
               </div>
               <div className="mt-2 text-[10px] font-bold text-foreground/80">
-                Projected close value
+                {isDemoMode ? `at ${data?.close_rate_pct ?? "10%"} close rate` : "Projected close value"}
               </div>
             </div>
           </div>
 
-          {/* Potential pipeline summary under the boxes */}
-          {potentialPipeline && (
+          {/* Potential pipeline summary under the boxes (hidden in demo mode to avoid repeating) */}
+          {potentialPipeline && !isDemoMode && (
             <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
               <span>Potential pipeline if every prospect adopted</span>
               <span className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400">
@@ -233,7 +281,7 @@ export function PipelineProjectionCard({
                 </span>
               </div>
               <span className="rounded-[4px] border border-amber-400/40 bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-800">
-                Actionable Today
+                {isDemoMode ? "Demo summary" : "Actionable Today"}
               </span>
             </div>
 
@@ -248,6 +296,10 @@ export function PipelineProjectionCard({
                 <div className="rounded border border-red-200 bg-red-50 p-3 text-xs text-red-700">
                   {error}
                 </div>
+              ) : isDemoMode && demoStrategy ? (
+                <p className="font-sans text-xs leading-relaxed text-foreground font-medium sm:text-[13px]">
+                  {demoStrategy}
+                </p>
               ) : (
                 <p className="font-sans text-xs leading-relaxed text-foreground font-medium sm:text-[13px]">
                   {data?.narrative}
