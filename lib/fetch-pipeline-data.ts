@@ -243,7 +243,7 @@ export async function fetchProperties(agentId?: string | null): Promise<Property
   const attempt1 = await applyAgentFilter(
     supabase
       .from("properties")
-      .select("id, address, neighborhood, property_value, image_url, status, owner_client_id, closed_at, last_price_change_at, last_price_change_pct, bedrooms, bathrooms, sqft, property_type, furnishing, tenure, clients(name), assigned_agent_id, agents(id, name, initials)")
+      .select("id, address, neighborhood, property_value, image_url, status, owner_client_id, closed_at, last_price_change_at, last_price_change_pct, bedrooms, bathrooms, sqft, property_type, furnishing, tenure, clients(name), assigned_agent_id, agents(id, name, initials), indicative_price_myr, indicative_price_note")
       .order("property_value", { ascending: false, nullsFirst: false })
   )
   if (!attempt1.error && attempt1.data) {
@@ -254,7 +254,7 @@ export async function fetchProperties(agentId?: string | null): Promise<Property
   const attempt2 = await applyAgentFilter(
     supabase
       .from("properties")
-      .select("id, address, neighborhood, property_value, image_url, status, owner_client_id, closed_at, bedrooms, bathrooms, sqft, property_type, furnishing, tenure, clients(name), assigned_agent_id, agents(id, name, initials)")
+      .select("id, address, neighborhood, property_value, image_url, status, owner_client_id, closed_at, bedrooms, bathrooms, sqft, property_type, furnishing, tenure, clients(name), assigned_agent_id, agents(id, name, initials), indicative_price_myr, indicative_price_note")
       .order("property_value", { ascending: false, nullsFirst: false })
   )
   if (!attempt2.error && attempt2.data) {
@@ -265,7 +265,7 @@ export async function fetchProperties(agentId?: string | null): Promise<Property
   const attempt3 = await applyAgentFilter(
     supabase
       .from("properties")
-      .select("id, address, neighborhood, property_value, image_url, status, owner_client_id, closed_at, bedrooms, bathrooms, sqft, property_type, furnishing, tenure, assigned_agent_id, agents(id, name, initials)")
+      .select("id, address, neighborhood, property_value, image_url, status, owner_client_id, closed_at, bedrooms, bathrooms, sqft, property_type, furnishing, tenure, assigned_agent_id, agents(id, name, initials), indicative_price_myr, indicative_price_note")
       .order("property_value", { ascending: false, nullsFirst: false })
   )
   if (!attempt3.error && attempt3.data) {
@@ -276,7 +276,7 @@ export async function fetchProperties(agentId?: string | null): Promise<Property
   const attempt4 = await applyAgentFilter(
     supabase
       .from("properties")
-      .select("id, address, neighborhood, property_value, image_url, bedrooms, bathrooms, sqft, property_type, furnishing, tenure, assigned_agent_id, agents(id, name, initials)")
+      .select("id, address, neighborhood, property_value, image_url, bedrooms, bathrooms, sqft, property_type, furnishing, tenure, assigned_agent_id, agents(id, name, initials), indicative_price_myr, indicative_price_note")
       .order("property_value", { ascending: false, nullsFirst: false })
   )
   if (!attempt4.error && attempt4.data) {
@@ -287,7 +287,7 @@ export async function fetchProperties(agentId?: string | null): Promise<Property
   const attempt5 = await applyAgentFilter(
     supabase
       .from("properties")
-      .select("id, address, neighborhood, property_value, image_url, assigned_agent_id, agents(id, name, initials)")
+      .select("id, address, neighborhood, property_value, image_url, assigned_agent_id, agents(id, name, initials), indicative_price_myr, indicative_price_note")
       .order("property_value", { ascending: false, nullsFirst: false })
   )
   if (!attempt5.error && attempt5.data) {

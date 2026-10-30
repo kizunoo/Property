@@ -5,17 +5,40 @@ Usage: python scripts/validate_robots_catalog.py [path]   (default data/real/rob
 Exit code 1 if any BLOCKER is found.
 """
 import csv
+import math
 import sys
 from pathlib import Path
 
 EXPECTED = ("sku_code,name,manufacturer,category,price,lease_monthly,payload_kg,"
             "battery_hours,weight_kg,dimensions,speed_mps,warranty_months,"
-            "key_specs,target_industries,image_url").split(",")
+            "key_specs,target_industries,image_url,indicative_price_myr,indicative_price_note").split(",")
 REQUIRED = ("sku_code", "name", "manufacturer", "category")
 NUMERIC = ("price", "lease_monthly", "payload_kg", "battery_hours",
            "weight_kg", "speed_mps", "warranty_months")
 # Columns whose absence only weakens AI answers ("Not in the catalog"), not blockers.
 WANTED = ("weight_kg", "dimensions", "price")
+
+
+def check_indicative(row: dict):
+    """returns (errors, warnings) for one catalog row."""
+    errors, warnings = [], []
+    raw = (row.get("indicative_price_myr") or "").strip()
+    note = (row.get("indicative_price_note") or "").strip()
+    price = (row.get("price") or "").strip()
+    if raw:
+        try:
+            n = float(raw.replace(",", ""))
+            if not math.isfinite(n) or n <= 0:
+                raise ValueError
+        except ValueError:
+            errors.append("indicative_price_myr must be a positive number")
+        if not note:
+            errors.append("indicative_price_note is required (source and date)")
+        if price:
+            warnings.append("price is set, so the indicative price will be hidden")
+    elif note:
+        warnings.append("indicative_price_note without indicative_price_myr is ignored")
+    return errors, warnings
 
 
 def validate_rows(rows: list[dict], header: list[str] | None = None) -> tuple[list[str], list[str]]:
@@ -52,6 +75,11 @@ def validate_rows(rows: list[dict], header: list[str] | None = None) -> tuple[li
         img = (r.get("image_url") or "").strip()
         if img and not (img.startswith("http://") or img.startswith("https://") or img.startswith("/robots/")):
             blockers.append(f"{label}: 'image_url' must start with http://, https://, or /robots/")
+        ind_errors, ind_warnings = check_indicative(r)
+        for err in ind_errors:
+            blockers.append(f"{label}: {err}")
+        for warn in ind_warnings:
+            warnings.append(f"{label}: {warn}")
         for col in WANTED:
             if not (r.get(col) or "").strip():
                 warnings.append(f"{label}: '{col}' empty (AI replies will say 'not in the catalog')")

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { CheckCircle2, MapPin, Search, Users } from "lucide-react"
 import { currency, type Property } from "@/lib/pipeline-data"
-import { priceLabel } from "@/lib/price"
+import { priceLabel, indicativePriceLabel } from "@/lib/price"
 import { PixelatedImageCanvas } from "./pixelated-image-canvas"
 import { ScrollConnect } from "@/components/animation/scroll-connect"
 
@@ -25,6 +25,7 @@ function PropertyCard({
   onFindBuyers: () => void
 }) {
   const isClosed = property.status === "CLOSED"
+  const indicativeLabel = indicativePriceLabel(property.indicativePriceMyr, property.value, currency)
 
   return (
     <div
@@ -116,6 +117,14 @@ function PropertyCard({
               {isClosed ? "Deployed / Unit Value" : "Unit Cost"}
             </div>
             <div className="font-mono text-2xl font-black leading-none sm:text-3xl">{priceLabel(property.value, currency)}</div>
+            {indicativeLabel && (
+              <div
+                className="mt-1 text-xs font-semibold text-amber-600"
+                title={property.indicativePriceNote ?? "Estimate, not a supplier quote"}
+              >
+                {indicativeLabel}
+              </div>
+            )}
           </div>
           {isClosed ? (
             <button

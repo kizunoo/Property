@@ -116,6 +116,8 @@ export interface Property {
   ownerClientId?: string | null
   ownerName?: string | null
   closedAt?: string | null
+  indicativePriceMyr?: number | null
+  indicativePriceNote?: string | null
   /** Agent assigned to this property */
   assignedAgent?: { id: string; name: string; initials: string } | null
 }
@@ -248,6 +250,8 @@ export interface PropertyRow {
   status?: string | null
   owner_client_id?: string | null
   closed_at?: string | null
+  indicative_price_myr?: number | null
+  indicative_price_note?: string | null
   clients?: { name: string } | { name: string }[] | null
   assigned_agent_id?: string | null
   agents?: { id: string; name: string; initials: string } | { id: string; name: string; initials: string }[] | null
@@ -316,6 +320,8 @@ export function mapPropertyRow(row: PropertyRow, index: number): Property {
     ownerClientId: row.owner_client_id ?? null,
     ownerName:     owner?.name ?? null,
     closedAt:      row.closed_at ?? null,
+    indicativePriceMyr: toPrice(row.indicative_price_myr),
+    indicativePriceNote: row.indicative_price_note ?? null,
     assignedAgent: agentRaw ? { id: agentRaw.id, name: agentRaw.name, initials: agentRaw.initials } : null,
   }
 }

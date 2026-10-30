@@ -22,7 +22,7 @@ import {
   CartesianGrid,
 } from "recharts"
 import { currency, type Property } from "@/lib/pipeline-data"
-import { priceLabel } from "@/lib/price"
+import { priceLabel, indicativePriceLabel } from "@/lib/price"
 import { PixelatedImageCanvas } from "./pixelated-image-canvas"
 
 
@@ -477,6 +477,14 @@ export function PropertyDetailModal({ property, open, onClose, onFindBuyers, onP
               <div className="mt-2 font-display text-3xl sm:text-4xl font-bold leading-none text-foreground whitespace-nowrap overflow-x-auto scrollbar-none py-1">
                 {priceLabel(displayValue, currency)}
               </div>
+              {indicativePriceLabel(property.indicativePriceMyr, displayValue, currency) && (
+                <div className="mt-2 rounded-[4px] bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 text-xs text-amber-700">
+                  <div className="font-semibold">{indicativePriceLabel(property.indicativePriceMyr, displayValue, currency)}</div>
+                  <div className="text-[11px] text-amber-600/80">
+                    Indicative price (estimate, not a quote){property.indicativePriceNote ? ` · ${property.indicativePriceNote}` : ""}
+                  </div>
+                </div>
+              )}
               <div className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
                 <MapPin className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2.5} />
                 {property.neighborhood || "—"}

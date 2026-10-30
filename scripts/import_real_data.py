@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import os
 import re
 import sys
@@ -101,6 +102,25 @@ def num(s: str):
     return float(s.replace(",", "")) if s else None
 
 
+def to_positive_num(s: str | None):
+    if not s:
+        return None
+    try:
+        n = float(str(s).replace(",", ""))
+        return n if math.isfinite(n) and n > 0 else None
+    except (ValueError, TypeError):
+        return None
+
+
+def map_indicative(row: dict, to_price=None):
+    if to_price is None:
+        to_price = to_positive_num
+    return {
+        "indicative_price_myr": to_price(row.get("indicative_price_myr")),
+        "indicative_price_note": (row.get("indicative_price_note") or "").strip() or None,
+    }
+
+
 def check_nums(r, cols, line, errors):
     for c in cols:
         if r.get(c):
@@ -173,7 +193,7 @@ def keyword_map(text: str, table):
 def build_robot_row(r, data_source: str = "real"):
     specs = {k: (num(r[k]) if k in ROBOT_OPTIONAL_NUM else r[k])
              for k in ROBOT_OPTIONAL_NUM + ["key_specs", "target_industries", "dimensions"] if r.get(k)}
-    return {
+    row = {
         PROPERTY_COLS["name"]: r["name"],
         PROPERTY_COLS["price"]: num(r["price"]) if r.get("price") else None,
         PROPERTY_COLS["description"]: r.get("key_specs", ""),
@@ -183,6 +203,8 @@ def build_robot_row(r, data_source: str = "real"):
         "sku_code": r["sku_code"], "manufacturer": r["manufacturer"],
         "specs": specs, "data_source": data_source,
     }
+    row.update(map_indicative(r, to_positive_num))
+    return row
 
 
 def build_client_row(r, agent_id):

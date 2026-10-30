@@ -18,6 +18,17 @@ export function priceLabel(v: unknown, fmt: (n: number) => string): string {
   return p === null ? PRICE_ON_REQUEST : fmt(p);
 }
 
+/** Indicative price label. Returns null if real price is set, or if indicative is missing. */
+export function indicativePriceLabel(
+  indicative: number | null | undefined,
+  realPrice: number | null | undefined,
+  fmt: (n: number) => string,
+): string | null {
+  if (toPrice(realPrice) != null) return null; // a real price always wins
+  const n = toPrice(indicative);
+  return n == null ? null : `~${fmt(n)} (indicative)`;
+}
+
 /** Expected value label. null EV means no price yet, so say that instead of "RM 0". */
 export function evLabel(v: unknown, fmt: (n: number) => string): string {
   const p = toPrice(v);

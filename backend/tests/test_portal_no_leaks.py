@@ -20,6 +20,8 @@ import portal_auth
 from portal_auth import PersistentRateLimitStore
 from main import can_quote_transition
 
+FORBIDDEN_PORTAL_KEYS = {"indicative_price_myr", "indicative_price_note"}
+
 FORBIDDEN_KEYS = {
     "expected_value",
     "buy_probability",
@@ -32,7 +34,22 @@ FORBIDDEN_KEYS = {
     "rep_notes",
     "cost_price",
     "margin",
+    "indicative_price_myr",
+    "indicative_price_note",
 }
+
+
+def find_forbidden_keys(obj, path="$"):
+    hits = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in FORBIDDEN_PORTAL_KEYS:
+                hits.append(f"{path}.{k}")
+            hits += find_forbidden_keys(v, f"{path}.{k}")
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            hits += find_forbidden_keys(v, f"{path}[{i}]")
+    return hits
 
 
 def assert_no_forbidden(obj, path=""):
@@ -161,6 +178,8 @@ class TestPortalNoLeaksAndSecurity(unittest.TestCase):
                         "id": self.property_id,
                         "address": "Ottonomy Ottobot Yeti",
                         "property_value": 120000,
+                        "indicative_price_myr": 99000,
+                        "indicative_price_note": "Reseller listing Oct 2026",
                         "neighborhood": "Manufacturing",
                         "image_url": "https://example.com/img.jpg",
                         "property_type": "Autonomous Mobile Robot",
@@ -181,6 +200,8 @@ class TestPortalNoLeaksAndSecurity(unittest.TestCase):
                     "id": self.property_id,
                     "address": "Ottonomy Ottobot Yeti",
                     "property_value": 120000,
+                    "indicative_price_myr": 99000,
+                    "indicative_price_note": "Reseller listing Oct 2026",
                     "neighborhood": "Manufacturing",
                     "property_type": "Autonomous Mobile Robot",
                     "image_url": None,
@@ -257,6 +278,7 @@ class TestPortalNoLeaksAndSecurity(unittest.TestCase):
             self.assertEqual(res.status_code, 200)
             data = res.json()
             assert_no_forbidden(data)
+            self.assertEqual(find_forbidden_keys(data), [])
             for match in data.get("matches", []):
                 self.assertNotIn("expected_value", match)
                 self.assertNotIn("score", match)
@@ -264,7 +286,9 @@ class TestPortalNoLeaksAndSecurity(unittest.TestCase):
             # 2. GET /catalog
             res = self.client.get(f"/api/portal/{self.company_a}/catalog", headers=headers)
             self.assertEqual(res.status_code, 200)
-            assert_no_forbidden(res.json())
+            catalog_data = res.json()
+            assert_no_forbidden(catalog_data)
+            self.assertEqual(find_forbidden_keys(catalog_data), [])
 
             # 3. GET /quotes
             res = self.client.get(f"/api/portal/{self.company_a}/quotes", headers=headers)
