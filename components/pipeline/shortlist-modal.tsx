@@ -401,9 +401,10 @@ interface ShortlistModalProps {
   onClose: () => void
   agentId?: string | null
   onGenerateInvite?: (entry: ShortlistEntry) => void
+  displayPriceMap?: Record<string, number | null>
 }
 
-export function ShortlistModal({ property, open, onClose, agentId, onGenerateInvite }: ShortlistModalProps) {
+export function ShortlistModal({ property, open, onClose, agentId, onGenerateInvite, displayPriceMap }: ShortlistModalProps) {
   const [entries,  setEntries]  = useState<ShortlistEntry[]>([])
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState<string | null>(null)
@@ -489,7 +490,10 @@ export function ShortlistModal({ property, open, onClose, agentId, onGenerateInv
   if (!open || !property) return null
 
   const hasMl = entries.some((e) => e.mlProbability !== null)
-  const modalPrice = displayPrice(property.value, property.indicativePriceMyr)
+  const simPrice = property ? displayPriceMap?.[property.id] : null
+  const modalPrice = property
+    ? displayPrice(property.value, property.indicativePriceMyr, simPrice)
+    : { value: null, kind: "none" as const }
 
   return (
     <div
@@ -543,6 +547,14 @@ export function ShortlistModal({ property, open, onClose, agentId, onGenerateInv
               <div className="flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-border bg-muted px-3 py-1 font-display text-xs font-bold text-foreground">
                 <Wallet className="h-3 w-3 text-muted-foreground" strokeWidth={2.5} />
                 <span>{modalPrice.kind === "none" ? "Price on request" : formatRM(modalPrice.value)}</span>
+                {modalPrice.kind === "simulated" && (
+                  <span
+                    className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1 py-0.2 text-[9px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400"
+                    title="Drift simulation from indicative price"
+                  >
+                    demo estimate, simulated
+                  </span>
+                )}
                 {modalPrice.kind === "indicative" && (
                   <span
                     className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1 py-0.2 text-[9px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400"
@@ -726,7 +738,7 @@ export function ShortlistModal({ property, open, onClose, agentId, onGenerateInv
         {compareMode && compareEntries.length > 0 && (
           <ComparePanel
             entries={compareEntries}
-            propertyValue={property.value}
+            propertyValue={modalPrice.value ?? property.value}
             onInvite={onGenerateInvite}
             onRemove={(id) => handleToggleCompare(id)}
           />

@@ -1,10 +1,11 @@
 import {
   simulate,
   DEFAULT_CONSTANTS,
+  priceAtTick,
   type SimPair,
 } from "./market-sim"
 
-export type PriceKind = "real" | "indicative" | "none"
+export type PriceKind = "real" | "simulated" | "indicative" | "none"
 
 export interface DisplayPriceResult {
   value: number | null
@@ -17,12 +18,13 @@ function isValidPositive(n: unknown): n is number {
 
 /**
  * Returns the effective display price and kind.
- * Real price always wins over indicative.
+ * Order: real, then simulated, then indicative, then none.
  * Only positive finite numbers are valid.
  */
 export function displayPrice(
   realPrice: unknown,
   indicativePrice: unknown,
+  simulatedPrice?: unknown,
 ): DisplayPriceResult {
   const r =
     typeof realPrice === "number"
@@ -33,6 +35,17 @@ export function displayPrice(
 
   if (isValidPositive(r)) {
     return { value: r, kind: "real" }
+  }
+
+  const sim =
+    typeof simulatedPrice === "number"
+      ? simulatedPrice
+      : simulatedPrice !== null && simulatedPrice !== undefined
+      ? Number(simulatedPrice)
+      : NaN
+
+  if (isValidPositive(sim)) {
+    return { value: sim, kind: "simulated" }
   }
 
   const ind =
@@ -47,6 +60,24 @@ export function displayPrice(
   }
 
   return { value: null, kind: "none" }
+}
+
+export interface RobotWithIndicative {
+  id: string
+  indicativePriceMyr?: number | null
+  indicative_price_myr?: number | null
+}
+
+export function simulatedPriceMap(
+  robots: RobotWithIndicative[],
+  tick: number,
+): Record<string, number | null> {
+  const map: Record<string, number | null> = {}
+  for (const r of robots) {
+    const ind = r.indicativePriceMyr ?? r.indicative_price_myr ?? null
+    map[r.id] = priceAtTick(ind, r.id, tick)
+  }
+  return map
 }
 
 /** Formats a numeric value into "RM 133,000" style text. */

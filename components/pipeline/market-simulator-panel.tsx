@@ -38,6 +38,7 @@ export interface MarketSimulatorRobot {
 export interface MarketSimulatorPanelProps {
   pairs: SimPair[] | SimClientInput[]
   robots: MarketSimulatorRobot[]
+  displayPrices?: Record<string, number | null>
 }
 
 const VOLATILITY_OPTIONS: { level: VolLevel; label: string; desc: string }[] = [
@@ -48,7 +49,7 @@ const VOLATILITY_OPTIONS: { level: VolLevel; label: string; desc: string }[] = [
 
 const MONTH_OPTIONS = [6, 12, 24] as const
 
-export function MarketSimulatorPanel({ pairs, robots }: MarketSimulatorPanelProps) {
+export function MarketSimulatorPanel({ pairs, robots, displayPrices }: MarketSimulatorPanelProps) {
   // Normalize input pairs
   const normalizedPairs: SimPair[] = useMemo(() => {
     if (!Array.isArray(pairs) || pairs.length === 0) return []
@@ -63,9 +64,10 @@ export function MarketSimulatorPanel({ pairs, robots }: MarketSimulatorPanelProp
   const getInitialPrices = (): Record<string, string> => {
     const init: Record<string, string> = {}
     for (const r of robots) {
+      const disp = displayPrices?.[r.id]
       const real = r.value ?? r.propertyValue ?? null
       const indicative = r.indicativePriceMyr ?? null
-      const start = startingPrice(real, indicative)
+      const start = disp ?? startingPrice(real, indicative)
       init[r.id] = start != null ? String(start) : ""
     }
     return init
@@ -233,6 +235,7 @@ export function MarketSimulatorPanel({ pairs, robots }: MarketSimulatorPanelProp
               const name = robot.address || robot.name || robot.id
               const real = robot.value ?? robot.propertyValue ?? null
               const indicative = robot.indicativePriceMyr ?? null
+              const disp = displayPrices?.[robot.id]
               const currentVal = numericPrices[robot.id]
 
               let badgeText = "Unpriced"
@@ -241,6 +244,9 @@ export function MarketSimulatorPanel({ pairs, robots }: MarketSimulatorPanelProp
                 if (validPrice(real) === currentVal) {
                   badgeText = "Real quote"
                   badgeClass = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                } else if (disp != null && validPrice(disp) === currentVal && validPrice(indicative) !== currentVal) {
+                  badgeText = "Simulated"
+                  badgeClass = "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30"
                 } else if (validPrice(indicative) === currentVal) {
                   badgeText = "Indicative"
                   badgeClass = "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30"

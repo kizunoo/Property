@@ -20,13 +20,16 @@ function PropertyCard({
   property,
   onSelect,
   onFindBuyers,
+  displayPriceMap,
 }: {
   property: Property
   onSelect: () => void
   onFindBuyers: () => void
+  displayPriceMap?: Record<string, number | null>
 }) {
   const isClosed = property.status === "CLOSED"
-  const disp = displayPrice(property.value, property.indicativePriceMyr)
+  const simPrice = displayPriceMap?.[property.id]
+  const disp = displayPrice(property.value, property.indicativePriceMyr, simPrice)
 
   return (
     <div
@@ -121,6 +124,14 @@ function PropertyCard({
               <span className="font-mono text-2xl font-black leading-none sm:text-3xl">
                 {disp.kind === "none" ? "Price on request" : formatRM(disp.value)}
               </span>
+              {disp.kind === "simulated" && (
+                <span
+                  className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400"
+                  title="Drift simulation from indicative price"
+                >
+                  demo estimate, simulated
+                </span>
+              )}
               {disp.kind === "indicative" && (
                 <span
                   className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400"
@@ -166,9 +177,10 @@ interface PropertyCardsProps {
   properties: Property[]
   onSelect: (property: Property) => void
   onFindBuyers: (property: Property) => void
+  displayPriceMap?: Record<string, number | null>
 }
 
-export function PropertyCards({ properties, onSelect, onFindBuyers }: PropertyCardsProps) {
+export function PropertyCards({ properties, onSelect, onFindBuyers, displayPriceMap }: PropertyCardsProps) {
   const [query, setQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "CLOSED">("ALL")
 
@@ -251,6 +263,7 @@ export function PropertyCards({ properties, onSelect, onFindBuyers }: PropertyCa
             <ScrollConnect key={property.id}>
               <PropertyCard
                 property={property}
+                displayPriceMap={displayPriceMap}
                 onSelect={() => onSelect(property)}
                 onFindBuyers={() => onFindBuyers(property)}
               />

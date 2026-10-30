@@ -451,6 +451,147 @@ console.log(JSON.stringify({
         self.assertEqual(out["robotsUsed"], 2)
         self.assertEqual(out["robotsExcluded"], 1)
 
+    def test_tick_gap_and_tick_time(self):
+        code = """
+import { tickGapMs, tickTimeMs, SIM_EPOCH_MS } from './lib/market-sim';
+let gapsOk = true;
+let timeStrictlyIncreasing = true;
+let prevTime = SIM_EPOCH_MS;
+for (let k = 1; k <= 2000; k++) {
+  const g = tickGapMs(k);
+  const minMinutes = 30 * 60 * 1000;
+  const maxMinutes = 120 * 60 * 1000;
+  if (g < minMinutes || g > maxMinutes || g % 60000 !== 0) {
+    gapsOk = false;
+    break;
+  }
+  const t = tickTimeMs(k);
+  if (t <= prevTime) {
+    timeStrictlyIncreasing = false;
+    break;
+  }
+  prevTime = t;
+}
+console.log(JSON.stringify({ gapsOk, timeStrictlyIncreasing }));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertTrue(out["gapsOk"])
+        self.assertTrue(out["timeStrictlyIncreasing"])
+
+    def test_current_tick_and_next_tick(self):
+        code = """
+import { currentTick, nextTickMs, tickTimeMs, SIM_EPOCH_MS } from './lib/market-sim';
+const atEpoch = currentTick(SIM_EPOCH_MS);
+const beforeEpoch = currentTick(SIM_EPOCH_MS - 1000);
+const invalidTick = currentTick(NaN);
+
+let ticksOk = true;
+let nextOk = true;
+for (let k = 1; k <= 100; k++) {
+  const tK = tickTimeMs(k);
+  const tNext = tickTimeMs(k + 1);
+  if (currentTick(tK) !== k) { ticksOk = false; break; }
+  if (currentTick(tNext - 1) !== k) { ticksOk = false; break; }
+  const nxt = nextTickMs(tK);
+  if (nxt <= tK || nxt - tK > 120 * 60 * 1000) { nextOk = false; break; }
+}
+console.log(JSON.stringify({ atEpoch, beforeEpoch, invalidTick, ticksOk, nextOk }));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["atEpoch"], 0)
+        self.assertEqual(out["beforeEpoch"], 0)
+        self.assertEqual(out["invalidTick"], 0)
+        self.assertTrue(out["ticksOk"])
+        self.assertTrue(out["nextOk"])
+
+    def test_price_at_tick_bounds_and_determinism(self):
+        code = """
+import { priceAtTick, MIN_MULT, MAX_MULT } from './lib/market-sim';
+const start = 100000;
+const p0 = priceAtTick(start, "r1", 0);
+const p50_a = priceAtTick(start, "r1", 50);
+const p50_b = priceAtTick(start, "r1", 50);
+const p50_other = priceAtTick(start, "r2", 50);
+const pInvalid = priceAtTick(null, "r1", 10);
+const pNegative = priceAtTick(-100, "r1", 10);
+
+let inBounds = true;
+for (let t = 0; t <= 100; t++) {
+  const pt = priceAtTick(start, "r1", t);
+  if (pt === null || pt < start * MIN_MULT * 0.99 || pt > start * MAX_MULT * 1.01) {
+    inBounds = false;
+    break;
+  }
+}
+console.log(JSON.stringify({
+  p0,
+  deterministic: p50_a === p50_b,
+  differsByRobot: p50_a !== p50_other,
+  pInvalid,
+  pNegative,
+  inBounds
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["p0"], 100000)
+        self.assertTrue(out["deterministic"])
+        self.assertTrue(out["differsByRobot"])
+        self.assertIsNone(out["pInvalid"])
+        self.assertIsNone(out["pNegative"])
+        self.assertTrue(out["inBounds"])
+
+    def test_price_history(self):
+        code = """
+import { priceHistory, priceAtTick } from './lib/market-sim';
+const start = 80000;
+const history10 = priceHistory(start, "r1", 10, 48);
+const history50 = priceHistory(start, "r1", 50, 48);
+const lastPrice50 = priceAtTick(start, "r1", 50);
+const invalidHistory = priceHistory(0, "r1", 10, 48);
+console.log(JSON.stringify({
+  len10: history10.length,
+  len50: history50.length,
+  lastMatches: history50[history50.length - 1].price === lastPrice50,
+  invalidLen: invalidHistory.length
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["len10"], 11)  # min(48, 10 + 1)
+        self.assertEqual(out["len50"], 48)  # min(48, 50 + 1)
+        self.assertTrue(out["lastMatches"])
+        self.assertEqual(out["invalidLen"], 0)
+
+    def test_display_price_order_real_beats_sim_beats_ind(self):
+        code = """
+import { displayPrice, simulatedPriceMap } from './lib/display-price';
+const realBeatsSim = displayPrice(100000, 50000, 75000);
+const simBeatsInd = displayPrice(null, 50000, 75000);
+const indBeatsNone = displayPrice(null, 50000, null);
+const noneInvalid = displayPrice(null, null, null);
+
+const robots = [{ id: "r1", indicativePriceMyr: 60000 }, { id: "r2", indicative_price_myr: 90000 }];
+const simMap = simulatedPriceMap(robots, 5);
+console.log(JSON.stringify({
+  realBeatsSim,
+  simBeatsInd,
+  indBeatsNone,
+  noneInvalid,
+  simMapR1: simMap["r1"] != null && simMap["r1"] > 0,
+  simMapR2: simMap["r2"] != null && simMap["r2"] > 0
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["realBeatsSim"]["kind"], "real")
+        self.assertEqual(out["realBeatsSim"]["value"], 100000)
+        self.assertEqual(out["simBeatsInd"]["kind"], "simulated")
+        self.assertEqual(out["simBeatsInd"]["value"], 75000)
+        self.assertEqual(out["indBeatsNone"]["kind"], "indicative")
+        self.assertEqual(out["indBeatsNone"]["value"], 50000)
+        self.assertEqual(out["noneInvalid"]["kind"], "none")
+        self.assertIsNone(out["noneInvalid"]["value"])
+        self.assertTrue(out["simMapR1"])
+        self.assertTrue(out["simMapR2"])
+
 
 if __name__ == "__main__":
     unittest.main()

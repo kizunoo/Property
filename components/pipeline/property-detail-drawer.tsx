@@ -22,7 +22,8 @@ import {
   CartesianGrid,
 } from "recharts"
 import { currency, type Property } from "@/lib/pipeline-data"
-import { priceLabel, indicativePriceLabel } from "@/lib/price"
+import { displayPrice, formatRM } from "@/lib/display-price"
+import { priceHistory, tickTimeMs } from "@/lib/market-sim"
 import { PixelatedImageCanvas } from "./pixelated-image-canvas"
 
 
@@ -56,64 +57,52 @@ async function patchPropertySpec(propertyId: string, updates: Record<string, unk
 }
 
 // ─── Price History Section ────────────────────────────────────────────────────
-interface PriceHistoryPoint {
-  id: string
-  old_value: number
-  new_value: number
-  change_pct: number
-  changed_at: string
+interface PriceHistorySectionProps {
+  property: Property
+  currentTick: number | null
 }
 
 function PriceHistorySection({
-  propertyId,
-  onSimulated,
-}: {
-  propertyId: string
-  onSimulated: (newValue: number) => void
-}) {
-  const [history, setHistory] = useState<PriceHistoryPoint[]>([])
-  const [simulating, setSimulating] = useState(false)
-
-  const fetchHistory = () => {
-    fetch(`/api/property_price_history/${propertyId}`)
-      .then((r) => r.json())
-      .then((d) => setHistory(Array.isArray(d) ? d : []))
-      .catch(() => {})
-  }
+  property,
+  currentTick,
+}: PriceHistorySectionProps) {
+  const [showChart, setShowChart] = useState(false)
+  const [isMounted, setIsMounted] = useState(false)
 
   useEffect(() => {
-    fetchHistory()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [propertyId])
+    setIsMounted(true)
+  }, [])
 
-  const handleSimulate = async () => {
-    setSimulating(true)
-    try {
-      const res = await fetch(`/api/simulate_price_change/${propertyId}`, { method: "POST" })
-      const data = await res.json()
-      if (data?.new_value) onSimulated(data.new_value)
-      await fetchHistory()
-    } finally {
-      setSimulating(false)
-    }
+  const hasRealPrice = property.value !== null && property.value !== undefined && property.value > 0
+  const hasIndicative = property.indicativePriceMyr !== null && property.indicativePriceMyr !== undefined && property.indicativePriceMyr > 0
+  const tick = currentTick ?? 0
+
+  const history = hasIndicative && !hasRealPrice
+    ? priceHistory(property.indicativePriceMyr, property.id, tick, 48)
+    : []
+
+  const nextTickTime = tickTimeMs(tick + 1)
+  const lastTickTime = history.length > 0 ? history[history.length - 1].timeMs : null
+
+  const formatTime = (ms: number | null) => {
+    if (!ms || !isMounted) return "—"
+    const d = new Date(ms)
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true })
   }
 
-  const chartData = history.map((h) => {
-    const d = new Date(h.changed_at)
+  const chartData = history.map((h, idx) => {
+    const prev = idx > 0 ? history[idx - 1].price : h.price
+    const changePct = prev > 0 ? (h.price - prev) / prev : 0
+    const d = new Date(h.timeMs)
     return {
-      date: isNaN(d.getTime()) ? "Recent" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-      time: isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true }),
-      fullTime: isNaN(d.getTime())
-        ? "Recorded"
-        : d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }),
-      value: h.new_value,
-      oldValue: h.old_value,
-      changePct: h.change_pct,
+      time: isMounted ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true }) : `Tick ${h.tick}`,
+      fullTime: isMounted
+        ? d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })
+        : `Tick ${h.tick}`,
+      value: h.price,
+      changePct,
     }
   })
-
-  const latest = history[history.length - 1]
-  const isUp = latest ? latest.change_pct > 0 : null
 
   return (
     <div
@@ -126,84 +115,93 @@ function PriceHistorySection({
         boxShadow: "0px 2px 8px rgba(0,0,0,0.05)",
       }}
     >
-      {/* Section header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
         <span style={{ fontWeight: 700, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#666" }}>
           Price History
         </span>
-        {latest && (
-          <span
-            style={{
-              fontWeight: 700,
-              fontSize: "12px",
-              padding: "3px 10px",
-              borderRadius: "6px",
-              background: isUp ? "#FFF8DC" : "#f0f0f0",
-              color: isUp ? "#8a6d00" : "#555",
-            }}
-          >
-            {isUp ? "▲" : "▼"} {Math.abs(latest.change_pct * 100).toFixed(1)}%
-          </span>
-        )}
+        <span
+          style={{
+            fontWeight: 700,
+            fontSize: "10px",
+            padding: "2px 8px",
+            borderRadius: "4px",
+            background: "#f0f0f0",
+            color: "#666",
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+          }}
+        >
+          Demo simulation. Not saved.
+        </span>
       </div>
 
-      {/* Chart or empty state */}
-      {chartData.length > 0 ? (
-        <ResponsiveContainer width="100%" height={150}>
-          <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-            <XAxis
-              dataKey="date"
-              tick={{ fontSize: 10, fill: "#999" }}
-              axisLine={false}
-              tickLine={false}
-            />
-            <YAxis
-              tick={{ fontSize: 10, fill: "#999" }}
-              axisLine={false}
-              tickLine={false}
-              tickFormatter={(v: number) => `RM${(v / 1_000_000).toFixed(1)}M`}
-              width={58}
-            />
-            <Tooltip
-              content={({ active, payload }) => {
-                if (!active || !payload || !payload.length) return null
-                const d = payload[0].payload
-                const isPositive = d.changePct > 0
-                return (
-                  <div className="rounded-lg border border-neutral-200 bg-white p-2.5 shadow-lg text-xs font-sans">
-                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-neutral-600 pb-1 mb-1 border-b border-neutral-100">
-                      <Clock className="h-3 w-3 text-neutral-400" />
-                      <span>{d.fullTime}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-neutral-500 font-medium">Listing Value:</span>
-                      <span className="font-mono font-bold text-neutral-900">
-                        RM {d.value?.toLocaleString()}
-                      </span>
-                    </div>
-                    {d.changePct !== undefined && d.changePct !== 0 && (
-                      <div className="mt-1 flex items-center justify-between gap-3 text-[11px]">
-                        <span className="text-neutral-500 font-medium">Price Shift:</span>
-                        <span className={`font-mono font-bold ${isPositive ? "text-amber-600" : "text-neutral-700"}`}>
-                          {isPositive ? "+" : ""}{(d.changePct * 100).toFixed(1)}%
+      {hasRealPrice ? (
+        <div style={{ padding: "20px 0", textAlign: "center", color: "#666", fontSize: "13px", fontWeight: 500 }}>
+          Real price. No simulation.
+        </div>
+      ) : showChart && chartData.length > 0 ? (
+        <div>
+          <ResponsiveContainer width="100%" height={160}>
+            <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+              <XAxis
+                dataKey="time"
+                tick={{ fontSize: 9, fill: "#999" }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fontSize: 9, fill: "#999" }}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={(v: number) => `RM${Math.round(v / 1_000)}k`}
+                width={56}
+              />
+              <Tooltip
+                content={({ active, payload }) => {
+                  if (!active || !payload || !payload.length) return null
+                  const d = payload[0].payload
+                  const isPositive = d.changePct > 0
+                  return (
+                    <div className="rounded-lg border border-neutral-200 bg-white p-2.5 shadow-lg text-xs font-sans">
+                      <div className="flex items-center gap-1.5 text-[11px] font-bold text-neutral-600 pb-1 mb-1 border-b border-neutral-100">
+                        <Clock className="h-3 w-3 text-neutral-400" />
+                        <span>{d.fullTime}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-neutral-500 font-medium">Price:</span>
+                        <span className="font-mono font-bold text-neutral-900">
+                          RM {d.value?.toLocaleString()}
                         </span>
                       </div>
-                    )}
-                  </div>
-                )
-              }}
-            />
-            <Line
-              type="monotone"
-              dataKey="value"
-              stroke="#FFD400"
-              strokeWidth={2.5}
-              dot={{ r: 3.5, fill: "#000" }}
-              activeDot={{ r: 5.5, fill: "#FFD400", stroke: "#000", strokeWidth: 2 }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
+                      {d.changePct !== undefined && d.changePct !== 0 && (
+                        <div className="mt-1 flex items-center justify-between gap-3 text-[11px]">
+                          <span className="text-neutral-500 font-medium">Shift:</span>
+                          <span className={`font-mono font-bold ${isPositive ? "text-emerald-600" : "text-amber-600"}`}>
+                            {isPositive ? "+" : ""}{(d.changePct * 100).toFixed(1)}%
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                }}
+              />
+              <Line
+                type="monotone"
+                dataKey="value"
+                stroke="#FFD400"
+                strokeWidth={2.5}
+                dot={{ r: 2.5, fill: "#000" }}
+                activeDot={{ r: 4.5, fill: "#FFD400", stroke: "#000", strokeWidth: 2 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+
+          <div style={{ marginTop: "10px", display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#777", borderTop: "1px solid #f0f0f0", paddingTop: "8px" }}>
+            <span>Last change: <strong style={{ color: "#333" }}>{formatTime(lastTickTime)}</strong></span>
+            <span>Approx. next drift: <strong style={{ color: "#333" }}>{formatTime(nextTickTime)}</strong></span>
+          </div>
+        </div>
       ) : (
         <div style={{ padding: "24px 0", textAlign: "center", color: "#999", fontSize: "13px" }}>
           No price changes recorded yet.
@@ -211,26 +209,29 @@ function PriceHistorySection({
       )}
 
       {/* Simulate button */}
-      <button
-        onClick={handleSimulate}
-        disabled={simulating}
-        style={{
-          marginTop: "14px",
-          width: "100%",
-          padding: "10px",
-          borderRadius: "8px",
-          border: "1px solid #000",
-          background: simulating ? "#f0f0f0" : "#fff",
-          fontWeight: 700,
-          fontSize: "11px",
-          textTransform: "uppercase",
-          letterSpacing: "0.08em",
-          cursor: simulating ? "default" : "pointer",
-          transition: "background 0.15s",
-        }}
-      >
-        {simulating ? "Simulating…" : "Simulate Market Movement"}
-      </button>
+      {!hasRealPrice && (
+        <button
+          onClick={() => setShowChart(true)}
+          disabled={!hasIndicative}
+          style={{
+            marginTop: "14px",
+            width: "100%",
+            padding: "10px",
+            borderRadius: "8px",
+            border: "1px solid #000",
+            background: !hasIndicative ? "#f5f5f5" : showChart ? "#fafafa" : "#fff",
+            color: !hasIndicative ? "#aaa" : "#000",
+            fontWeight: 700,
+            fontSize: "11px",
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+            cursor: !hasIndicative ? "not-allowed" : "pointer",
+            transition: "background 0.15s",
+          }}
+        >
+          {showChart ? "Update Simulation View" : "Simulate Market Movement"}
+        </button>
+      )}
     </div>
   )
 }
@@ -348,9 +349,19 @@ interface PropertyDetailModalProps {
   onClose: () => void
   onFindBuyers?: () => void
   onPriceChanged?: (propertyId: string, newValue: number) => void
+  currentTick?: number | null
+  displayPriceMap?: Record<string, number | null>
 }
 
-export function PropertyDetailModal({ property, open, onClose, onFindBuyers, onPriceChanged }: PropertyDetailModalProps) {
+export function PropertyDetailModal({
+  property,
+  open,
+  onClose,
+  onFindBuyers,
+  onPriceChanged,
+  currentTick = null,
+  displayPriceMap,
+}: PropertyDetailModalProps) {
   // liveValue tracks the current property price inside the modal so it updates
   // immediately after a price simulation without needing to close and reopen.
   const [liveValue, setLiveValue] = useState<number | null>(null)
@@ -379,7 +390,9 @@ export function PropertyDetailModal({ property, open, onClose, onFindBuyers, onP
 
   if (!open || !property) return null
 
-  const displayValue = liveValue ?? property.value
+  const simPrice = displayPriceMap?.[property.id]
+  const disp = displayPrice(property.value, property.indicativePriceMyr, simPrice)
+  const displayValue = liveValue ?? disp.value
   const mocked       = mockSpecs(displayValue)
 
   // Resolve each spec: prefer DB value, then live override, then mock
@@ -474,17 +487,27 @@ export function PropertyDetailModal({ property, open, onClose, onFindBuyers, onP
             {/* Listing value hero */}
             <div className="rounded-[8px] border border-l-[3px] border-l-primary border-border bg-muted/30 p-5 shadow-[var(--shadow-xs)]">
               <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Unit Cost</div>
-              <div className="mt-2 font-display text-3xl sm:text-4xl font-bold leading-none text-foreground whitespace-nowrap overflow-x-auto scrollbar-none py-1">
-                {priceLabel(displayValue, currency)}
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <span className="font-display text-3xl sm:text-4xl font-bold leading-none text-foreground whitespace-nowrap overflow-x-auto scrollbar-none py-1">
+                  {disp.kind === "none" ? "Price on request" : formatRM(displayValue)}
+                </span>
+                {disp.kind === "simulated" && (
+                  <span
+                    className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400"
+                    title="Drift simulation from indicative price"
+                  >
+                    demo estimate, simulated
+                  </span>
+                )}
+                {disp.kind === "indicative" && (
+                  <span
+                    className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400"
+                    title={property.indicativePriceNote ?? "Estimate, not a supplier quote"}
+                  >
+                    demo estimate
+                  </span>
+                )}
               </div>
-              {indicativePriceLabel(property.indicativePriceMyr, displayValue, currency) && (
-                <div className="mt-2 rounded-[4px] bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 text-xs text-amber-700">
-                  <div className="font-semibold">{indicativePriceLabel(property.indicativePriceMyr, displayValue, currency)}</div>
-                  <div className="text-[11px] text-amber-600/80">
-                    Indicative price (estimate, not a quote){property.indicativePriceNote ? ` · ${property.indicativePriceNote}` : ""}
-                  </div>
-                </div>
-              )}
               <div className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
                 <MapPin className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2.5} />
                 {property.neighborhood || "—"}
@@ -493,11 +516,8 @@ export function PropertyDetailModal({ property, open, onClose, onFindBuyers, onP
 
             {/* Price History */}
             <PriceHistorySection
-              propertyId={property.id}
-              onSimulated={(newVal) => {
-                setLiveValue(newVal)
-                onPriceChanged?.(property.id, newVal)
-              }}
+              property={property}
+              currentTick={currentTick}
             />
 
             {/* Specs grid */}

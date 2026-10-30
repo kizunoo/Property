@@ -304,3 +304,154 @@ export function runFluctuation(input: FluctInput): FluctResult {
   };
 }
 
+// ------------------------------------------------------------------
+// Time-Based Seeded Simulation (Phase 12L)
+// ------------------------------------------------------------------
+
+export const SIM_SEED = 20261030;
+export const SIM_EPOCH_MS = Date.UTC(2026, 9, 23, 0, 0, 0);
+export const TICK_MIN_GAP_MIN = 30;
+export const TICK_MAX_GAP_MIN = 120;
+export const TICK_SIGMA = 0.012;
+export const TICK_REVERSION = 0.03;
+export const MAX_TICKS = 20000;
+
+export function hash32(...parts: (string | number)[]): number {
+  const text = parts.join(":");
+  let h = 0x811c9dc5 >>> 0;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+export function tickGapMs(k: number): number {
+  if (k < 1) return 0;
+  const rng = mulberry32(hash32(SIM_SEED, k));
+  const r = rng();
+  const min = TICK_MIN_GAP_MIN + Math.floor(r * (TICK_MAX_GAP_MIN - TICK_MIN_GAP_MIN + 1));
+  return min * 60 * 1000;
+}
+
+// Precompute cumulative tick times for O(1) lookup and O(log N) binary search
+const TICK_TIME_TABLE = new Float64Array(MAX_TICKS + 1);
+TICK_TIME_TABLE[0] = SIM_EPOCH_MS;
+for (let i = 1; i <= MAX_TICKS; i++) {
+  TICK_TIME_TABLE[i] = TICK_TIME_TABLE[i - 1] + tickGapMs(i);
+}
+
+export function tickTimeMs(k: number): number {
+  if (k <= 0) return SIM_EPOCH_MS;
+  if (k >= MAX_TICKS) return TICK_TIME_TABLE[MAX_TICKS];
+  return TICK_TIME_TABLE[k];
+}
+
+export function currentTick(nowMs: number): number {
+  if (!Number.isFinite(nowMs) || nowMs <= SIM_EPOCH_MS) {
+    return 0;
+  }
+  if (nowMs >= TICK_TIME_TABLE[MAX_TICKS]) {
+    return MAX_TICKS;
+  }
+  let lo = 0;
+  let hi = MAX_TICKS;
+  let ans = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (TICK_TIME_TABLE[mid] <= nowMs) {
+      ans = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return ans;
+}
+
+export function nextTickMs(nowMs: number): number {
+  const curr = currentTick(nowMs);
+  return tickTimeMs(curr + 1);
+}
+
+export function priceAtTick(
+  startPrice: unknown,
+  robotId: string,
+  tick: number,
+): number | null {
+  if (!validStart(startPrice) || tick < 0) return null;
+  const round100 = (v: number) => Math.round(v / 100) * 100;
+  if (tick === 0) return round100(startPrice);
+
+  const lnStart = Math.log(startPrice);
+  let ln = lnStart;
+  let p = startPrice;
+  const lo = startPrice * MIN_MULT;
+  const hi = startPrice * MAX_MULT;
+
+  for (let step = 1; step <= tick; step++) {
+    const rng = mulberry32(hash32(SIM_SEED, robotId, step));
+    const z = normal(rng);
+    ln =
+      ln +
+      TICK_REVERSION * (lnStart - ln) -
+      0.5 * TICK_SIGMA * TICK_SIGMA +
+      TICK_SIGMA * z;
+    p = Math.exp(ln);
+    if (p < lo) p = lo;
+    if (p > hi) p = hi;
+    ln = Math.log(p);
+  }
+  return round100(p);
+}
+
+export interface PriceHistoryPoint {
+  tick: number;
+  timeMs: number;
+  price: number;
+}
+
+export function priceHistory(
+  startPrice: unknown,
+  robotId: string,
+  tick: number,
+  maxPoints: number,
+): PriceHistoryPoint[] {
+  if (!validStart(startPrice) || tick < 0 || maxPoints <= 0) return [];
+  const round100 = (v: number) => Math.round(v / 100) * 100;
+  const count = Math.min(maxPoints, tick + 1);
+  const startTick = tick - count + 1;
+
+  const result: PriceHistoryPoint[] = [];
+  const lnStart = Math.log(startPrice);
+  let ln = lnStart;
+  let p = startPrice;
+  const lo = startPrice * MIN_MULT;
+  const hi = startPrice * MAX_MULT;
+
+  if (0 >= startTick) {
+    result.push({ tick: 0, timeMs: tickTimeMs(0), price: round100(startPrice) });
+  }
+
+  for (let step = 1; step <= tick; step++) {
+    const rng = mulberry32(hash32(SIM_SEED, robotId, step));
+    const z = normal(rng);
+    ln =
+      ln +
+      TICK_REVERSION * (lnStart - ln) -
+      0.5 * TICK_SIGMA * TICK_SIGMA +
+      TICK_SIGMA * z;
+    p = Math.exp(ln);
+    if (p < lo) p = lo;
+    if (p > hi) p = hi;
+    ln = Math.log(p);
+
+    if (step >= startTick) {
+      result.push({ tick: step, timeMs: tickTimeMs(step), price: round100(p) });
+    }
+  }
+
+  return result;
+}
+
+

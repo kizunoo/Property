@@ -27,8 +27,8 @@ import { AIBriefingHero } from "./ai-briefing-hero"
 import { AnimatedContent } from "@/components/animation/animated-content"
 import { MarketMovementsPanel } from "./market-movements-panel"
 import { MarketSimulatorPanel } from "./market-simulator-panel"
-import { displayPrice, potentialPipeline } from "@/lib/display-price"
-import { toSimPairs } from "@/lib/market-sim"
+import { displayPrice, potentialPipeline, simulatedPriceMap } from "@/lib/display-price"
+import { toSimPairs, currentTick } from "@/lib/market-sim"
 import { ModelTrainingPanel } from "./model-training-panel"
 import { PipelineProjectionCard } from "./pipeline-projection-card"
 import { WhatsAppFloatingPanel } from "./whatsapp-floating-panel"
@@ -92,6 +92,18 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
   const [filter, setFilter]       = useState<SegmentFilter>("ALL")
   const [lastInvite, setLastInvite] = useState<string | null>(null)
   const [syncTimestamp, setSyncTimestamp] = useState<number>(() => Date.now())
+  const [currentTickState, setCurrentTickState] = useState<number | null>(null)
+
+  useEffect(() => {
+    const updateTick = () => {
+      const now = Date.now()
+      const t = currentTick(now)
+      setCurrentTickState((prev) => (prev !== t ? t : prev))
+    }
+    updateTick()
+    const timer = setInterval(updateTick, 60000)
+    return () => clearInterval(timer)
+  }, [])
 
   // ── Agent selector state ──
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
@@ -203,16 +215,21 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
 
   const simPairs = useMemo(() => toSimPairs(rawClients), [rawClients])
 
+  const simPrices = useMemo(() => {
+    return currentTickState !== null ? simulatedPriceMap(properties, currentTickState) : {}
+  }, [properties, currentTickState])
+
   const { displayPriceMap, hasAnyDisplayPrice } = useMemo(() => {
     const map: Record<string, number | null> = {}
     let hasPrice = false
     for (const p of properties) {
-      const disp = displayPrice(p.value, p.indicativePriceMyr)
+      const sim = simPrices[p.id] ?? null
+      const disp = displayPrice(p.value, p.indicativePriceMyr, sim)
       map[p.id] = disp.value
       if (disp.kind !== "none") hasPrice = true
     }
     return { displayPriceMap: map, hasAnyDisplayPrice: hasPrice }
-  }, [properties])
+  }, [properties, simPrices])
 
   const potentialPipe = useMemo(() => {
     return potentialPipeline(simPairs, displayPriceMap)
@@ -615,7 +632,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                   onSelectProperty={handleSelectPropertyById}
                 />
 
-                <MarketSimulatorPanel pairs={rawClients} robots={properties} />
+                <MarketSimulatorPanel pairs={rawClients} robots={properties} displayPrices={displayPriceMap} />
               </section>
             ) : null}
 
@@ -624,6 +641,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
               <section>
                 <PropertyCards
                   properties={properties}
+                  displayPriceMap={displayPriceMap}
                   onSelect={setSelectedProperty}
                   onFindBuyers={(p) => { setShortlistProperty(p) }}
                 />
@@ -708,6 +726,8 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
       />
       <PropertyDetailModal
         property={selectedProperty}
+        currentTick={currentTickState}
+        displayPriceMap={displayPriceMap}
         open={selectedProperty !== null}
         onClose={() => setSelectedProperty(null)}
         onFindBuyers={() => {
@@ -746,6 +766,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
 
       <ShortlistModal
         property={shortlistProperty}
+        displayPriceMap={displayPriceMap}
         open={shortlistProperty !== null}
         onClose={() => setShortlistProperty(null)}
         agentId={selectedAgentId}
