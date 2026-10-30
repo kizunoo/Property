@@ -26,6 +26,7 @@ import { DailyWorklistPanel } from "./daily-worklist-panel"
 import { AIBriefingHero } from "./ai-briefing-hero"
 import { AnimatedContent } from "@/components/animation/animated-content"
 import { MarketMovementsPanel } from "./market-movements-panel"
+import { MarketSimulatorPanel } from "./market-simulator-panel"
 import { ModelTrainingPanel } from "./model-training-panel"
 import { PipelineProjectionCard } from "./pipeline-projection-card"
 import { WhatsAppFloatingPanel } from "./whatsapp-floating-panel"
@@ -577,6 +578,8 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                   onSimulateComplete={loadData}
                   onSelectProperty={handleSelectPropertyById}
                 />
+
+                <MarketSimulatorPanel pairs={rawClients} robots={properties} />
               </section>
             ) : null}
 
