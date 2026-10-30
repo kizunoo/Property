@@ -24,6 +24,7 @@ import {
 } from "lucide-react"
 import { TIER_SHORT, currency, percent, type DeduplicatedClient, type PastPurchase } from "@/lib/pipeline-data"
 import { priceLabel, evLabel } from "@/lib/price"
+import { formatRM, type DisplayPriceByNameEntry } from "@/lib/display-price"
 import { fetchReasoning } from "@/lib/generate-reasoning"
 import { logViewing, type ViewingResult } from "@/lib/log-viewing"
 import { scheduleViewing } from "@/lib/schedule-viewing"
@@ -156,7 +157,29 @@ function StatRow({ label, value }: { label: string; value: string }) {
 }
 
 // ─── Match list (other properties) ───────────────────────────────────────────
-function OtherMatchRow({ match, rank }: { match: DeduplicatedClient["allMatches"][0]; rank: number }) {
+function OtherMatchRow({
+  match,
+  rank,
+  byName,
+  displayPriceMap,
+}: {
+  match: DeduplicatedClient["allMatches"][0]
+  rank: number
+  byName?: Record<string, DisplayPriceByNameEntry | undefined>
+  displayPriceMap?: Record<string, number | null>
+}) {
+  const disp =
+    (match.propertyDbId && byName?.[match.propertyDbId]) ||
+    (match.property && byName?.[match.property]) ||
+    (displayPriceMap && match.propertyDbId && displayPriceMap[match.propertyDbId] != null
+      ? { value: displayPriceMap[match.propertyDbId], kind: "simulated" as const }
+      : null)
+  const computedEV =
+    disp?.value != null && disp.value > 0
+      ? Math.round(match.probability * disp.value)
+      : null
+  const effectiveEV = match.expectedValue ?? computedEV
+
   return (
     <div className="flex items-center gap-3 border-b border-border px-4 py-3 last:border-b-0 hover:bg-muted/30 transition-colors">
       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] bg-muted font-mono text-[10px] font-bold text-foreground">
@@ -171,7 +194,7 @@ function OtherMatchRow({ match, rank }: { match: DeduplicatedClient["allMatches"
       </div>
       <div className="text-right">
         <div className="font-mono text-xs font-bold text-foreground">{percent(match.probability)}</div>
-        <div className="font-mono text-xs text-muted-foreground">{evLabel(match.expectedValue, currency)}</div>
+        <div className="font-mono text-xs text-muted-foreground">{evLabel(effectiveEV, currency)}</div>
       </div>
     </div>
   )
@@ -525,9 +548,21 @@ interface ClientDetailModalProps {
   onOutcomeRecorded?: () => void
   onStageChanged?: (newStage: string) => void
   initialScheduleViewing?: boolean
+  byName?: Record<string, DisplayPriceByNameEntry | undefined>
+  displayPriceMap?: Record<string, number | null>
 }
 
-export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onOutcomeRecorded, onStageChanged, initialScheduleViewing }: ClientDetailModalProps) {
+export function ClientDetailModal({
+  client,
+  open,
+  onClose,
+  onGenerateInvite,
+  onOutcomeRecorded,
+  onStageChanged,
+  initialScheduleViewing,
+  byName,
+  displayPriceMap,
+}: ClientDetailModalProps) {
   // ── Reasoning state ──────────────────────────────────────────────────────
   const [reasoning, setReasoning]               = useState<string | null>(null)
   const [reasoningLoading, setReasoningLoading] = useState(false)
@@ -734,10 +769,23 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
 
   if (!open || !client) return null
 
+  const bestMatchDisp = client ? (
+    (client.bestMatch.propertyId && byName?.[client.bestMatch.propertyId]) ||
+    (client.bestMatch.property && byName?.[client.bestMatch.property]) ||
+    (displayPriceMap && client.bestMatch.propertyId && displayPriceMap[client.bestMatch.propertyId] != null
+      ? { value: displayPriceMap[client.bestMatch.propertyId], kind: "simulated" as const }
+      : null) ||
+    (client.bestMatch.propertyValue ? { value: client.bestMatch.propertyValue, kind: "real" as const } : null)
+  ) : null
+
   // Use local overrides if available (post-viewing log), otherwise use client data
   const effectivePastViewings  = localPastViewings  ?? client.pastViewings
   const effectiveProbability   = localProbability   ?? client.bestMatch.probability
-  const effectiveExpectedValue = localExpectedValue ?? client.bestMatch.expectedValue
+  const computedEV =
+    bestMatchDisp?.value != null && bestMatchDisp.value > 0
+      ? Math.round(effectiveProbability * bestMatchDisp.value)
+      : null
+  const effectiveExpectedValue = localExpectedValue ?? client.bestMatch.expectedValue ?? computedEV
   const effectiveTier          = localTier          ?? client.tier
   const effectivePurchases     = localPurchases     ?? (client.pastPurchases ?? [])
 
@@ -838,7 +886,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                 <div className="mt-3 rounded-[8px] border border-border bg-card shadow-[var(--shadow-xs)] overflow-hidden">
                   <div className="px-4">
                     <StatRow label="Best-Fit Match"       value={client.bestMatch.property} />
-                    <StatRow label="Unit Cost"            value={priceLabel(client.bestMatch.propertyValue, currency)} />
+                    <StatRow label="Unit Cost"            value={bestMatchDisp?.value != null ? formatRM(bestMatchDisp.value) : priceLabel(client.bestMatch.propertyValue, currency)} />
                     <StatRow label="Stated Budget"        value={client.statedBudget != null && client.statedBudget > 0 ? currency(client.statedBudget) : "Budget not set"} />
                     <StatRow label="Target Environment"   value={client.bestMatch.neighborhood || "—"} />
                     <StatRow label="E(x) on Best-Fit Match" value={evLabel(effectiveExpectedValue, currency)} />
@@ -963,7 +1011,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                       <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">P / E(x)</span>
                     </div>
                     {otherProps.map((m, i) => (
-                      <OtherMatchRow key={m.id} match={m} rank={i + 2} />
+                      <OtherMatchRow key={m.id} match={m} rank={i + 2} byName={byName} displayPriceMap={displayPriceMap} />
                     ))}
                   </div>
                 </div>
@@ -990,7 +1038,7 @@ export function ClientDetailModal({ client, open, onClose, onGenerateInvite, onO
                       </div>
                       <div className="ml-auto text-right">
                         <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Value</div>
-                        <div className="font-mono text-base font-bold text-foreground">{priceLabel(client.bestMatch.propertyValue, currency)}</div>
+                        <div className="font-mono text-base font-bold text-foreground">{bestMatchDisp?.value != null ? formatRM(bestMatchDisp.value) : priceLabel(client.bestMatch.propertyValue, currency)}</div>
                       </div>
                     </div>
                   </div>

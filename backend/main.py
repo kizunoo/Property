@@ -7573,8 +7573,8 @@ def portal_dashboard(client_id: str, session: PortalSession = Depends(get_curren
     # 2. Fetch top 5 pipeline evaluations by expected_value (internal field — not exposed)
     # Try the rich select first (includes estimated_annual_savings); fall back to base
     # columns if the portal_phase2_migration.sql hasn't been run yet.
-    _rich_select = "property_id, probability, expected_value, properties(id, address, property_value, neighborhood, image_url, property_type, sqft, estimated_annual_savings)"
-    _base_select = "property_id, probability, expected_value, properties(id, address, property_value, neighborhood, image_url, property_type)"
+    _rich_select = "property_id, ai_probability, expected_value, properties(id, address, property_value, neighborhood, image_url, property_type, sqft, estimated_annual_savings)"
+    _base_select = "property_id, ai_probability, expected_value, properties(id, address, property_value, neighborhood, image_url, property_type)"
     try:
         evals = supabase.table("pipeline_evaluations") \
             .select(_rich_select) \
@@ -7599,7 +7599,7 @@ def portal_dashboard(client_id: str, session: PortalSession = Depends(get_curren
 
     eval_items = sorted(
         evals.data or [],
-        key=lambda e: ev_rank_key(e.get("probability"), e.get("expected_value")),
+        key=lambda e: ev_rank_key(e.get("ai_probability") or e.get("probability"), e.get("expected_value")),
         reverse=True
     )[:5]
 
@@ -9047,14 +9047,14 @@ def portal_catalog(
     try:
         evals_res = (
             supabase.table("pipeline_evaluations")
-            .select("property_id, probability, expected_value")
+            .select("property_id, ai_probability, expected_value")
             .eq("client_id", client_id)
             .order("expected_value", desc=True, nullsfirst=False)
             .execute()
         )
         sorted_evals = sorted(
             evals_res.data or [],
-            key=lambda e: ev_rank_key(e.get("probability"), e.get("expected_value")),
+            key=lambda e: ev_rank_key(e.get("ai_probability") or e.get("probability"), e.get("expected_value")),
             reverse=True
         )[:5]
         matched_ids = {row["property_id"] for row in sorted_evals if row.get("property_id")}

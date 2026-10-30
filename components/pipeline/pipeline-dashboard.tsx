@@ -677,6 +677,7 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                 <section>
                   <ClientTable
                     clients={filteredDedupClients}
+                    byName={displayPriceByName}
                     onGenerateInvite={(client) => {
                       setLastInvite(client.name)
                       setInviteTarget({
@@ -715,6 +716,8 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
       <ClientDetailModal
         client={selectedClient}
         open={selectedClient !== null}
+        byName={displayPriceByName}
+        displayPriceMap={displayPriceMap}
         onClose={() => {
           setSelectedClient(null)
           setOpenClientSchedule(false)

@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import { TIER_SHORT, currency, percent, type DeduplicatedClient } from "@/lib/pipeline-data"
 import { priceLabel, EV_AWAITING_PRICE } from "@/lib/price"
+import { formatRM, type DisplayPriceByNameEntry } from "@/lib/display-price"
 import { CountUp } from "@/components/animation/count-up"
 import { StageBadge } from "@/components/pipeline/stage-badge"
 
@@ -72,16 +73,30 @@ function ColHead({
 function ClientEntity({
   client,
   index,
+  byName,
   onSelect,
   handleInvite,
 }: {
   client: DeduplicatedClient
   index: number
+  byName?: Record<string, DisplayPriceByNameEntry | undefined>
   onSelect: (client: DeduplicatedClient) => void
   handleInvite: (client: DeduplicatedClient) => void
 }) {
   const probPercent = Math.round(client.bestMatch.probability * 100)
   const innerRef = useRef<HTMLDivElement>(null)
+
+  const disp =
+    (client.bestMatch.propertyId && byName?.[client.bestMatch.propertyId]) ||
+    (client.bestMatch.property && byName?.[client.bestMatch.property]) ||
+    (client.bestMatch.propertyValue ? { value: client.bestMatch.propertyValue, kind: "real" as const } : null)
+
+  const effectiveEV =
+    client.bestMatch.expectedValue !== null
+      ? client.bestMatch.expectedValue
+      : disp?.value != null && disp.value > 0
+      ? Math.round(client.bestMatch.probability * disp.value)
+      : null
 
   // IntersectionObserver drives .is-visible — no GSAP, no scrub
   useEffect(() => {
@@ -159,8 +174,26 @@ function ClientEntity({
         </div>
 
         {/* 3 · Property Value */}
-        <div className="flex items-center justify-end font-mono text-sm font-bold text-foreground">
-          <span className="truncate">{priceLabel(client.bestMatch.propertyValue, currency)}</span>
+        <div className="flex flex-col items-end justify-center font-mono min-w-0">
+          <span className="text-sm font-bold text-foreground truncate">
+            {disp && disp.value != null ? formatRM(disp.value) : priceLabel(client.bestMatch.propertyValue, currency)}
+          </span>
+          {disp?.kind === "simulated" && (
+            <span
+              className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400"
+              title="Drift simulation from indicative price"
+            >
+              demo estimate, simulated
+            </span>
+          )}
+          {disp?.kind === "indicative" && (
+            <span
+              className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400"
+              title="Estimate, not a supplier quote"
+            >
+              demo estimate
+            </span>
+          )}
         </div>
 
         {/* 4 · Probability */}
@@ -179,8 +212,8 @@ function ClientEntity({
         {/* 5 · Expected Value */}
         <div className="flex items-center justify-end">
           <span className="inline-flex w-[148px] items-center justify-center rounded-[var(--radius-sm)] border border-primary bg-primary px-2 py-1 font-display text-sm font-bold text-black shrink-0">
-            {client.bestMatch.expectedValue !== null ? (
-              <CountUp value={client.bestMatch.expectedValue} formatNumber={currency} />
+            {effectiveEV !== null ? (
+              <CountUp value={effectiveEV} formatNumber={currency} />
             ) : (
               <span>{EV_AWAITING_PRICE}</span>
             )}
@@ -261,11 +294,12 @@ function TableHeader() {
 
 interface ClientTableProps {
   clients: DeduplicatedClient[]
+  byName?: Record<string, DisplayPriceByNameEntry | undefined>
   onGenerateInvite: (client: DeduplicatedClient) => void
   onSelect: (client: DeduplicatedClient) => void
 }
 
-export function ClientTable({ clients, onGenerateInvite, onSelect }: ClientTableProps) {
+export function ClientTable({ clients, byName, onGenerateInvite, onSelect }: ClientTableProps) {
   const [query, setQuery] = useState("")
 
   const visible = query.trim()
@@ -318,6 +352,7 @@ export function ClientTable({ clients, onGenerateInvite, onSelect }: ClientTable
                 key={client.clientId}
                 client={client}
                 index={index}
+                byName={byName}
                 onSelect={onSelect}
                 handleInvite={handleInvite}
               />
