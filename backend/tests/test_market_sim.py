@@ -192,6 +192,172 @@ console.log(JSON.stringify(mapped));
             "probability": 0.75,
         })
 
+    def test_fluct_1_same_seed_same_path(self):
+        code = """
+import { pricePath, VOLATILITY, mulberry32 } from './lib/market-sim';
+const a = pricePath(100000, 12, VOLATILITY.medium, mulberry32(7));
+const b = pricePath(100000, 12, VOLATILITY.medium, mulberry32(7));
+console.log(JSON.stringify({ match: JSON.stringify(a) === JSON.stringify(b) }));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertTrue(out["match"])
+
+    def test_fluct_2_different_seed_different_path(self):
+        code = """
+import { pricePath, VOLATILITY, mulberry32 } from './lib/market-sim';
+const a = pricePath(100000, 12, VOLATILITY.medium, mulberry32(7));
+const c = pricePath(100000, 12, VOLATILITY.medium, mulberry32(8));
+console.log(JSON.stringify({ diff: JSON.stringify(a) !== JSON.stringify(c) }));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertTrue(out["diff"])
+
+    def test_fluct_3_path_length_and_start(self):
+        code = """
+import { pricePath, VOLATILITY, mulberry32 } from './lib/market-sim';
+const a = pricePath(100000, 12, VOLATILITY.medium, mulberry32(7));
+console.log(JSON.stringify({ length: a.length, start: a[0] }));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["length"], 13)
+        self.assertEqual(out["start"], 100000)
+
+    def test_fluct_4_bounds_respected_high_vol(self):
+        code = """
+import { pricePath, MIN_MULT, MAX_MULT, mulberry32 } from './lib/market-sim';
+const h = pricePath(100000, 24, { sigma: 0.5, drift: 0.2 }, mulberry32(1));
+const inBounds = h.every(p => p >= 100000 * MIN_MULT - 1e-6 && p <= 100000 * MAX_MULT + 1e-6);
+console.log(JSON.stringify({ inBounds }));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertTrue(out["inBounds"])
+
+    def test_fluct_5_zero_vol_flat(self):
+        code = """
+import { pricePath, mulberry32 } from './lib/market-sim';
+const flat = pricePath(50000, 6, { sigma: 0, drift: 0 }, mulberry32(3));
+const isFlat = flat.every(p => Math.abs(p - 50000) < 1e-6);
+console.log(JSON.stringify({ isFlat }));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertTrue(out["isFlat"])
+
+    def test_fluct_6_percentiles_order_and_exclusions(self):
+        code = """
+import { runFluctuation } from './lib/market-sim';
+const valueFn = (prices: Record<string, number>) =>
+  Object.values(prices).reduce((s, p) => s + p * 0.5, 0);
+const r = runFluctuation({
+  startPrices: { A: 100000, B: 200000, C: null, D: undefined, E: 0, F: -5, G: NaN },
+  months: 12,
+  trials: 100,
+  vol: "medium",
+  seed: 42,
+  valueFn,
+});
+const ordered = r.months.every(m => m.p10 <= m.p50 && m.p50 <= m.p90);
+console.log(JSON.stringify({
+  robotsSimulated: r.robotsSimulated,
+  robotsExcluded: r.robotsExcluded,
+  monthsCount: r.months.length,
+  ordered,
+  month0P50: r.months[0].p50,
+  cExcluded: !("C" in r.medianPrices)
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["robotsSimulated"], 2)
+        self.assertEqual(out["robotsExcluded"], 5)
+        self.assertEqual(out["monthsCount"], 13)
+        self.assertTrue(out["ordered"])
+        self.assertAlmostEqual(out["month0P50"], 150000, delta=1e-4)
+        self.assertTrue(out["cExcluded"])
+
+    def test_fluct_7_nothing_priced_no_crash(self):
+        code = """
+import { runFluctuation } from './lib/market-sim';
+const valueFn = (prices: Record<string, number>) =>
+  Object.values(prices).reduce((s, p) => s + p * 0.5, 0);
+const none = runFluctuation({
+  startPrices: { A: null },
+  months: 3,
+  trials: 10,
+  vol: "low",
+  seed: 1,
+  valueFn,
+});
+console.log(JSON.stringify({
+  robotsSimulated: none.robotsSimulated,
+  month3P50: none.months[3].p50
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["robotsSimulated"], 0)
+        self.assertEqual(out["month3P50"], 0)
+
+    def test_fluct_8_clamps(self):
+        code = """
+import { runFluctuation, MAX_MONTHS, MAX_TRIALS } from './lib/market-sim';
+const valueFn = (prices: Record<string, number>) =>
+  Object.values(prices).reduce((s, p) => s + p * 0.5, 0);
+const big = runFluctuation({
+  startPrices: { A: 1000 },
+  months: 9999,
+  trials: 999999,
+  vol: "low",
+  seed: 1,
+  valueFn,
+});
+console.log(JSON.stringify({
+  monthsLen: big.months.length,
+  maxMonthsPlus1: MAX_MONTHS + 1,
+  trials: big.trials,
+  maxTrials: MAX_TRIALS
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["monthsLen"], out["maxMonthsPlus1"])
+        self.assertEqual(out["trials"], out["maxTrials"])
+
+    def test_fluct_deterministic_twice(self):
+        code = """
+import { runFluctuation } from './lib/market-sim';
+const valueFn = (prices: Record<string, number>) =>
+  Object.values(prices).reduce((s, p) => s + p * 0.7, 0);
+const input = {
+  startPrices: { A: 50000, B: 80000 },
+  months: 6,
+  trials: 50,
+  vol: "medium" as const,
+  seed: 12345,
+  valueFn,
+};
+const run1 = runFluctuation(input);
+const run2 = runFluctuation(input);
+console.log(JSON.stringify({ match: JSON.stringify(run1) === JSON.stringify(run2) }));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertTrue(out["match"])
+
+    def test_fluct_does_not_mutate_start_prices(self):
+        code = """
+import { runFluctuation } from './lib/market-sim';
+const valueFn = (prices: Record<string, number>) => 100;
+const startPrices: Record<string, any> = { A: 50000, B: null, C: 120000 };
+const original = JSON.stringify(startPrices);
+runFluctuation({
+  startPrices,
+  months: 6,
+  trials: 10,
+  vol: "low",
+  seed: 99,
+  valueFn,
+});
+console.log(JSON.stringify({ mutated: JSON.stringify(startPrices) !== original }));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertFalse(out["mutated"])
+
 
 if __name__ == "__main__":
     unittest.main()
