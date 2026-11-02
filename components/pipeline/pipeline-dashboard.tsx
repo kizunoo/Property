@@ -1,10 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { Building2, Check, Flame, Home, Loader2, RefreshCw, Snowflake, Star, Target, Trophy, Wallet, X } from "lucide-react"
 import { currency, percent, getDashboardSummary, type Agent, type Client, type DeduplicatedClient, type Property, type Tier } from "@/lib/pipeline-data"
 import { fetchDeduplicatedClients, fetchPipelineClients, fetchProperties } from "@/lib/fetch-pipeline-data"
-import { StatCard } from "./stat-card"
 import { CountUp } from "@/components/animation/count-up"
 import { SegmentPills, type SegmentFilter } from "./segment-pills"
 import { ClientTable } from "./client-table"
@@ -27,7 +26,7 @@ import { AIBriefingHero } from "./ai-briefing-hero"
 import { AnimatedContent } from "@/components/animation/animated-content"
 import { MarketMovementsPanel } from "./market-movements-panel"
 import { MarketSimulatorPanel } from "./market-simulator-panel"
-import { displayPrice, potentialPipeline, simulatedPriceMap } from "@/lib/display-price"
+import { displayPrice, potentialPipeline, simulatedPriceMap, demoStats } from "@/lib/display-price"
 import { toSimPairs, currentTick } from "@/lib/market-sim"
 import { ModelTrainingPanel } from "./model-training-panel"
 import { PipelineProjectionCard } from "./pipeline-projection-card"
@@ -45,21 +44,30 @@ function HeroStatCard({
   syncTimestamp,
   unpricedCount,
   hasDisplayPrice,
+  tag,
 }: {
   totalPipelineValue: number | null
   dedupCount: number
   syncTimestamp: number
   unpricedCount?: number
   hasDisplayPrice?: boolean
+  tag?: string
 }) {
   return (
     <AnimatedContent delay={0} className="sm:col-span-2">
       <div className="relative flex h-full flex-col justify-between rounded-[var(--radius)] border border-l-[3px] border-l-neutral-300 border-border bg-card p-5 sm:p-7 shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-sm-hover)] transition-shadow duration-200">
         <div>
           <div className="flex items-start justify-between gap-3">
-            <span className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-1">
-              Total Pipeline Value
-            </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-1">
+                Total Pipeline Value
+              </span>
+              {tag && (
+                <span className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400">
+                  {tag}
+                </span>
+              )}
+            </div>
             <span className="shrink-0 rounded-[8px] bg-black p-1.5 text-primary">
               <Wallet className="h-4 w-4" strokeWidth={2.5} />
             </span>
@@ -81,6 +89,86 @@ function HeroStatCard({
         </div>
         <div className="mt-4 inline-flex w-fit items-center rounded-[var(--radius-sm)] border border-border bg-secondary/80 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Sum of E(x) across {dedupCount} unique clients
+        </div>
+      </div>
+    </AnimatedContent>
+  )
+}
+
+// ── Dashboard Stat Card with demo estimate tag ──
+function StatCard({
+  label,
+  numericValue,
+  formatNumber,
+  detail,
+  icon,
+  accent,
+  emphasis,
+  index = 0,
+  triggerKey,
+  hasDisplayPrice,
+  tag,
+}: {
+  label: string
+  numericValue: number | null
+  formatNumber?: (n: number) => string
+  detail?: string
+  icon?: ReactNode
+  accent?: "yellow" | "gray" | "none"
+  emphasis?: boolean
+  index?: number
+  triggerKey?: string | number
+  hasDisplayPrice?: boolean
+  tag?: string
+}) {
+  const resolvedAccent = accent ?? (emphasis ? "yellow" : "gray")
+
+  const accentBorderClass =
+    resolvedAccent === "yellow"
+      ? "border-l-[3px] border-l-primary"
+      : resolvedAccent === "gray"
+      ? "border-l-[3px] border-l-neutral-300 dark:border-l-neutral-600"
+      : ""
+
+  return (
+    <AnimatedContent delay={index * 0.04} className="h-full">
+      <div
+        className={`group flex h-full flex-col justify-between gap-4 rounded-[var(--radius)] border border-border bg-card p-5 sm:p-6 shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-sm-hover)] transition-shadow duration-200 ${accentBorderClass}`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-1">
+              {label}
+            </span>
+            {tag && (
+              <span className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400">
+                {tag}
+              </span>
+            )}
+          </div>
+          {icon ? (
+            <span
+              className={`shrink-0 rounded-[8px] p-1.5 ${
+                resolvedAccent === "yellow"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-black text-white"
+              }`}
+            >
+              {icon}
+            </span>
+          ) : null}
+        </div>
+        <div>
+          <div className="font-display text-3xl sm:text-4xl font-bold leading-none tracking-tight">
+            {numericValue !== null ? (
+              <CountUp value={numericValue} formatNumber={formatNumber} triggerKey={triggerKey} />
+            ) : hasDisplayPrice ? (
+              formatNumber ? formatNumber(0) : "RM 0"
+            ) : (
+              <span className="text-2xl sm:text-3xl text-muted-foreground">Awaiting quotes</span>
+            )}
+          </div>
+          {detail ? <div className="mt-2 text-xs sm:text-sm text-muted-foreground">{detail}</div> : null}
         </div>
       </div>
     </AnimatedContent>
@@ -247,6 +335,14 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
     }
     return map
   }, [properties, simPrices])
+
+  const hasAnyRealPrice = useMemo(() => {
+    return properties.some((p) => p.value !== null && p.value !== undefined && Number.isFinite(p.value) && p.value > 0)
+  }, [properties])
+
+  const demoStatsResult = useMemo(() => {
+    return demoStats(simPairs, displayPriceMap, properties)
+  }, [simPairs, displayPriceMap, properties])
 
   // ── Segment pill counts (off dedup for accurate unique-client count) ──
   const counts: Record<SegmentFilter, number> = {
@@ -463,22 +559,24 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                 <section className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2 lg:grid-cols-4">
 
                   <HeroStatCard
-                    totalPipelineValue={totals.totalPipelineValue}
+                    totalPipelineValue={hasAnyRealPrice ? totals.totalPipelineValue : demoStatsResult.pipelineTotal}
                     unpricedCount={totals.unpricedPipelineCount}
                     dedupCount={dedupClients.length}
                     syncTimestamp={syncTimestamp}
                     hasDisplayPrice={hasAnyDisplayPrice}
+                    tag={!hasAnyRealPrice ? "demo estimate" : undefined}
                   />
 
                   <StatCard
                     label="High-Fit Prospects"
-                    numericValue={totals.byTier.TIER_1}
+                    numericValue={hasAnyRealPrice ? totals.byTier.TIER_1 : demoStatsResult.highFit}
                     formatNumber={(n) => String(Math.round(n))}
                     detail="Ready for outreach."
                     icon={<Star className="h-4 w-4" strokeWidth={2.5} />}
                     accent="yellow"
                     index={1}
                     triggerKey={syncTimestamp}
+                    tag={!hasAnyRealPrice ? "demo estimate" : undefined}
                   />
 
                   <StatCard
@@ -496,34 +594,37 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                 <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                   <StatCard
                     label="Tier 2 · Possible-Fit"
-                    numericValue={totals.byTier.TIER_2}
+                    numericValue={hasAnyRealPrice ? totals.byTier.TIER_2 : demoStatsResult.tier2}
                     formatNumber={(n) => String(Math.round(n))}
                     detail="Needs demo sequence"
                     icon={<Flame className="h-4 w-4" strokeWidth={2.5} />}
                     accent="gray"
                     index={3}
                     triggerKey={syncTimestamp}
+                    tag={!hasAnyRealPrice ? "demo estimate" : undefined}
                   />
                   <StatCard
                     label="Tier 3 · Low-Fit"
-                    numericValue={totals.byTier.TIER_3}
+                    numericValue={hasAnyRealPrice ? totals.byTier.TIER_3 : demoStatsResult.tier3}
                     formatNumber={(n) => String(Math.round(n))}
                     detail="Low near-term adoption"
                     icon={<Snowflake className="h-4 w-4" strokeWidth={2.5} />}
                     accent="gray"
                     index={4}
                     triggerKey={syncTimestamp}
+                    tag={!hasAnyRealPrice ? "demo estimate" : undefined}
                   />
                   <StatCard
                     label="Total Fleet Value"
-                    numericValue={totals.totalPropertyValue}
+                    numericValue={hasAnyRealPrice ? totals.totalPropertyValue : demoStatsResult.fleetTotal}
                     formatNumber={currency}
-                    detail="Combined robot units"
+                    detail={!hasAnyRealPrice ? `Sum of ${demoStatsResult.robotsPriced} displayed prices` : "Combined robot units"}
                     icon={<Home className="h-4 w-4" strokeWidth={2.5} />}
                     accent="gray"
                     index={5}
                     triggerKey={syncTimestamp}
                     hasDisplayPrice={hasAnyDisplayPrice}
+                    tag={!hasAnyRealPrice ? "demo estimate" : undefined}
                   />
                 </section>
 

@@ -2,6 +2,7 @@ import {
   simulate,
   DEFAULT_CONSTANTS,
   priceAtTick,
+  validPrice,
   type SimPair,
 } from "./market-sim"
 
@@ -205,5 +206,69 @@ export function priceTextForRobotName(
     return `${formatted} demo estimate`
   }
   return formatted
+}
+
+export interface DemoStatsResult {
+  pipelineTotal: number
+  companies: number
+  highFit: number
+  tier2: number
+  tier3: number
+  avgProbability: number
+  fleetTotal: number
+  robotsPriced: number
+}
+
+/**
+ * Computes demo statistics for dashboard stat cards using Base scenario (multiplier = 1).
+ * Pure function: deterministic calculation, no timers, no storage, no side effects.
+ */
+export function demoStats(
+  pairs: SimPair[],
+  displayPriceByRobotId: Record<string, number | null | undefined>,
+  robots?: Array<{ id: string } | string> | null,
+): DemoStatsResult {
+  const sim = simulate(pairs, displayPriceByRobotId, 1, DEFAULT_CONSTANTS)
+  const companies = sim.rows.length
+  const highFit = sim.tierCounts[1]
+  const tier2 = sim.tierCounts[2]
+  const tier3 = sim.tierCounts[3]
+  const avgProbability =
+    companies > 0
+      ? sim.rows.reduce((sum, r) => sum + r.probability, 0) / companies
+      : 0
+
+  let fleetTotal = 0
+  let robotsPriced = 0
+
+  if (robots && Array.isArray(robots) && robots.length > 0) {
+    for (const rob of robots) {
+      const id = typeof rob === "string" ? rob : rob.id
+      const p = validPrice(displayPriceByRobotId[id])
+      if (p !== null) {
+        fleetTotal += p
+        robotsPriced += 1
+      }
+    }
+  } else {
+    for (const val of Object.values(displayPriceByRobotId)) {
+      const p = validPrice(val)
+      if (p !== null) {
+        fleetTotal += p
+        robotsPriced += 1
+      }
+    }
+  }
+
+  return {
+    pipelineTotal: sim.totalValue,
+    companies,
+    highFit,
+    tier2,
+    tier3,
+    avgProbability,
+    fleetTotal,
+    robotsPriced,
+  }
 }
 

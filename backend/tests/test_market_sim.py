@@ -693,6 +693,138 @@ console.log(JSON.stringify({
         self.assertTrue(out["byNameUnchanged"])
         self.assertTrue(out["inputUnchanged"])
 
+    def test_demo_stats_tiers_sum_to_companies(self):
+        code = """
+import { demoStats } from './lib/display-price';
+import { SimPair } from './lib/market-sim';
+const pairs: SimPair[] = [
+  { companyId: "c1", companyName: "A", robotId: "r1", probability: 0.8 },
+  { companyId: "c2", companyName: "B", robotId: "r2", probability: 0.5 },
+  { companyId: "c3", companyName: "C", robotId: "r3", probability: 0.2 },
+  { companyId: "c4", companyName: "D", robotId: "r1", probability: 0.9 },
+  { companyId: "c5", companyName: "E", robotId: "r4", probability: 0.7 },
+];
+const prices = { r1: 100000, r2: 80000, r3: 50000, r4: null };
+const res = demoStats(pairs, prices);
+console.log(JSON.stringify({
+  companies: res.companies,
+  highFit: res.highFit,
+  tier2: res.tier2,
+  tier3: res.tier3,
+  sumTiers: res.highFit + res.tier2 + res.tier3
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["companies"], 4)
+        self.assertEqual(out["sumTiers"], out["companies"])
+
+    def test_demo_stats_pipeline_total_matches_potential_pipeline(self):
+        code = """
+import { demoStats, potentialPipeline } from './lib/display-price';
+import { SimPair } from './lib/market-sim';
+const pairs: SimPair[] = [
+  { companyId: "c1", companyName: "A", robotId: "r1", probability: 0.7 },
+  { companyId: "c2", companyName: "B", robotId: "r2", probability: 0.4 },
+  { companyId: "c3", companyName: "C", robotId: "r1", probability: 0.6 },
+];
+const prices = { r1: 90000, r2: 45000 };
+const stats = demoStats(pairs, prices);
+const pot = potentialPipeline(pairs, prices);
+console.log(JSON.stringify({
+  statsTotal: stats.pipelineTotal,
+  potTotal: pot.total
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertAlmostEqual(out["statsTotal"], out["potTotal"], delta=1e-4)
+
+    def test_demo_stats_fleet_total_ignores_invalid_and_counts_valid(self):
+        code = """
+import { demoStats } from './lib/display-price';
+const prices: Record<string, any> = {
+  r1: 50000,
+  r2: 75000,
+  r3: null,
+  r4: 0,
+  r5: -10000,
+  r6: NaN,
+  r7: undefined
+};
+const res = demoStats([], prices);
+console.log(JSON.stringify({
+  fleetTotal: res.fleetTotal,
+  robotsPriced: res.robotsPriced
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["fleetTotal"], 125000)
+        self.assertEqual(out["robotsPriced"], 2)
+
+    def test_demo_stats_thresholds_match_constants(self):
+        code = """
+import { demoStats } from './lib/display-price';
+import { DEFAULT_CONSTANTS, SimPair } from './lib/market-sim';
+const p1 = DEFAULT_CONSTANTS.tier1Prob;
+const price1 = Math.floor(DEFAULT_CONSTANTS.tier1Ev / p1);
+const p2 = DEFAULT_CONSTANTS.tier2Prob - 0.05;
+const price2 = 200000;
+
+const pairs: SimPair[] = [
+  { companyId: "c1", companyName: "AtTier1ValueThreshold", robotId: "r1", probability: p1 },
+  { companyId: "c2", companyName: "BelowTier2Prob", robotId: "r2", probability: p2 },
+];
+const prices = { r1: price1, r2: price2 };
+const res = demoStats(pairs, prices);
+console.log(JSON.stringify({
+  highFit: res.highFit,
+  tier2: res.tier2,
+  tier3: res.tier3,
+  companies: res.companies
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["companies"], 2)
+        self.assertEqual(out["highFit"], 0)
+        self.assertEqual(out["tier2"], 1)
+        self.assertEqual(out["tier3"], 1)
+
+    def test_demo_stats_empty_pairs_gives_zeros_no_crash(self):
+        code = """
+import { demoStats } from './lib/display-price';
+const res = demoStats([], {});
+console.log(JSON.stringify(res));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["pipelineTotal"], 0)
+        self.assertEqual(out["companies"], 0)
+        self.assertEqual(out["highFit"], 0)
+        self.assertEqual(out["tier2"], 0)
+        self.assertEqual(out["tier3"], 0)
+        self.assertEqual(out["avgProbability"], 0)
+        self.assertEqual(out["fleetTotal"], 0)
+        self.assertEqual(out["robotsPriced"], 0)
+
+    def test_demo_stats_does_not_mutate_inputs(self):
+        code = """
+import { demoStats } from './lib/display-price';
+import { SimPair } from './lib/market-sim';
+const pairs: SimPair[] = [
+  { companyId: "c1", companyName: "A", robotId: "r1", probability: 0.75 },
+];
+const prices = { r1: 100000 };
+const pairsBefore = JSON.stringify(pairs);
+const pricesBefore = JSON.stringify(prices);
+demoStats(pairs, prices);
+console.log(JSON.stringify({
+  pairsMutated: JSON.stringify(pairs) !== pairsBefore,
+  pricesMutated: JSON.stringify(prices) !== pricesBefore
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertFalse(out["pairsMutated"])
+        self.assertFalse(out["pricesMutated"])
+
+
 
 if __name__ == "__main__":
     unittest.main()
