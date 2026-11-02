@@ -23,7 +23,8 @@ try:  # ADK 2.x
 except ImportError:  # ADK 1.x
     from google.adk.tools import ToolContext as Context
 
-MODEL = os.getenv("REPLY_MODEL", os.getenv("COPILOT_MODEL", "gemini-2.5-flash-lite"))
+MODEL = os.getenv("REPLY_MODEL", "gemini-3.1-flash-lite")
+FALLBACK_MODELS = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
 APP_NAME = "pipeline_ev_reply"
 TIMEOUT_S = 40
 _SEEN: dict = {}  # run_id -> extra product sheets the agent searched for (so they count as grounded)
@@ -90,15 +91,15 @@ Other rules:
 """
 
 
-def _make_agent() -> Agent:
-    return Agent(name="reply_suggester", model=MODEL,
+def _make_agent(model_name: str = MODEL) -> Agent:
+    return Agent(name="reply_suggester", model=model_name,
                  description="Drafts a grounded reply for a sales rep to review.",
                  instruction=INSTRUCTION, tools=[get_reply_context, find_product])
 
 
-async def _run(identity: Identity, inquiry_id: str, run_id: str) -> Optional[str]:
+async def _run(identity: Identity, inquiry_id: str, run_id: str, model_name: str = MODEL) -> Optional[str]:
     sessions = InMemorySessionService()
-    runner = Runner(agent=_make_agent(), app_name=APP_NAME, session_service=sessions)
+    runner = Runner(agent=_make_agent(model_name), app_name=APP_NAME, session_service=sessions)
     sid = uuid.uuid4().hex
     await sessions.create_session(
         app_name=APP_NAME, user_id=identity.agent_id, session_id=sid,
@@ -114,18 +115,26 @@ async def _run(identity: Identity, inquiry_id: str, run_id: str) -> Optional[str
 
 async def suggest_reply(identity: Identity, inquiry_id: str) -> Optional[dict]:
     """Returns the finalized suggestion dict, or None when the model gave no usable JSON."""
-    run_id = uuid.uuid4().hex
-    try:
-        raw = await asyncio.wait_for(_run(identity, inquiry_id, run_id), timeout=TIMEOUT_S)
-        parsed = reply_context.parse_suggestion(raw)
-        if parsed is None:
-            import logging
-            logging.getLogger("reply").warning("reply model output was not valid JSON (%d chars)", len(raw or ""))
-            return None
-        ctx = reply_context.build_context(triage_service.get_db(), identity, inquiry_id)
-        if ctx is None:
-            return None
-        sheets = list(ctx["candidate_products"]) + _SEEN.get(run_id, [])
-        return reply_context.finalize_suggestion(parsed, sheets, ctx["conversation"], ctx["company"])
-    finally:
-        _SEEN.pop(run_id, None)
+    models_to_try = [MODEL] + [m for m in FALLBACK_MODELS if m != MODEL]
+    import logging
+    log = logging.getLogger("reply")
+
+    for model_name in models_to_try:
+        run_id = uuid.uuid4().hex
+        try:
+            raw = await asyncio.wait_for(_run(identity, inquiry_id, run_id, model_name), timeout=TIMEOUT_S)
+            parsed = reply_context.parse_suggestion(raw)
+            if parsed is None:
+                log.warning("reply model %s output was not valid JSON (%d chars)", model_name, len(raw or ""))
+                continue
+            ctx = reply_context.build_context(triage_service.get_db(), identity, inquiry_id)
+            if ctx is None:
+                return None
+            sheets = list(ctx["candidate_products"]) + _SEEN.get(run_id, [])
+            return reply_context.finalize_suggestion(parsed, sheets, ctx["conversation"], ctx["company"])
+        except Exception as e:
+            log.warning("reply model %s failed: %s", model_name, type(e).__name__)
+            continue
+        finally:
+            _SEEN.pop(run_id, None)
+    return None
