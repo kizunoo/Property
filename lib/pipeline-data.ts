@@ -32,6 +32,8 @@ export interface Client {
   relationshipStage?: string
   /** WhatsApp phone number (e.g. 60109722730) */
   whatsappNumber?: string | null
+  /** Company website */
+  website?: string | null
 }
 
 export interface PastPurchase {
@@ -92,6 +94,8 @@ export interface DeduplicatedClient {
   relationshipStage: string
   /** WhatsApp phone number */
   whatsappNumber?: string | null
+  /** Company website */
+  website?: string | null
 }
 
 export interface Property {
@@ -186,6 +190,7 @@ export interface PipelineEvaluationRow {
         assigned_agent_id?: string | null
         relationship_stage?: string | null
         whatsapp_number?: string | null
+        website?: string | null
         agents?: { id: string; name: string; initials: string } | { id: string; name: string; initials: string }[] | null
       }
     | {
@@ -202,6 +207,7 @@ export interface PipelineEvaluationRow {
         assigned_agent_id?: string | null
         relationship_stage?: string | null
         whatsapp_number?: string | null
+        website?: string | null
         agents?: { id: string; name: string; initials: string } | { id: string; name: string; initials: string }[] | null
       }[]
     | null
@@ -289,6 +295,7 @@ export function mapEvaluationToClient(row: PipelineEvaluationRow): Client | null
     assignedAgent: agentRaw ? { id: agentRaw.id, name: agentRaw.name, initials: agentRaw.initials } : null,
     relationshipStage: client.relationship_stage || "new",
     whatsappNumber: client.whatsapp_number ?? null,
+    website: client.website ?? null,
   }
 }
 

@@ -1,3 +1,4 @@
+import { CompanyLogo } from "@/components/shared/company-logo"
 "use client"
 
 import { useEffect, useRef, useState } from "react"
@@ -836,7 +837,10 @@ export function ClientDetailModal({
               {client.initials}
             </div>
             <div>
-              <div className="text-xl font-bold leading-tight text-foreground sm:text-2xl">{client.name}</div>
+              <div className="flex items-center gap-2">
+                <CompanyLogo name={client.name} website={client.website} size={40} />
+                <div className="text-xl font-bold leading-tight text-foreground sm:text-2xl">{client.name}</div>
+              </div>
               <div className="mt-1 font-mono text-xs text-muted-foreground">{client.bestMatch.neighborhood || "—"}</div>
               <div className="mt-2 flex items-center gap-2 flex-wrap">
                 <TierBadge tier={effectiveTier} />

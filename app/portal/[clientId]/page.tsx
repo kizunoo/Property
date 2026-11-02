@@ -165,6 +165,7 @@ function PortalPageInner() {
     <PortalShell
       clientId={clientId}
       clientName={clientName}
+      website={data?.website}
       sessionInfo={sessionInfo}
       activeTab={activeTab}
       onTabChange={handleTabChange}

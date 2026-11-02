@@ -6090,6 +6090,7 @@ def get_shortlist(property_id: str, request: Request, limit: int = 25, agent_id:
             "client_id":                  client["id"],
             "client_name":                client["name"],
             "name":                       client["name"],
+            "website":                    client.get("website"),
             # Probabilities & scores
             "formula_probability":        formula_prob,
             "probability":                formula_prob,
@@ -7558,7 +7559,7 @@ def portal_dashboard(client_id: str, session: PortalSession = Depends(get_curren
     # 1. Fetch client (validate existence)
     try:
         client_res = supabase.table("clients") \
-            .select("id, name, stated_budget, preferred_neighborhood, relationship_stage") \
+            .select("id, name, stated_budget, preferred_neighborhood, relationship_stage, website") \
             .eq("id", client_id) \
             .single() \
             .execute()
@@ -7745,6 +7746,7 @@ def portal_dashboard(client_id: str, session: PortalSession = Depends(get_curren
 
     return {
         "client_name": client["name"],
+        "website": client.get("website"),
         "client_id": client_id,
         "relationship_stage": client.get("relationship_stage", "new"),
         "matches": matches,

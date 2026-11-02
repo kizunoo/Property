@@ -1,3 +1,4 @@
+import { CompanyLogo } from "@/components/shared/company-logo"
 "use client"
 
 import { useState, useEffect, useRef, type ComponentType } from "react"
@@ -128,10 +129,10 @@ function ClientEntity({
           </div>
           <div className="min-w-0 flex-1">
             <div
-              className="flex items-center gap-1 text-sm font-bold leading-tight text-foreground min-w-0"
+              className="flex items-center gap-2 text-sm font-bold leading-tight text-foreground min-w-0"
               title={client.name}
             >
-              <UserRound className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={2.5} />
+              <CompanyLogo name={client.name} website={client.website} size={28} />
               <span className="truncate">{client.name}</span>
             </div>
             <div

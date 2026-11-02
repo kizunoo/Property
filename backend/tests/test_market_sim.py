@@ -721,6 +721,7 @@ console.log(JSON.stringify({
     def test_demo_stats_pipeline_total_matches_potential_pipeline(self):
         code = """
 import { demoStats, potentialPipeline } from './lib/display-price';
+import { applyDemoProbability } from './lib/demo-probability';
 import { SimPair } from './lib/market-sim';
 const pairs: SimPair[] = [
   { companyId: "c1", companyName: "A", robotId: "r1", probability: 0.7 },
@@ -729,7 +730,8 @@ const pairs: SimPair[] = [
 ];
 const prices = { r1: 90000, r2: 45000 };
 const stats = demoStats(pairs, prices);
-const pot = potentialPipeline(pairs, prices);
+const demoPairs = applyDemoProbability(pairs, "companyId", "robotId", "probability");
+const pot = potentialPipeline(demoPairs, prices);
 console.log(JSON.stringify({
   statsTotal: stats.pipelineTotal,
   potTotal: pot.total
@@ -784,9 +786,7 @@ console.log(JSON.stringify({
 """
         out = json.loads(_run_node_ts(code))
         self.assertEqual(out["companies"], 2)
-        self.assertEqual(out["highFit"], 0)
-        self.assertEqual(out["tier2"], 1)
-        self.assertEqual(out["tier3"], 1)
+        self.assertEqual(out["highFit"] + out["tier2"] + out["tier3"], 2)
 
     def test_demo_stats_empty_pairs_gives_zeros_no_crash(self):
         code = """
@@ -824,6 +824,176 @@ console.log(JSON.stringify({
         self.assertFalse(out["pairsMutated"])
         self.assertFalse(out["pricesMutated"])
 
+
+
+
+    def test_demo_anchor_deterministic(self):
+        code = """
+import { demoAnchor } from './lib/demo-probability';
+const k1 = "company-123";
+const k2 = "company-abc";
+console.log(JSON.stringify({
+  k1_first: demoAnchor(k1),
+  k1_second: demoAnchor(k1),
+  k2_first: demoAnchor(k2),
+  k2_second: demoAnchor(k2),
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["k1_first"], out["k1_second"])
+        self.assertEqual(out["k2_first"], out["k2_second"])
+
+    def test_demo_probability_bounds_200_keys(self):
+        code = """
+import { demoProbability } from './lib/demo-probability';
+let minVal = 1;
+let maxVal = 0;
+for (let i = 0; i < 200; i++) {
+  const p = demoProbability("company_" + i, "robot_" + i, (i % 100) / 100);
+  if (p < minVal) minVal = p;
+  if (p > maxVal) maxVal = p;
+}
+console.log(JSON.stringify({ minVal, maxVal }));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertGreaterEqual(out["minVal"], 0.05)
+        self.assertLessEqual(out["maxVal"], 0.95)
+
+    def test_demo_probability_anchor_033_stays_below_035(self):
+        code = """
+import { demoAnchor, demoProbability, DEMO_ANCHORS } from './lib/demo-probability';
+const a033 = DEMO_ANCHORS.find((a: number) => Math.abs(a - 0.33) < 0.001);
+const matchingKeys: string[] = [];
+for (let i = 0; matchingKeys.length < 10 && i < 1000; i++) {
+  const k = "test_co_" + i;
+  if (demoAnchor(k) === a033) matchingKeys.push(k);
+}
+let maxSeen = 0;
+for (const k of matchingKeys) {
+  for (let r = 0; r < 20; r++) {
+    for (let orig = 0; orig <= 1; orig += 0.05) {
+      const p = demoProbability(k, "robot_" + r, orig);
+      if (p > maxSeen) maxSeen = p;
+    }
+  }
+}
+console.log(JSON.stringify({ a033, maxSeen }));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertIsNotNone(out["a033"])
+        self.assertLess(out["maxSeen"], 0.35)
+
+    def test_demo_probability_anchor_067_stays_at_or_above_065(self):
+        code = """
+import { demoAnchor, demoProbability, DEMO_ANCHORS } from './lib/demo-probability';
+const a067 = DEMO_ANCHORS.find((a: number) => Math.abs(a - 0.67) < 0.001);
+const matchingKeys: string[] = [];
+for (let i = 0; matchingKeys.length < 10 && i < 1000; i++) {
+  const k = "test_co_" + i;
+  if (demoAnchor(k) === a067) matchingKeys.push(k);
+}
+let minSeen = 1;
+for (const k of matchingKeys) {
+  for (let r = 0; r < 20; r++) {
+    for (let orig = 0; orig <= 1; orig += 0.05) {
+      const p = demoProbability(k, "robot_" + r, orig);
+      if (p < minSeen) minSeen = p;
+    }
+  }
+}
+console.log(JSON.stringify({ a067, minSeen }));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertIsNotNone(out["a067"])
+        self.assertGreaterEqual(out["minSeen"], 0.65)
+
+    def test_demo_anchor_diversity_29_keys(self):
+        code = """
+import { demoAnchor } from './lib/demo-probability';
+const anchors = new Set<number>();
+for (let i = 0; i < 29; i++) {
+  anchors.add(demoAnchor("company_key_" + i));
+}
+console.log(JSON.stringify({ distinctCount: anchors.size }));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertGreaterEqual(out["distinctCount"], 3)
+
+    def test_apply_demo_probability_no_mutation(self):
+        code = """
+import { applyDemoProbability } from './lib/demo-probability';
+const original = [
+  { companyId: "c1", robotId: "r1", probability: 0.5 },
+  { companyId: "c2", robotId: "r2", probability: 0.6 },
+];
+const arrayBefore = JSON.stringify(original);
+const obj0Before = JSON.stringify(original[0]);
+const res = applyDemoProbability(original, "companyId", "robotId", "probability");
+console.log(JSON.stringify({
+  arrayMutated: JSON.stringify(original) !== arrayBefore,
+  objMutated: JSON.stringify(original[0]) !== obj0Before,
+  isSameArray: res === original,
+  isSameObj: res[0] === original[0],
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertFalse(out["arrayMutated"])
+        self.assertFalse(out["objMutated"])
+        self.assertFalse(out["isSameArray"])
+        self.assertFalse(out["isSameObj"])
+
+    def test_demo_stats_tiers_spread_with_applied_probability(self):
+        code = """
+import { demoStats } from './lib/display-price';
+import { SimPair, DEFAULT_CONSTANTS } from './lib/market-sim';
+const pairs: SimPair[] = [];
+const prices: Record<string, number> = {};
+for (let i = 0; i < 29; i++) {
+  const cId = "company_" + i;
+  const rId = "robot_" + (i % 5);
+  pairs.push({
+    companyId: cId,
+    companyName: "Company " + i,
+    robotId: rId,
+    probability: 0.667,
+  });
+  prices[rId] = DEFAULT_CONSTANTS.tier1Ev * 2;
+}
+const res = demoStats(pairs, prices);
+const activeTiers = [res.highFit, res.tier2, res.tier3].filter(c => c > 0).length;
+console.log(JSON.stringify({
+  companies: res.companies,
+  highFit: res.highFit,
+  tier2: res.tier2,
+  tier3: res.tier3,
+  sumTiers: res.highFit + res.tier2 + res.tier3,
+  activeTiers,
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["companies"], 29)
+        self.assertEqual(out["sumTiers"], 29)
+        self.assertGreaterEqual(out["activeTiers"], 2)
+
+    def test_logo_domain_helper(self):
+        code = """
+import { logoDomain } from './components/shared/company-logo';
+console.log(JSON.stringify({
+  fullUrl: logoDomain("https://www.Example.com/path?x=1"),
+  empty: logoDomain(""),
+  nullVal: logoDomain(null),
+  undefinedVal: logoDomain(undefined),
+  notDomain: logoDomain("not a domain"),
+  plainDomain: logoDomain("example.com"),
+}));
+"""
+        out = json.loads(_run_node_ts(code))
+        self.assertEqual(out["fullUrl"], "example.com")
+        self.assertIsNone(out["empty"])
+        self.assertIsNone(out["nullVal"])
+        self.assertIsNone(out["undefinedVal"])
+        self.assertIsNone(out["notDomain"])
+        self.assertEqual(out["plainDomain"], "example.com")
 
 
 if __name__ == "__main__":

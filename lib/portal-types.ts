@@ -45,6 +45,7 @@ export interface DashboardData {
   client_name: string
   client_id: string
   relationship_stage: string
+  website?: string | null
   matches: MatchUnit[]
   scheduled_demos: DashboardDemo[]
   unread_messages?: number

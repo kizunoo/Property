@@ -4,6 +4,7 @@ export interface ShortlistEntry {
   clientId:               string
   name:                   string
   initials:               string
+  website?:               string | null
   // Core scoring
   probability:            number   // rule-based formula P(Buy)
   formulaScore:           number   // same as probability (aliased for clarity)
@@ -84,6 +85,7 @@ export async function fetchShortlist(propertyId: string, agentId?: string | null
         clientId:               r.client_id,
         name:                   r.name,
         initials:               initialsOf(r.name),
+        website:                (r as any).website ?? null,
         probability:            formulaProb,
         formulaScore:           formulaProb,
         formulaProbability:     formulaProb,

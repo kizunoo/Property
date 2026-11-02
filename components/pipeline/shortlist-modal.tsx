@@ -1,3 +1,4 @@
+import { CompanyLogo } from "@/components/shared/company-logo"
 "use client"
 
 import { useEffect, useState, useMemo, useCallback } from "react"
@@ -196,7 +197,10 @@ function ShortlistRow({
 
       {/* Name + tier + reason */}
       <div className="flex flex-1 flex-col gap-0.5 overflow-hidden min-w-0">
-        <span className="truncate text-sm font-bold leading-tight text-foreground">{entry.name}</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <CompanyLogo name={entry.name} website={entry.website} size={28} />
+          <span className="truncate text-sm font-bold leading-tight text-foreground">{entry.name}</span>
+        </div>
         <span className="flex items-center gap-1">
           <TierIcon tier={entry.tier} />
           <span className="text-[10px] font-semibold text-muted-foreground">{TIER_SHORT[entry.tier]}</span>

@@ -5,6 +5,7 @@ import {
   validPrice,
   type SimPair,
 } from "./market-sim"
+import { applyDemoProbability } from "./demo-probability"
 
 export type PriceKind = "real" | "simulated" | "indicative" | "none"
 
@@ -228,7 +229,12 @@ export function demoStats(
   displayPriceByRobotId: Record<string, number | null | undefined>,
   robots?: Array<{ id: string } | string> | null,
 ): DemoStatsResult {
-  const sim = simulate(pairs, displayPriceByRobotId, 1, DEFAULT_CONSTANTS)
+  const COMPANY_FIELD = "companyId"
+  const ROBOT_FIELD = "robotId"
+  const PROB_FIELD = "probability"
+
+  const demoPairs = applyDemoProbability(pairs, COMPANY_FIELD, ROBOT_FIELD, PROB_FIELD)
+  const sim = simulate(demoPairs, displayPriceByRobotId, 1, DEFAULT_CONSTANTS)
   const companies = sim.rows.length
   const highFit = sim.tierCounts[1]
   const tier2 = sim.tierCounts[2]

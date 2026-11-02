@@ -21,7 +21,7 @@ function assertSupabaseConfigured() {
 // Rich client columns added by rich_profiles_migration.sql
 // agents(id,name,initials) is included so assignedAgent badge works immediately after
 // the agents_migration.sql runs — Supabase silently ignores unknown relations.
-const CLIENT_RICH_COLS = "id, name, stated_budget, preferred_neighborhood, past_viewings, financing_status, move_in_timeline, property_type_preference, secondary_neighborhood, agent_notes, assigned_agent_id, relationship_stage, agents(id, name, initials)"
+const CLIENT_RICH_COLS = "id, name, stated_budget, preferred_neighborhood, past_viewings, financing_status, move_in_timeline, property_type_preference, secondary_neighborhood, agent_notes, assigned_agent_id, relationship_stage, website, agents(id, name, initials)"
 const PROPERTY_RICH_COLS = "id, address, neighborhood, property_value, bedrooms, bathrooms, sqft, property_type, furnishing, tenure"
 
 export async function fetchPipelineClients(agentId?: string | null): Promise<Client[]> {
@@ -127,7 +127,7 @@ export async function fetchDeduplicatedClients(agentId?: string | null): Promise
   try {
     const { data, error } = await getSupabase()
       .from("clients")
-      .select("id, financing_status, move_in_timeline, property_type_preference, secondary_neighborhood, agent_notes, relationship_stage")
+      .select("id, financing_status, move_in_timeline, property_type_preference, secondary_neighborhood, agent_notes, relationship_stage, website")
     if (!error && data) {
       for (const row of data) {
         richClientMap[row.id] = row
@@ -135,7 +135,7 @@ export async function fetchDeduplicatedClients(agentId?: string | null): Promise
     } else {
       const fallback = await getSupabase()
         .from("clients")
-        .select("id, financing_status, move_in_timeline, property_type_preference, secondary_neighborhood, agent_notes, relationship_stage")
+        .select("id, financing_status, move_in_timeline, property_type_preference, secondary_neighborhood, agent_notes, relationship_stage, website")
       if (fallback.data) {
         for (const row of fallback.data) {
           richClientMap[row.id] = row
@@ -209,6 +209,7 @@ export async function fetchDeduplicatedClients(agentId?: string | null): Promise
       assignedAgent:           best.assignedAgent ?? null,
       relationshipStage:       (rich.relationship_stage as string) || best.relationshipStage || "new",
       whatsappNumber:          ((rich.whatsapp_number as string | null) ?? best.whatsappNumber ?? null) || null,
+      website:                 ((rich.website as string | null) ?? best.website ?? null) || null,
       bestMatch: {
         evalId:        best.id,
         propertyId:    best.propertyDbId,

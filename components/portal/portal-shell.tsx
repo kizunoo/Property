@@ -1,3 +1,4 @@
+import { CompanyLogo } from "@/components/shared/company-logo"
 "use client"
 
 import { useRouter, usePathname } from "next/navigation"
@@ -128,6 +129,7 @@ function PortalTabNav({
 export interface PortalShellProps {
   clientId: string
   clientName: string
+  website?: string | null
   sessionInfo?: import("@/lib/portal-api").PortalMeData | null
   children: React.ReactNode
   /** Controlled from outside so the page can read/set ?tab= in URL */
@@ -137,6 +139,7 @@ export interface PortalShellProps {
 
 export function PortalShell({
   clientName,
+  website,
   sessionInfo,
   children,
   activeTab,
@@ -186,6 +189,10 @@ export function PortalShell({
 
           {/* Client & Role pill */}
           <div className="hidden sm:flex items-center gap-2">
+            <div className="flex items-center gap-2">
+              <CompanyLogo name={clientName} website={website} size={40} />
+              <span className="text-sm font-bold text-foreground">{clientName}</span>
+            </div>
             <span className="inline-flex items-center border border-border bg-secondary px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
               {contactLabel}
             </span>
