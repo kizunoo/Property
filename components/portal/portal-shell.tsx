@@ -1,5 +1,5 @@
-import { CompanyLogo } from "@/components/shared/company-logo"
 "use client"
+import { CompanyLogo } from "@/components/shared/company-logo"
 
 import { useRouter, usePathname } from "next/navigation"
 import { useEffect, useRef } from "react"

@@ -1,5 +1,5 @@
-import { CompanyLogo } from "@/components/shared/company-logo"
 "use client"
+import { CompanyLogo } from "@/components/shared/company-logo"
 
 import { useEffect, useRef, useState } from "react"
 import {
