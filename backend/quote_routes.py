@@ -187,6 +187,14 @@ def _deliver_due_quotes(db, identity: Identity, now: datetime) -> None:
                 "superseded_by": new_quote_id
             }).eq("client_id", client_id).eq("property_id", prop_id).neq("id", new_quote_id).is_("superseded_by", "null").gt("expires_at", now_iso).execute()
 
+            # Clean up any leftover draft quote requests for this pair
+            try:
+                db.table("supplier_quote_requests").update({
+                    "status": "cancelled"
+                }).eq("agent_id", identity.agent_id).eq("client_id", client_id).eq("property_id", prop_id).eq("status", "draft").eq("kind", "quote").execute()
+            except Exception:
+                pass
+
             summary = f"Simulated supplier quote received for {robot_name}: RM {parsed['price_myr']:,}"[:200]
             db.table("agent_activity").insert({
                 "agent_id": identity.agent_id,
@@ -222,6 +230,22 @@ def get_quotes(request: Request):
         .data
         or []
     )
+
+    now_iso = now.isoformat()
+    # Cancel any leftover draft quote requests for pairs that already have a valid active quote
+    valid_pairs = {
+        (q["client_id"], q["property_id"])
+        for q in quotes
+        if q.get("superseded_by") is None and q.get("expires_at") and q["expires_at"] > now_iso
+    }
+    for r in requests:
+        if r.get("status") == "draft" and r.get("kind") == "quote":
+            if (r.get("client_id"), r.get("property_id")) in valid_pairs:
+                r["status"] = "cancelled"
+                try:
+                    db.table("supplier_quote_requests").update({"status": "cancelled"}).eq("id", r["id"]).execute()
+                except Exception:
+                    pass
     activity = (
         db.table("agent_activity")
         .select("*")

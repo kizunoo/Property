@@ -87,9 +87,9 @@ export function QuoteRequestModal({
   }
 
   const handleCancel = async () => {
-    if (request) {
+    if (request && !approvedMessage && request.status === "draft") {
       setCancelling(true)
-      await cancelQuoteRequest(request.id)
+      await cancelQuoteRequest(request.id).catch(() => ({}))
       setCancelling(false)
     }
     if (onCancelled) onCancelled()
@@ -100,8 +100,9 @@ export function QuoteRequestModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
       <div className="relative w-full max-w-2xl rounded-xl border border-neutral-700 bg-neutral-900 p-6 text-white shadow-2xl">
         <button
-          onClick={onClose}
-          className="absolute right-4 top-4 text-neutral-400 hover:text-white"
+          onClick={handleCancel}
+          disabled={cancelling}
+          className="absolute right-4 top-4 text-neutral-400 hover:text-white disabled:opacity-50"
         >
           <X className="h-5 w-5" />
         </button>

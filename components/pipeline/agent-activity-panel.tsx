@@ -15,13 +15,14 @@ import {
   XCircle,
 } from "lucide-react"
 import { QuoteCard } from "./quote-card"
-import { logQuoteActivity } from "@/lib/fetch-quotes"
-import type {
-  ActivityRow,
-  AgentAction,
-  Names,
-  QuoteRequest,
-  SupplierQuote,
+import { logQuoteActivity, cancelQuoteRequest } from "@/lib/fetch-quotes"
+import {
+  isValidQuote,
+  type ActivityRow,
+  type AgentAction,
+  type Names,
+  type QuoteRequest,
+  type SupplierQuote,
 } from "@/lib/quotes"
 
 export interface AgentActivityPanelProps {
@@ -103,9 +104,32 @@ export function AgentActivityPanel({
     }
   }
 
-  const waitingRequests = requests.filter(
-    (r) => r.status === "draft" || r.status === "sent"
+  const handleCancelDraft = async (reqId: string) => {
+    setActing(true)
+    await cancelQuoteRequest(reqId)
+    setActing(false)
+    onRefresh()
+  }
+
+  // Set of (clientId, propertyId) pairs with active valid quotes
+  const validQuotePairs = new Set(
+    quotes
+      .filter((q) => isValidQuote(q, nowMs))
+      .map((q) => `${q.clientId}:${q.propertyId}`)
   )
+
+  const waitingRequests = requests.filter((r) => {
+    if (r.status === "sent") return true
+    if (r.status === "draft") {
+      // If an active valid quote already exists and this is an initial quote request,
+      // the quote has already arrived — this draft is obsolete.
+      if (r.kind === "quote" && validQuotePairs.has(`${r.clientId}:${r.propertyId}`)) {
+        return false
+      }
+      return true
+    }
+    return false
+  })
   const recentQuotes = quotes.slice(0, 5)
   const recentActivity = activity.slice(0, 10)
 
@@ -298,14 +322,26 @@ export function AgentActivityPanel({
                   </div>
                 </div>
 
-                {r.status === "draft" && onOpenDraft && (
-                  <button
-                    type="button"
-                    onClick={() => onOpenDraft(r)}
-                    className="rounded bg-[#FFD600] px-2.5 py-1 text-[11px] font-bold text-black hover:bg-[#e6c200]"
-                  >
-                    Open draft
-                  </button>
+                {r.status === "draft" && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    {onOpenDraft && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenDraft(r)}
+                        className="rounded bg-[#FFD600] px-2.5 py-1 text-[11px] font-bold text-black hover:bg-[#e6c200]"
+                      >
+                        Open draft
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={acting}
+                      onClick={() => handleCancelDraft(r.id)}
+                      className="rounded border border-neutral-700 bg-transparent px-2 py-1 text-[11px] font-medium text-neutral-400 hover:text-white disabled:opacity-50"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
                 )}
               </div>
             ))}

@@ -30,13 +30,22 @@ export async function fetchReasoning(
       signal: controller.signal,
     })
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err?.error ?? `Request failed (${res.status})`)
+    const text = await res.text()
+    let data: any = {}
+    try {
+      data = JSON.parse(text)
+    } catch {
+      // Upstream returned non-JSON text
     }
 
-    const data = await res.json()
-    const reasoning: string = data.reasoning
+    if (!res.ok) {
+      throw new Error(data?.error ?? (text && text.length < 200 ? text : `Request failed (${res.status})`))
+    }
+
+    const reasoning: string = data.reasoning ?? ""
+    if (!reasoning) {
+      throw new Error("No reasoning generated")
+    }
 
     // Store in level-1 cache
     _cache.set(key, reasoning)

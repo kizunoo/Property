@@ -31,11 +31,17 @@ export async function POST(req: NextRequest) {
       clearTimeout(timer)
     }
 
-    const data = await upstream.json()
+    const text = await upstream.text()
+    let data: any = {}
+    try {
+      data = JSON.parse(text)
+    } catch {
+      // Upstream returned non-JSON (e.g. 500 HTML/plain text)
+    }
 
     if (!upstream.ok) {
       return NextResponse.json(
-        { error: data?.detail ?? "Reasoning generation failed" },
+        { error: data?.detail || data?.error || (text && text.length < 200 ? text : "Reasoning generation failed") },
         { status: upstream.status },
       )
     }

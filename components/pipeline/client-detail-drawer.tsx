@@ -586,6 +586,9 @@ export function ClientDetailModal({
   onQuoteChanged,
   onRequestQuote,
 }: ClientDetailModalProps) {
+  // ── Tab state (Overview vs Portal Access) ─────────────────────────────────
+  const [activeTab, setActiveTab]             = useState<"overview" | "portal">("overview")
+
   // ── Reasoning state ──────────────────────────────────────────────────────
   const [reasoning, setReasoning]               = useState<string | null>(null)
   const [reasoningLoading, setReasoningLoading] = useState(false)
@@ -637,6 +640,7 @@ export function ClientDetailModal({
       setViewingError(null)
       setOutcomeResult(null)
       setOutcomeError(null)
+      setActiveTab("overview")
       setSchedFormOpen(Boolean(initialScheduleViewing))
       setSchedDate("")
       setSchedTime("")
@@ -924,9 +928,38 @@ export function ClientDetailModal({
           </button>
         </div>
 
-        {/* ── Scrollable body — two-column on lg ── */}
+        {/* ── Tab Switcher ── */}
+        <div className="flex shrink-0 border-b border-border bg-card/60 px-5 sm:px-6">
+          <button
+            type="button"
+            onClick={() => setActiveTab("overview")}
+            className={`flex items-center gap-2 border-b-2 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all ${
+              activeTab === "overview"
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Wallet className="h-3.5 w-3.5" strokeWidth={2.5} />
+            <span>Financial &amp; Preference Overview</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("portal")}
+            className={`flex items-center gap-2 border-b-2 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all ${
+              activeTab === "portal"
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <ShieldCheck className="h-3.5 w-3.5" strokeWidth={2.5} />
+            <span>Portal Access &amp; Inquiries</span>
+          </button>
+        </div>
+
+        {/* ── Scrollable body ── */}
         <div className="overflow-y-auto">
-          <div className="grid grid-cols-1 gap-0 lg:grid-cols-2">
+          {activeTab === "overview" ? (
+            <div className="grid grid-cols-1 gap-0 lg:grid-cols-2">
             {/* ── Left column ── */}
             <div className="flex flex-col gap-6 border-b border-border p-5 lg:border-b-0 lg:border-r sm:p-6">
               {/* Financial overview */}
@@ -1171,9 +1204,17 @@ export function ClientDetailModal({
               )}
             </div>
           </div>
-        </div>
+        ) : (
+          /* ── Portal Access & Inquiries Tab ── */
+          <div className="space-y-6 p-5 sm:p-6">
+            <PortalAccessPanel clientId={client.clientId} clientName={client.name} />
+            <CompanyInquiryHistory clientId={client.clientId} />
+          </div>
+        )}
+      </div>
 
-        {/* ── Footer ── */}
+      {/* ── Footer (for Overview tab) ── */}
+      {activeTab === "overview" && (
         <div className="shrink-0 border-t border-border bg-card">
 
           {/* Log Viewing confirmation banner */}
@@ -1311,131 +1352,121 @@ export function ClientDetailModal({
             </form>
           )}
 
-          {/* Portal Access Panel (Rep Console) */}
-          <div className="px-5 pb-2 sm:px-6">
-            <PortalAccessPanel clientId={client.clientId} clientName={client.name} />
-          </div>
+              {/* Action buttons row */}
+              <div className="flex flex-col gap-3 p-5 sm:flex-row sm:p-6">
+                {effectiveTier === "TIER_1" || effectiveTier === "TIER_2" ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onGenerateInvite) onGenerateInvite(client)
+                    }}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-border bg-black py-3.5 text-xs sm:text-sm font-bold uppercase tracking-wider text-white shadow-[var(--shadow-xs)] transition-all hover:bg-neutral-800 hover:shadow-[var(--shadow-sm)]"
+                  >
+                    <Send className="h-4 w-4 text-primary" strokeWidth={2.5} />
+                    Send Pitch
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    className="flex flex-1 cursor-not-allowed items-center justify-center gap-2 rounded-[8px] border border-border bg-muted py-3.5 text-xs sm:text-sm font-bold uppercase tracking-wider text-muted-foreground"
+                  >
+                    <Send className="h-4 w-4 text-muted-foreground" strokeWidth={2.5} />
+                    Send Pitch (High/Possible-Fit Only)
+                  </button>
+                )}
 
-          {/* Inquiry history (Rep Console) */}
-          <div className="px-5 pb-2 sm:px-6">
-            <CompanyInquiryHistory clientId={client.clientId} />
-          </div>
-
-          {/* Action buttons row */}
-          <div className="flex flex-col gap-3 p-5 sm:flex-row sm:p-6">
-            {effectiveTier === "TIER_1" || effectiveTier === "TIER_2" ? (
-              <button
-                type="button"
-                onClick={() => {
-                  if (onGenerateInvite) onGenerateInvite(client)
-                }}
-                className="flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-border bg-black py-3.5 text-xs sm:text-sm font-bold uppercase tracking-wider text-white shadow-[var(--shadow-xs)] transition-all hover:bg-neutral-800 hover:shadow-[var(--shadow-sm)]"
-              >
-                <Send className="h-4 w-4 text-primary" strokeWidth={2.5} />
-                Send Pitch
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled
-                className="flex flex-1 cursor-not-allowed items-center justify-center gap-2 rounded-[8px] border border-border bg-muted py-3.5 text-xs sm:text-sm font-bold uppercase tracking-wider text-muted-foreground"
-              >
-                <Send className="h-4 w-4 text-muted-foreground" strokeWidth={2.5} />
-                Send Pitch (High/Possible-Fit Only)
-              </button>
-            )}
-
-            {/* Schedule Viewing — opens the inline form */}
-            <button
-              type="button"
-              onClick={() => { setSchedFormOpen((o) => !o); setSchedError(null) }}
-              className={`flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-border py-3.5 text-xs sm:text-sm font-bold uppercase tracking-wider shadow-[var(--shadow-xs)] transition-all hover:shadow-[var(--shadow-sm)] ${
-                schedFormOpen ? "bg-black text-white" : "bg-card text-foreground hover:bg-muted"
-              }`}
-            >
-              <Calendar className="h-4 w-4" strokeWidth={2.5} />
-              Schedule Demo
-            </button>
-
-            {/* Log Viewing — records a past/completed viewing */}
-            <button
-              type="button"
-              onClick={handleLogViewing}
-              disabled={viewingLoading}
-              className="flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-border bg-card py-3.5 text-xs sm:text-sm font-bold uppercase tracking-wider text-foreground shadow-[var(--shadow-xs)] transition-all hover:bg-muted hover:shadow-[var(--shadow-sm)] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {viewingLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
-              ) : (
-                <CalendarCheck className="h-4 w-4" strokeWidth={2.5} />
-              )}
-              {viewingLoading ? "Logging…" : "Log Demo"}
-            </button>
-          </div>
-
-          {/* Won / Lost outcome row */}
-          <div className="flex gap-3 border-t border-border px-5 pb-5 pt-3 sm:px-6">
-            {effectiveOutcome === "pending" ? (
-              <>
+                {/* Schedule Viewing — opens the inline form */}
                 <button
                   type="button"
-                  disabled={outcomeLoading}
-                  onClick={() => handleRecordOutcome("won")}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-emerald-600 bg-emerald-600 py-3 text-xs sm:text-sm font-bold uppercase tracking-wider text-white shadow-[var(--shadow-xs)] transition-all hover:bg-emerald-700 hover:shadow-[var(--shadow-sm)] disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => { setSchedFormOpen((o) => !o); setSchedError(null) }}
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-border py-3.5 text-xs sm:text-sm font-bold uppercase tracking-wider shadow-[var(--shadow-xs)] transition-all hover:shadow-[var(--shadow-sm)] ${
+                    schedFormOpen ? "bg-black text-white" : "bg-card text-foreground hover:bg-muted"
+                  }`}
                 >
-                  {outcomeLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin text-white" strokeWidth={2.5} />
-                  ) : (
-                    <CheckCircle2 className="h-4 w-4" strokeWidth={2.5} />
-                  )}
-                  Record Deployment (Closed Won)
+                  <Calendar className="h-4 w-4" strokeWidth={2.5} />
+                  Schedule Demo
                 </button>
+
+                {/* Log Viewing — records a past/completed viewing */}
                 <button
                   type="button"
-                  disabled={outcomeLoading}
-                  onClick={() => handleRecordOutcome("lost")}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-border bg-card py-3 text-xs sm:text-sm font-bold uppercase tracking-wider text-muted-foreground shadow-[var(--shadow-xs)] transition-all hover:bg-muted hover:text-foreground hover:shadow-[var(--shadow-sm)] disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={handleLogViewing}
+                  disabled={viewingLoading}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-border bg-card py-3.5 text-xs sm:text-sm font-bold uppercase tracking-wider text-foreground shadow-[var(--shadow-xs)] transition-all hover:bg-muted hover:shadow-[var(--shadow-sm)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {outcomeLoading ? (
+                  {viewingLoading ? (
                     <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
                   ) : (
-                    <X className="h-4 w-4" strokeWidth={2.5} />
+                    <CalendarCheck className="h-4 w-4" strokeWidth={2.5} />
                   )}
-                  Mark Inactive / Passed
+                  {viewingLoading ? "Logging…" : "Log Demo"}
                 </button>
-              </>
-            ) : (
-              <>
-                {/* Already recorded — show clean status summary */}
-                <div className={`flex flex-1 items-center gap-3 rounded-[8px] border border-border px-4 py-3 ${
-                  effectiveOutcome === "won" ? "border-l-4 border-l-emerald-600 bg-emerald-50/50 text-foreground" : "bg-muted/40 text-muted-foreground"
-                }`}>
-                  {effectiveOutcome === "won" ? (
-                    <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-700" strokeWidth={2.5} />
-                  ) : (
-                    <X className="h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={2.5} />
-                  )}
-                  <div className="flex-1">
-                    <div className="text-xs font-bold uppercase tracking-wider text-foreground">
-                      {effectiveOutcome === "won" ? "Deal Status: Sale Completed (Closed)" : "Deal Status: Passed / Inactive"}
-                    </div>
-                    <div className="text-[10px] font-semibold text-muted-foreground">Tracked in Pipeline Model Calibration</div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  disabled={outcomeLoading}
-                  onClick={() => handleRecordOutcome(effectiveOutcome === "won" ? "lost" : "won")}
-                  className="flex shrink-0 items-center justify-center gap-2 rounded-[8px] border border-border bg-card px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground shadow-[var(--shadow-xs)] transition-all hover:bg-muted hover:shadow-[var(--shadow-sm)] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Change Status
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+              </div>
 
+              {/* Won / Lost outcome row */}
+              <div className="flex gap-3 border-t border-border px-5 pb-5 pt-3 sm:px-6">
+                {effectiveOutcome === "pending" ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={outcomeLoading}
+                      onClick={() => handleRecordOutcome("won")}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-emerald-600 bg-emerald-600 py-3 text-xs sm:text-sm font-bold uppercase tracking-wider text-white shadow-[var(--shadow-xs)] transition-all hover:bg-emerald-700 hover:shadow-[var(--shadow-sm)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {outcomeLoading ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-white" strokeWidth={2.5} />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4" strokeWidth={2.5} />
+                      )}
+                      Record Deployment (Closed Won)
+                    </button>
+                    <button
+                      type="button"
+                      disabled={outcomeLoading}
+                      onClick={() => handleRecordOutcome("lost")}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-border bg-card py-3 text-xs sm:text-sm font-bold uppercase tracking-wider text-muted-foreground shadow-[var(--shadow-xs)] transition-all hover:bg-muted hover:text-foreground hover:shadow-[var(--shadow-sm)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {outcomeLoading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
+                      ) : (
+                        <X className="h-4 w-4" strokeWidth={2.5} />
+                      )}
+                      Mark Inactive / Passed
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {/* Already recorded — show clean status summary */}
+                    <div className={`flex flex-1 items-center gap-3 rounded-[8px] border border-border px-4 py-3 ${
+                      effectiveOutcome === "won" ? "border-l-4 border-l-emerald-600 bg-emerald-50/50 text-foreground" : "bg-muted/40 text-muted-foreground"
+                    }`}>
+                      {effectiveOutcome === "won" ? (
+                        <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-700" strokeWidth={2.5} />
+                      ) : (
+                        <X className="h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={2.5} />
+                      )}
+                      <div className="flex-1">
+                        <div className="text-xs font-bold uppercase tracking-wider text-foreground">
+                          {effectiveOutcome === "won" ? "Deal Status: Sale Completed (Closed)" : "Deal Status: Passed / Inactive"}
+                        </div>
+                        <div className="text-[10px] font-semibold text-muted-foreground">Tracked in Pipeline Model Calibration</div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={outcomeLoading}
+                      onClick={() => handleRecordOutcome(effectiveOutcome === "won" ? "lost" : "won")}
+                      className="flex shrink-0 items-center justify-center gap-2 rounded-[8px] border border-border bg-card px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground shadow-[var(--shadow-xs)] transition-all hover:bg-muted hover:shadow-[var(--shadow-sm)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Change Status
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
-  )
-}
+    )
+  }
