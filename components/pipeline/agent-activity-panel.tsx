@@ -317,7 +317,7 @@ export function AgentActivityPanel({
                     <span>
                       {r.status === "draft"
                         ? "Draft awaiting your approval"
-                        : "Waiting for supplier reply (simulated), expected within about 2 minutes"}
+                        : "Waiting for supplier reply (simulated)"}
                     </span>
                   </div>
                 </div>

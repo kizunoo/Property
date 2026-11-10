@@ -419,6 +419,10 @@ def approve_quote_request(request_id: str, body: Optional[ApproveBody], request:
         "ref_id": request_id,
     }).execute()
 
+    # If due immediately (delay_s == 0), deliver the quote synchronously
+    if delay_s == 0:
+        _deliver_due_quotes(db, identity, now)
+
     return upd.data[0] if upd.data else update_payload
 
 

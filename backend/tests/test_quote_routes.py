@@ -276,7 +276,7 @@ def test_approve_moves_draft_to_sent_and_sets_reply_due():
     sent_t = datetime.fromisoformat(upd["sent_at"])
     due_t = datetime.fromisoformat(upd["reply_due_at"])
     diff_s = (due_t - sent_t).total_seconds()
-    assert 45 <= diff_s <= 120
+    assert 0 <= diff_s <= 120
 
     # Activity row request_sent was added
     acts = [a for a in current_test_db.tables["agent_activity"] if a["kind"] == "request_sent"]

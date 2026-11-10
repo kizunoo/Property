@@ -16,8 +16,8 @@ SIM_LABEL = "SIMULATED SUPPLIER"
 SIM_FOOTER = "SIMULATED: demo system. Not sent to any manufacturer. Not a real offer."
 
 QUOTE_VALIDITY_DAYS = 14
-REPLY_DELAY_MIN_S = 45
-REPLY_DELAY_MAX_S = 120
+REPLY_DELAY_MIN_S = 0
+REPLY_DELAY_MAX_S = 0
 MIN_MULT = 0.4  # same bounds as lib/market-sim.ts MIN_MULT / MAX_MULT
 MAX_MULT = 2.5
 DISCOUNTS = (0.0, 0.02, 0.03, 0.05)

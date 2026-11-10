@@ -138,10 +138,10 @@ export function QuoteRequestModal({
           <div className="my-6 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-5 text-emerald-200">
             <div className="flex items-center gap-2 font-bold text-base text-emerald-300">
               <CheckCircle className="h-5 w-5 text-emerald-400" />
-              Quote request sent (simulated)
+              Supplier quote received (simulated)
             </div>
             <p className="mt-2 text-xs text-emerald-200/90 leading-relaxed">
-              The request is now pending. The simulated supplier reply is expected within about 2 minutes.
+              The simulated supplier has replied immediately. The quote is now active and locked in.
             </p>
             <div className="mt-4 flex justify-end">
               <button
