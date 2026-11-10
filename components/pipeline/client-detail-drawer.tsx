@@ -3,6 +3,7 @@ import { CompanyLogo } from "@/components/shared/company-logo"
 
 import { useEffect, useRef, useState } from "react"
 import {
+  Bot,
   Brain,
   Building2,
   Calendar,
@@ -32,6 +33,15 @@ import { scheduleViewing } from "@/lib/schedule-viewing"
 import { StageBadge } from "@/components/pipeline/stage-badge"
 import { PortalAccessPanel } from "@/components/pipeline/portal-access-panel"
 import { CompanyInquiryHistory } from "@/components/pipeline/inquiry-detail-modal"
+import { QuoteCard } from "@/components/pipeline/quote-card"
+import {
+  latestValidQuote,
+  pairPrice,
+  daysLeft,
+  type SupplierQuote,
+  type QuoteRequest,
+  type RequestKind,
+} from "@/lib/quotes"
 
 // ─── Probability decomposition ────────────────────────────────────────────────
 interface ScoreRow { label: string; points: number; max: number; earned: boolean }
@@ -148,7 +158,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   )
 }
 
-function StatRow({ label, value }: { label: string; value: string }) {
+function StatRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between border-b border-border/60 py-2.5 last:border-0">
       <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
@@ -551,6 +561,12 @@ interface ClientDetailModalProps {
   initialScheduleViewing?: boolean
   byName?: Record<string, DisplayPriceByNameEntry | undefined>
   displayPriceMap?: Record<string, number | null>
+  quotes?: SupplierQuote[]
+  requests?: QuoteRequest[]
+  nowMs?: number
+  marketByRobot?: Record<string, number | null | undefined>
+  onQuoteChanged?: () => void
+  onRequestQuote?: (clientId: string, propertyId: string, marketPrice: number, kind: RequestKind) => void
 }
 
 export function ClientDetailModal({
@@ -563,6 +579,12 @@ export function ClientDetailModal({
   initialScheduleViewing,
   byName,
   displayPriceMap,
+  quotes,
+  requests,
+  nowMs,
+  marketByRobot,
+  onQuoteChanged,
+  onRequestQuote,
 }: ClientDetailModalProps) {
   // ── Reasoning state ──────────────────────────────────────────────────────
   const [reasoning, setReasoning]               = useState<string | null>(null)
@@ -779,12 +801,38 @@ export function ClientDetailModal({
     (client.bestMatch.propertyValue ? { value: client.bestMatch.propertyValue, kind: "real" as const } : null)
   ) : null
 
+  const currentNowMs = nowMs ?? 0
+  const validQuote =
+    quotes && client && client.bestMatch.propertyId
+      ? latestValidQuote(quotes, client.clientId, client.bestMatch.propertyId, currentNowMs)
+      : null
+
+  const robotMarketPrice = client?.bestMatch.propertyId
+    ? (displayPriceMap?.[client.bestMatch.propertyId] ?? marketByRobot?.[client.bestMatch.propertyId] ?? null)
+    : null
+
+  const effectivePairPrice =
+    quotes && nowMs != null
+      ? pairPrice(client.bestMatch.propertyValue, validQuote, robotMarketPrice, currentNowMs)
+      : null
+
+  const openReq =
+    requests && client && client.bestMatch.propertyId
+      ? requests.find(
+          (r) =>
+            r.clientId === client.clientId &&
+            r.propertyId === client.bestMatch.propertyId &&
+            (r.status === "draft" || r.status === "sent")
+        )
+      : null
+
   // Use local overrides if available (post-viewing log), otherwise use client data
   const effectivePastViewings  = localPastViewings  ?? client.pastViewings
   const effectiveProbability   = localProbability   ?? client.bestMatch.probability
+  const pairValue = effectivePairPrice?.value ?? bestMatchDisp?.value
   const computedEV =
-    bestMatchDisp?.value != null && bestMatchDisp.value > 0
-      ? Math.round(effectiveProbability * bestMatchDisp.value)
+    pairValue != null && pairValue > 0
+      ? Math.round(effectiveProbability * pairValue)
       : null
   const effectiveExpectedValue = localExpectedValue ?? client.bestMatch.expectedValue ?? computedEV
   const effectiveTier          = localTier          ?? client.tier
@@ -890,7 +938,25 @@ export function ClientDetailModal({
                 <div className="mt-3 rounded-[8px] border border-border bg-card shadow-[var(--shadow-xs)] overflow-hidden">
                   <div className="px-4">
                     <StatRow label="Best-Fit Match"       value={client.bestMatch.property} />
-                    <StatRow label="Unit Cost"            value={bestMatchDisp?.value != null ? formatRM(bestMatchDisp.value) : priceLabel(client.bestMatch.propertyValue, currency)} />
+                    <StatRow
+                      label="Unit Cost"
+                      value={
+                        effectivePairPrice && effectivePairPrice.kind === "quote" && validQuote ? (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{formatRM(effectivePairPrice.value!)}</span>
+                            <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-300 border border-amber-500/40">
+                              supplier quote, simulated, {daysLeft(validQuote, currentNowMs)} days left
+                            </span>
+                          </div>
+                        ) : effectivePairPrice?.value != null ? (
+                          formatRM(effectivePairPrice.value)
+                        ) : bestMatchDisp?.value != null ? (
+                          formatRM(bestMatchDisp.value)
+                        ) : (
+                          priceLabel(client.bestMatch.propertyValue, currency)
+                        )
+                      }
+                    />
                     <StatRow label="Stated Budget"        value={client.statedBudget != null && client.statedBudget > 0 ? currency(client.statedBudget) : "Budget not set"} />
                     <StatRow label="Target Environment"   value={client.bestMatch.neighborhood || "—"} />
                     <StatRow label="E(x) on Best-Fit Match" value={evLabel(effectiveExpectedValue, currency)} />
@@ -1020,6 +1086,61 @@ export function ClientDetailModal({
                   </div>
                 </div>
               )}
+
+              {/* Supplier quote section */}
+              <div>
+                <SectionHeading>
+                  <Bot className="inline h-3 w-3 mr-1 text-muted-foreground" strokeWidth={2.5} />
+                  Supplier Quote
+                </SectionHeading>
+                <div className="mt-3">
+                  {validQuote ? (
+                    <QuoteCard
+                      quote={validQuote}
+                      marketPrice={robotMarketPrice}
+                      nowMs={currentNowMs}
+                      robotName={client.bestMatch.property}
+                      companyName={client.name}
+                    />
+                  ) : openReq ? (
+                    <div className="rounded-lg border border-neutral-700 bg-neutral-900/90 p-4 text-white">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300 border border-amber-500/40">
+                          Simulated supplier quote
+                        </span>
+                      </div>
+                      <div className="text-xs text-neutral-300">
+                        {openReq.status === "draft"
+                          ? "Draft awaiting your approval"
+                          : "Waiting for supplier reply (simulated), expected within about 2 minutes"}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-border bg-card p-4 shadow-[var(--shadow-xs)] flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-xs font-semibold text-foreground">No active supplier quote</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">
+                          {robotMarketPrice != null && robotMarketPrice > 0
+                            ? "Request a simulated supplier quote for this robot"
+                            : "No market price for this robot yet"}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={robotMarketPrice == null || robotMarketPrice <= 0 || !onRequestQuote}
+                        onClick={() => {
+                          if (onRequestQuote && robotMarketPrice != null && robotMarketPrice > 0) {
+                            onRequestQuote(client.clientId, client.bestMatch.propertyId, robotMarketPrice, "quote")
+                          }
+                        }}
+                        className="inline-flex items-center justify-center rounded-[6px] bg-[#FFD600] px-3 py-1.5 text-xs font-bold text-black shadow-xs hover:bg-[#e6c200] disabled:opacity-40 disabled:pointer-events-none"
+                      >
+                        Request supplier quote
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {/* Best listing snapshot (when no other matches take up space) */}
               {otherProps.length === 0 && (

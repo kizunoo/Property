@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { Building2, Check, Flame, Home, Loader2, RefreshCw, Snowflake, Star, Target, Trophy, Wallet, X } from "lucide-react"
 import { currency, percent, getDashboardSummary, type Agent, type Client, type DeduplicatedClient, type Property, type Tier } from "@/lib/pipeline-data"
 import { fetchDeduplicatedClients, fetchPipelineClients, fetchProperties } from "@/lib/fetch-pipeline-data"
@@ -32,6 +32,19 @@ import { ModelTrainingPanel } from "./model-training-panel"
 import { PipelineProjectionCard } from "./pipeline-projection-card"
 import { WhatsAppFloatingPanel } from "./whatsapp-floating-panel"
 import { PriorityInquiries } from "./priority-inquiries"
+import { AgentActivityPanel } from "./agent-activity-panel"
+import { QuoteRequestModal } from "./quote-request-modal"
+import { fetchQuotes } from "@/lib/fetch-quotes"
+import {
+  agentActions,
+  briefing,
+  type ActivityRow,
+  type AgentAction,
+  type Names,
+  type QuoteRequest,
+  type RequestKind,
+  type SupplierQuote,
+} from "@/lib/quotes"
 
 interface PipelineDashboardProps {
   onLogout?: () => void
@@ -181,17 +194,42 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
   const [lastInvite, setLastInvite] = useState<string | null>(null)
   const [syncTimestamp, setSyncTimestamp] = useState<number>(() => Date.now())
   const [currentTickState, setCurrentTickState] = useState<number | null>(null)
+  const [quotesData, setQuotesData] = useState<{
+    requests: QuoteRequest[]
+    quotes: SupplierQuote[]
+    activity: ActivityRow[]
+  }>({ requests: [], quotes: [], activity: [] })
+  const [nowMs, setNowMs] = useState<number>(syncTimestamp)
+  const [quoteModalState, setQuoteModalState] = useState<{
+    open: boolean
+    clientId: string
+    propertyId: string
+    marketPriceMyr: number
+    kind: RequestKind
+    companyName?: string
+    robotName?: string
+  } | null>(null)
+
+  const loadQuotes = useCallback(() => {
+    fetchQuotes().then((res) => {
+      if (res.ok) {
+        setQuotesData(res.data)
+      }
+    })
+  }, [])
 
   useEffect(() => {
     const updateTick = () => {
       const now = Date.now()
+      setNowMs(now)
       const t = currentTick(now)
       setCurrentTickState((prev) => (prev !== t ? t : prev))
+      loadQuotes()
     }
     updateTick()
     const timer = setInterval(updateTick, 60000)
     return () => clearInterval(timer)
-  }, [])
+  }, [loadQuotes])
 
   // ── Agent selector state ──
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
@@ -335,6 +373,32 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
     }
     return map
   }, [properties, simPrices])
+
+  const names: Names = useMemo(() => ({
+    client: (id: string) => {
+      const found = dedupClients.find((c) => c.clientId === id) || rawClients.find((c) => c.clientDbId === id)
+      return found?.name || "Client"
+    },
+    robot: (id: string) => {
+      const prop = properties.find((p) => p.id === id)
+      return prop?.address || prop?.name || "Robot"
+    },
+  }), [dedupClients, rawClients, properties])
+
+  const computedAgentActions = useMemo(() => {
+    return agentActions({
+      quotes: quotesData.quotes,
+      requests: quotesData.requests,
+      activity: quotesData.activity,
+      marketByRobot: displayPriceMap,
+      nowMs,
+      names,
+    })
+  }, [quotesData, displayPriceMap, nowMs, names])
+
+  const computedBriefing = useMemo(() => {
+    return briefing(quotesData.quotes, quotesData.requests, computedAgentActions, nowMs)
+  }, [quotesData, computedAgentActions, nowMs])
 
   const hasAnyRealPrice = useMemo(() => {
     return properties.some((p) => p.value !== null && p.value !== undefined && Number.isFinite(p.value) && p.value > 0)
@@ -508,6 +572,39 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
                   agentName={selectedAgent?.name}
                   syncTimestamp={syncTimestamp}
                   potentialPipeline={potentialPipe}
+                />
+                <AgentActivityPanel
+                  requests={quotesData.requests}
+                  quotes={quotesData.quotes}
+                  activity={quotesData.activity}
+                  actions={computedAgentActions}
+                  briefingLines={computedBriefing}
+                  marketByRobot={displayPriceMap}
+                  nowMs={nowMs}
+                  names={names}
+                  onRefresh={loadQuotes}
+                  onDraftRequote={(clientId, propertyId, marketPrice) => {
+                    setQuoteModalState({
+                      open: true,
+                      clientId,
+                      propertyId,
+                      marketPriceMyr: marketPrice,
+                      kind: "requote",
+                      companyName: names.client(clientId),
+                      robotName: names.robot(propertyId),
+                    })
+                  }}
+                  onOpenDraft={(req) => {
+                    setQuoteModalState({
+                      open: true,
+                      clientId: req.clientId,
+                      propertyId: req.propertyId,
+                      marketPriceMyr: req.marketPriceMyr ?? 0,
+                      kind: req.kind,
+                      companyName: names.client(req.clientId),
+                      robotName: names.robot(req.propertyId),
+                    })
+                  }}
                 />
                 <PriorityInquiries
                   onOpenClient={(clientId) => {
@@ -819,6 +916,22 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
         open={selectedClient !== null}
         byName={displayPriceByName}
         displayPriceMap={displayPriceMap}
+        quotes={quotesData.quotes}
+        requests={quotesData.requests}
+        nowMs={nowMs}
+        marketByRobot={displayPriceMap}
+        onQuoteChanged={loadQuotes}
+        onRequestQuote={(clientId, propertyId, marketPrice, kind) => {
+          setQuoteModalState({
+            open: true,
+            clientId,
+            propertyId,
+            marketPriceMyr: marketPrice,
+            kind,
+            companyName: names.client(clientId),
+            robotName: names.robot(propertyId),
+          })
+        }}
         onClose={() => {
           setSelectedClient(null)
           setOpenClientSchedule(false)
@@ -881,6 +994,20 @@ export function PipelineDashboard({ onLogout }: PipelineDashboardProps) {
           loadData()
         }}
       />
+      {quoteModalState?.open && (
+        <QuoteRequestModal
+          open={quoteModalState.open}
+          onClose={() => setQuoteModalState(null)}
+          clientId={quoteModalState.clientId}
+          propertyId={quoteModalState.propertyId}
+          marketPriceMyr={quoteModalState.marketPriceMyr}
+          kind={quoteModalState.kind}
+          companyName={quoteModalState.companyName}
+          robotName={quoteModalState.robotName}
+          onApproved={() => loadQuotes()}
+          onCancelled={() => loadQuotes()}
+        />
+      )}
 
       <ShortlistModal
         property={shortlistProperty}

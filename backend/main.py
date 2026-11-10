@@ -209,6 +209,8 @@ from inquiry_routes import router as inquiry_router
 app.include_router(inquiry_router)
 from inquiry_actions_routes import router as inquiry_actions_router
 app.include_router(inquiry_actions_router)
+from quote_routes import router as quote_router
+app.include_router(quote_router)
 
 import re
 from fastapi.responses import JSONResponse
