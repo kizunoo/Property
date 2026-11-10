@@ -528,3 +528,40 @@ def test_no_route_writes_to_properties_or_pipeline_evaluations():
             "properties",
             "pipeline_evaluations",
         ), f"Route wrote to forbidden table: {table_name}"
+
+
+def test_publish_quote_to_portal():
+    headers = {"x-test-agent": AGENT_A}
+    quote_id = str(uuid.uuid4())
+    current_test_db.tables["supplier_quotes"].append({
+        "id": quote_id,
+        "agent_id": AGENT_A,
+        "client_id": CLIENT_A,
+        "property_id": ROBOT_PRICED,
+        "price_myr": 99600.0,
+        "lead_time_weeks": 6,
+        "terms": "12-month warranty",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=14)).isoformat(),
+        "issued_at": datetime.now(timezone.utc).isoformat(),
+        "superseded_by": None,
+    })
+
+    res = client.post(
+        f"/api/quotes/{quote_id}/publish-to-portal",
+        headers=headers,
+        json={"notes": "Special launch terms"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["status"] == "sent"
+    assert data["quoted_amount"] == 99600.0
+
+    # portal_quotes row was created with status sent
+    p_quotes = [q for q in current_test_db.tables.get("portal_quotes", []) if q["client_id"] == CLIENT_A]
+    assert len(p_quotes) == 1
+    pq = p_quotes[0]
+    assert pq["status"] == "sent"
+    assert pq["quoted_amount"] == 99600.0
+    assert "Estimated delivery lead time: 6 weeks" in pq["customer_note"]
+    assert "Special launch terms" in pq["customer_note"]

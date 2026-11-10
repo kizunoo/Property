@@ -86,6 +86,7 @@ def test_quote_routes_enforce_agent_auth():
         ("POST", "/api/quotes/request", {"client_id": "c1", "property_id": "p1", "market_price_myr": 100000.0, "kind": "quote"}),
         ("POST", "/api/quotes/test-id/approve", {}),
         ("POST", "/api/quotes/test-id/cancel", None),
+        ("POST", "/api/quotes/test-id/publish-to-portal", {}),
         ("POST", "/api/quotes/log", {"kind": "expiry_dismissed", "ref_id": "q1", "summary": "test"}),
     ]
 

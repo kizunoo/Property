@@ -35,6 +35,7 @@ ROUTE_POLICY_DECLARATIONS.extend([
     RoutePolicyDecl("POST", "/api/quotes/request", re.compile(r"^/api/quotes/request$"), RoutePolicy.ANY_AGENT, False, "Create supplier quote request"),
     RoutePolicyDecl("POST", "/api/quotes/{request_id}/approve", re.compile(r"^/api/quotes/[^/]+/approve$"), RoutePolicy.ANY_AGENT, False, "Approve simulated quote request"),
     RoutePolicyDecl("POST", "/api/quotes/{request_id}/cancel", re.compile(r"^/api/quotes/[^/]+/cancel$"), RoutePolicy.ANY_AGENT, False, "Cancel quote request"),
+    RoutePolicyDecl("POST", "/api/quotes/{quote_id}/publish-to-portal", re.compile(r"^/api/quotes/[^/]+/publish-to-portal$"), RoutePolicy.ANY_AGENT, False, "Publish supplier quote to client portal"),
     RoutePolicyDecl("POST", "/api/quotes/log", re.compile(r"^/api/quotes/log$"), RoutePolicy.ANY_AGENT, False, "Log quote activity"),
 ])
 
@@ -490,4 +491,106 @@ def log_quote_activity(body: LogActivityBody, request: Request):
     }).execute()
 
     return {"ok": True, "activity": ins.data[0] if ins.data else None}
+
+
+class PublishToPortalBody(BaseModel):
+    price_myr: Optional[float] = None
+    notes: Optional[str] = None
+
+
+@router.post("/api/quotes/{quote_id}/publish-to-portal")
+def publish_quote_to_portal(quote_id: str, body: Optional[PublishToPortalBody] = None, request: Request = None):
+    identity, db = _identity(request), _db()
+
+    q_res = (
+        db.table("supplier_quotes")
+        .select("*")
+        .eq("id", quote_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not q_res:
+        raise HTTPException(status_code=404, detail="Supplier quote not found")
+    sq = q_res[0]
+
+    if not can_access(db, identity, sq["client_id"]):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    client_id = sq["client_id"]
+    property_id = sq["property_id"]
+    quoted_amount = float(body.price_myr if (body and body.price_myr is not None) else sq["price_myr"])
+    lead_time = sq.get("lead_time_weeks")
+    lead_str = f"Estimated delivery lead time: {lead_time} weeks. " if lead_time else ""
+    terms_str = sq.get("terms") or "12-month warranty included."
+    custom_notes = (body.notes.strip() + " ") if (body and body.notes) else ""
+    customer_note = f"{custom_notes}{lead_str}{terms_str}".strip()
+    valid_until = sq.get("expires_at")
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    existing = (
+        db.table("portal_quotes")
+        .select("id, status")
+        .eq("client_id", client_id)
+        .eq("property_id", property_id)
+        .in_("status", ["requested", "sent"])
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+
+    portal_quote_id = None
+    if existing:
+        portal_quote_id = existing[0]["id"]
+        db.table("portal_quotes").update({
+            "status": "sent",
+            "quoted_amount": quoted_amount,
+            "currency": "MYR",
+            "customer_note": customer_note,
+            "valid_until": valid_until,
+            "sent_at": now_iso,
+            "updated_at": now_iso,
+        }).eq("id", portal_quote_id).execute()
+    else:
+        ins = db.table("portal_quotes").insert({
+            "client_id": client_id,
+            "property_id": property_id,
+            "quantity": 1,
+            "status": "sent",
+            "quoted_amount": quoted_amount,
+            "currency": "MYR",
+            "customer_note": customer_note,
+            "valid_until": valid_until,
+            "requested_at": now_iso,
+            "sent_at": now_iso,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        }).execute()
+        if ins.data:
+            portal_quote_id = ins.data[0]["id"]
+
+    r_name = "robot"
+    try:
+        rb = db.table("properties").select("address").eq("id", property_id).limit(1).execute().data
+        if rb and rb[0].get("address"):
+            r_name = rb[0]["address"]
+    except Exception:
+        pass
+
+    db.table("agent_activity").insert({
+        "agent_id": identity.agent_id,
+        "kind": "quote_published",
+        "summary": f"Commercial quote published to client portal for {r_name}: RM {int(quoted_amount):,}"[:200],
+        "ref_id": quote_id,
+    }).execute()
+
+    return {
+        "ok": True,
+        "portal_quote_id": portal_quote_id,
+        "status": "sent",
+        "quoted_amount": quoted_amount,
+    }
 

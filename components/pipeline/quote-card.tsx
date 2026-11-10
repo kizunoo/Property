@@ -1,8 +1,10 @@
 "use client"
 
-import React from "react"
+import React, { useState } from "react"
+import { Check, Loader2, Send } from "lucide-react"
 import { compareToMarket, daysLeft, type SupplierQuote } from "@/lib/quotes"
 import { formatRM } from "@/lib/display-price"
+import { publishQuoteToPortal } from "@/lib/fetch-quotes"
 
 export interface QuoteCardProps {
   quote: SupplierQuote
@@ -11,6 +13,7 @@ export interface QuoteCardProps {
   robotName?: string
   companyName?: string
   className?: string
+  onPortalPublished?: () => void
 }
 
 export function QuoteCard({
@@ -20,9 +23,27 @@ export function QuoteCard({
   robotName,
   companyName,
   className = "",
+  onPortalPublished,
 }: QuoteCardProps) {
+  const [publishing, setPublishing] = useState(false)
+  const [published, setPublished] = useState(false)
+  const [publishError, setPublishError] = useState<string | null>(null)
+
   const left = daysLeft(quote, nowMs)
   const cmp = compareToMarket(quote.priceMyr, marketPrice)
+
+  const handlePublish = async () => {
+    setPublishing(true)
+    setPublishError(null)
+    const res = await publishQuoteToPortal(quote.id)
+    setPublishing(false)
+    if (res.ok) {
+      setPublished(true)
+      if (onPortalPublished) onPortalPublished()
+    } else {
+      setPublishError(res.error || "Failed to publish to portal")
+    }
+  }
 
   return (
     <div
@@ -87,6 +108,51 @@ export function QuoteCard({
         <div className="mt-2.5 text-xs text-neutral-400 italic">
           Terms: {quote.terms}
         </div>
+      )}
+
+      {/* Client Portal Action */}
+      <div className="mt-3.5 pt-3 border-t border-neutral-800 flex items-center justify-between gap-2 flex-wrap">
+        <div className="text-[11px] text-neutral-400">
+          {published ? (
+            <span className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+              <Check className="h-3.5 w-3.5" />
+              Active in Client Portal &ldquo;Quotes&rdquo; tab
+            </span>
+          ) : (
+            <span>Publish this quote to company portal</span>
+          )}
+        </div>
+
+        <button
+          type="button"
+          disabled={publishing || published}
+          onClick={handlePublish}
+          className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-bold transition-all ${
+            published
+              ? "bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 cursor-default"
+              : "bg-[#FFD600] text-black hover:bg-[#e6c200] disabled:opacity-50"
+          }`}
+        >
+          {publishing ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span>Publishing…</span>
+            </>
+          ) : published ? (
+            <>
+              <Check className="h-3.5 w-3.5 text-emerald-400" />
+              <span>Sent to Portal</span>
+            </>
+          ) : (
+            <>
+              <Send className="h-3.5 w-3.5" />
+              <span>Send to Client Portal</span>
+            </>
+          )}
+        </button>
+      </div>
+      {publishError && (
+        <div className="mt-1 text-[10px] text-red-400 font-semibold">{publishError}</div>
       )}
     </div>
   )

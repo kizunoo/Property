@@ -151,3 +151,25 @@ export async function logQuoteActivity(
   }
 }
 
+export async function publishQuoteToPortal(
+  quoteId: string,
+  priceMyr?: number,
+  notes?: string
+): Promise<{ ok: boolean; error?: string; portalQuoteId?: string }> {
+  try {
+    const res = await fetch(`/api/quotes/${encodeURIComponent(quoteId)}/publish-to-portal`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ price_myr: priceMyr, notes }),
+      cache: "no-store",
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return { ok: false, error: json?.detail || json?.error || "Failed to publish quote to portal" }
+    }
+    return { ok: true, portalQuoteId: json?.portal_quote_id }
+  } catch (err: any) {
+    return { ok: false, error: err?.message || "Network error publishing quote to portal" }
+  }
+}
+
